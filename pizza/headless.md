@@ -102,7 +102,7 @@ node scripts/pizza/headless/health.cjs
 
 Before it changes anything, `restore.cjs` saves the current database as `headless-backups/pre-restore-<UTC time>.db`; retention never deletes these. It then runs the app's own `restoreBackup()`, the same sequence as the app's restore-from-file route: it validates the backup, replaces the database, signs everyone out and clears device pairings. Staff log in again on every tablet, and KDS and customer displays are paired again.
 
-To undo a restore, restore the `pre-restore-` copy the same way.
+To undo a restore, restore the `pre-restore-` copy the same way. The app's restore also keeps its own copy of the replaced database in `backups/` inside the data folder, named `flo-backup-<time>-pre-restore-v<schema>.db`.
 
 The restore opens the current database first. If that database is too damaged to open, the restore fails; that case is not covered by the kit.
 
