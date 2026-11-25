@@ -1,6 +1,6 @@
 # Pizza fork
 
-This repository is a fork of [FloCafe](https://github.com/FreeOpenSourcePOS/FloCafe) that adds a pizza-shop layer: a shared pizza core, a pizza mode for the POS, and a customer menu site.
+This repository is a fork of [FloCafe](https://github.com/FreeOpenSourcePOS/FloCafe) that adds a pizza-shop layer: a shared pizza core and a pizza mode for the POS. The shop's customer site is a separate project.
 
 Everything specific to the fork's process lives in this folder. Upstream's `docs/` tree describes the running system and its checker rejects plans and decision notes, so they stay out of it.
 

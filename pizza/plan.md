@@ -121,7 +121,7 @@ At most five agents run at once.
 6. A brief sent to the other machine stands alone.
 7. A failure stops the work and is reported. No workarounds, no skipped tests, no temporary fixes.
 8. Tests and servers run with a throwaway `HOME`. Never launch the Electron app or its native tests on the Mac.
-9. No real shop's name, address, phone number or prices in this repository.
+9. No real shop's name, address, phone number, items or prices in this repository.
 
 ### Review and checks
 

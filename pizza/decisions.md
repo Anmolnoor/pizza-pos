@@ -162,6 +162,8 @@ A new app in `web/`: Next.js App Router with the same Next, React and Tailwind v
 
 ## D10. Tests
 
+**Revised by D16.** The `web/` package and the shared price-cases fixture are withdrawn; the rest stands.
+
 Upstream's pattern for the core, backend and POS: plain scripts with the `assert*OrThrow` helpers from `tests/helpers/test-setup.ts`, one `test:<name>` script per file, chained into `npm test` (the `test:script-coverage` gate fails otherwise). `web/` is a new package and uses Vitest with Testing Library and Playwright. `tests/fixtures/pizza-price-cases.json` is read by the core, the server, the POS cart and the site.
 
 Tests in `tests/` cannot resolve `react` or `use-intl` by bare name, because they live in `frontend/node_modules`; require them by path.
