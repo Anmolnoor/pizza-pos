@@ -28,7 +28,7 @@ const { isKotDocument } = require('../shared/print');
 const frontend = loadFrontend();
 
 const SETTING = 'kot_show_customer_contact';
-const PHONE = '+1 6045550100';
+const PHONE = '+16045550100';
 const ADDRESS = '1234 West Broadway Avenue, Unit 405, Vancouver BC V6H 1G8';
 const NOTE = 'Side door, call on arrival';
 const PHONE_LINE = `Customer No: ${PHONE}`;
@@ -53,7 +53,7 @@ const items = [
     status: 'pending',
   },
 ];
-const customer = { id: 'cust-1', name: 'Asha Kumar', phone: '6045550100', country_code: '+1' };
+const customer = { id: 'cust-1', name: 'Asha Kumar', phone: '+16045550100' };
 const baseOrder = {
   id: 1,
   order_number: 'P-7',
@@ -212,6 +212,20 @@ runCases('pizza-kot-customer-contact', {
     }
   },
 
+  'Case 2b: contact text that spells a printer control token prints as text': () => {
+    const order = {
+      ...deliveryOrder,
+      delivery_address: `${'x'.repeat(24)} {CUT}`,
+      delivery_note: '{BOLD} ring twice',
+    };
+    for (const name of ['server ESC/POS', 'raster document']) {
+      const text = flat(paths[name](order, true, 42));
+      assertOrThrow(text.includes('{ CUT }'), `${name}: the cut token is printed, not obeyed`);
+      assertOrThrow(text.includes('{ BOLD } ring twice'), `${name}: the note prints whole`);
+      assertOrThrow(text.indexOf('1x') > text.indexOf('ring twice'), `${name}: items follow`);
+    }
+  },
+
   'Case 3: setting on, a pickup ticket with a phone prints the phone only': () => {
     forEveryPath((name, render) => {
       const text = flat(render(pickupOrder, true));
@@ -235,7 +249,6 @@ runCases('pizza-kot-customer-contact', {
     const db = initTestDb();
     const owner = seedOwnerUser(db);
     seedCustomer(db, customer.id, customer.name, customer.phone);
-    db.prepare('UPDATE customers SET country_code = ? WHERE id = ?').run('+1', customer.id);
     const { baseUrl, server } = await startServer(createApp({ '/api/settings': settingsRoutes }));
     const capture = await startCapturePrinter();
     const { usePrinterStore } = frontend.usePrinter;

@@ -22,12 +22,9 @@ export function kotContactLines(order: unknown, enabled: boolean): KotContactLin
     type?: unknown;
     delivery_address?: unknown;
     delivery_note?: unknown;
-    customer?: { phone?: unknown; country_code?: unknown } | null;
+    customer?: { phone?: unknown } | null;
   };
-  const number = text(row.customer?.phone);
-  const countryCode = text(row.customer?.country_code);
-  const phone =
-    number && countryCode && !number.startsWith(countryCode) ? `${countryCode} ${number}` : number;
+  const phone = text(row.customer?.phone);
   const isDelivery = text(row.type) === 'delivery';
   const lines: KotContactLine[] = [
     { concept: 'print.numberShort', text: phone },

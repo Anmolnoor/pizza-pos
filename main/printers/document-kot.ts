@@ -411,7 +411,7 @@ function kotHeaderLines(
     const wrapped: string[] = [];
     pushWrapped(
       wrapped,
-      `${labelOf(contact.label)}: ${contact.text.text}`,
+      `${labelOf(contact.label)}: ${safePrinterText(contact.text.text)}`,
       cols,
       options.language,
       options.capabilities,

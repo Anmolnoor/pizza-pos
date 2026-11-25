@@ -252,8 +252,7 @@ The setting `kot_show_customer_contact` adds customer contact lines to the kitch
 directly after the customer name. It is off unless its stored value is `true`. `kotContactLines()`
 in `shared/print/kot-contact.ts` is the one rule every path applies:
 
-- The customer's phone number, when the order's customer has one. The customer's country code is
-  prefixed when the stored number does not already start with it.
+- The customer's phone number as stored, when the order's customer has one.
 - The order's `delivery_address` and `delivery_note`, only when the order type is `delivery`.
 - A value that is empty prints no line.
 
@@ -264,13 +263,14 @@ The setting reaches the four kitchen ticket paths in two ways:
 
 - **Backend ESC/POS.** `printKOT()` merges `kotCustomerContactFields()`
   (`main/pizza/kot-customer-contact.ts`) into the order. It reads the setting and loads the
-  customer's phone and country code, which the print routes do not select. `buildKotPrintData`
+  customer's phone, which the print routes do not select. `buildKotPrintData`
   turns the resulting `show_customer_contact` flag into `KotOrderSnapshot.contactLines`.
 - **Browser ESC/POS, raster, and HTML.** `GET /api/settings/business` returns the flag,
   `hydrateReceiptSettings()` stores it as `kotShowCustomerContact`, and `printKot` in
   `frontend/src/hooks/usePrinter.ts` passes `showCustomerContact` to `buildKotBytes`,
   `buildFrontendKotDocument`, and `generateKotHtml`. These paths read the phone from the `customer`
-  object on the order they are given.
+  object on the order they are given. That route needs `settings.view` or a bill permission, so a
+  role with neither keeps the flag off in the browser and its browser tickets omit the contact lines.
 
 The number prints in full, and this setting alone decides it: `bill_show_customer_phone` and
 `bill_delivery_show_customer_phone_always` govern receipts and delivery slips, not kitchen tickets.

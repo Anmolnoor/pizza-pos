@@ -11,9 +11,9 @@ export function kotCustomerContactFields(
 ): Record<string, unknown> {
   if (getSettingValue('kot_show_customer_contact') !== 'true') return {};
   const contact = order?.customer_id
-    ? (getDatabase()
-        .prepare('SELECT phone, country_code FROM customers WHERE id = ?')
-        .get(order.customer_id) as { phone?: string; country_code?: string } | undefined)
+    ? (getDatabase().prepare('SELECT phone FROM customers WHERE id = ?').get(order.customer_id) as
+        | { phone?: string }
+        | undefined)
     : undefined;
   return {
     show_customer_contact: true,
