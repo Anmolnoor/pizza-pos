@@ -41,7 +41,8 @@ export function ticketLines(
   recipe: OrderLineRecipe,
   columns: number,
 ): TicketLines {
-  const width = columns - DETAIL_LINE_INDENT.length;
+  // A width that is not a positive number still gets one cell, so every line stays as narrow as it can.
+  const width = Math.max(1, Math.floor(columns) - DETAIL_LINE_INDENT.length) || 1;
   const detailLines: string[] = [];
   const add = (indent: number, text: string) => {
     for (const line of wrap(text.toUpperCase(), width - indent))

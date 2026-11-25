@@ -182,7 +182,10 @@ export function recipeKey(recipe: OrderLineRecipe): string {
   return JSON.stringify(recipe.kind === 'deal' ? copyDeal(recipe) : copyPizza(recipe));
 }
 
-/** What a deal asks the customer to choose. `pops` is the cans of a plain `pop` pick. */
+/**
+ * What a deal asks the customer to choose. `pops` is the cans of a plain `pop`
+ * pick; the can count of a `choice` is in `deal.picks`, on its `pop` option.
+ */
 export function dealPickCount(deal: CatalogDeal): {
   pizzas: { sizeId: string }[];
   pops: number;

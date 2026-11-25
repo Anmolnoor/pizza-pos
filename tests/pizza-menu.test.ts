@@ -194,6 +194,11 @@ runCases('Pizza menu', {
     );
     same(ingredientsOf(''), [], 'an empty description has no ingredients');
     same(ingredientsOf(' , cheese &  '), ['Cheese'], 'blank entries are dropped');
+    same(
+      ingredientsOf('ham, Ham & cheese'),
+      ['Ham', 'Cheese'],
+      'an ingredient listed twice appears once',
+    );
     same(parseMenuFile(sample).pizzas[4].ingredients, [], 'the plain pizza has nothing to remove');
   },
 
@@ -399,6 +404,17 @@ runCases('Pizza menu', {
       'categories.deals.items[0].picks[0].count',
       'a pick of nothing',
     );
+    rejected(
+      (menu) => (category(menu, 'deals').items[3].picks[0].count = 0),
+      'categories.deals.items[3].picks[0].count',
+      'a pop pick of nothing',
+    );
+    rejected(
+      (menu) => (category(menu, 'drinks').pst = 'yes'),
+      'categories.drinks.pst',
+      'a pst flag that is not true or false',
+    );
+    rejected((menu) => (menu.tax.GST = -0.05), 'tax.GST', 'a negative tax rate');
     rejected(
       (menu) => (category(menu, 'deals').items[0].picks[1].type = 'dessert'),
       'categories.deals.items[0].picks[1].type',

@@ -371,6 +371,22 @@ runCases('Pizza ticket', {
     }
   },
 
+  'Case 6b: a width that is not a positive number never loops and keeps lines as narrow as it can':
+    () => {
+      for (const columns of [0, 3, -10, Number.NaN, 2.5]) {
+        const { detailLines } = ticketLines(
+          catalog(),
+          whole('garden', ['Olives', 'Onions']),
+          columns,
+        );
+        assertOrThrow(detailLines.length > 0, `columns ${columns}: lines are still produced`);
+        assertOrThrow(
+          detailLines.every((line: string) => !/, \S/.test(line)),
+          `columns ${columns}: one item per line`,
+        );
+      }
+    },
+
   'Case 7: text is upper-cased as written and measured in display cells': () => {
     for (const columns of COLUMNS) {
       prints(

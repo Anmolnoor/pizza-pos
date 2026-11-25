@@ -272,7 +272,8 @@ export function ingredientsOf(description: string): string[] {
     .split(/[,&]/)
     .map((name) => name.trim())
     .filter(Boolean)
-    .map((name) => name[0].toUpperCase() + name.slice(1));
+    .map((name) => name[0].toUpperCase() + name.slice(1))
+    .filter((name, index, all) => all.indexOf(name) === index);
 }
 
 /** Dollars to whole cents; throws a `RangeError` for an amount that is not whole cents. */
