@@ -114,7 +114,7 @@ export function signFreshSessionToken(
 
 const INITIAL_ADMIN_ROLE = 'owner';
 const VALID_BUSINESS_TYPES = new Set(['restaurant']);
-const VALID_SETUP_PROFILES = new Set(['empty', 'express', 'demo']);
+const VALID_SETUP_PROFILES = new Set(['empty', 'express', 'demo', 'pizza']);
 const VALID_SERVICE_MODELS = new Set(['qsr', 'finedine']);
 const LOCAL_SETUP_HOSTS = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 

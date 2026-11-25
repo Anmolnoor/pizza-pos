@@ -100,7 +100,7 @@ class DisclaimerRequiredError extends Error {
   }
 }
 
-function activateInstalledPack(
+export function activateInstalledPack(
   pack: PackRow,
   version: VersionRow,
   actorId: string | null,
@@ -155,7 +155,7 @@ function activateInstalledPack(
   });
 }
 
-function persistPackArtifacts(
+export function persistPackArtifacts(
   version: VersionRow,
   definition: CountryPack,
   installedAt: string,
@@ -1259,7 +1259,7 @@ export function slugifyTaxId(label: string, used: Set<string>, fallback: string)
   return candidate;
 }
 
-function buildManualPack(body: any, country: string, currency: string): CountryPack {
+export function buildManualPack(body: any, country: string, currency: string): CountryPack {
   const categoriesInput = Array.isArray(body?.categories) ? body.categories : [];
   if (categoriesInput.length === 0) {
     throw Object.assign(new Error('At least one tax category is required'), { statusCode: 400 });

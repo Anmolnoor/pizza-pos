@@ -311,6 +311,31 @@ The synthesized pack id is `manual-<country>`, its jurisdiction is `*`, it adds 
 `0.01` payable increment. `POST /manual-config` is owner-only and requires a store country to be
 configured first.
 
+A category's id is its label in lower case, with each run of characters other than letters and
+digits replaced by `_` (`slugifyTaxId()`), so a category labelled `Food` has the id `food`. The same id is the
+`category_id` of its `tax_categories` row for the active pack version, the `id` of its entry in
+`GET /api/tax/categories`, and the value a product carries in `products.tax_category_id`.
+
+### The pizza setup profile
+
+The `pizza` setup profile configures British Columbia tax through the same builder, with no tax
+pack file. `seedPizzaShop()` in `main/pizza/setup-profile.ts` runs inside the setup transaction,
+hands `buildManualPack()` the configuration below with `inclusive: false`, installs the pack as
+`manual-<country>`, activates it, and sets `taxes_enabled`.
+
+| Category id | Label | Components |
+| --- | --- | --- |
+| `food` | `Food` | `GST` 5% |
+| `soda` | `Soda` | `GST` 5%, `PST` 7% |
+
+`food` is the default category for products, packaging, delivery, and service charges. Prices are
+tax-exclusive: the tax is added on top of the price. Each component is rounded half up to the cent
+on each order line. Both GST rules carry the label `GST`, and bills and reports merge components by
+label and rate, so an order with food and soda shows one GST line and one PST line.
+
+The profile assigns no category to any product. A product with neither a `tax_category_id` nor a
+merchant override is not sent to the engine and stays untaxed, as under every other pack.
+
 ## Out of scope
 
 The following are not implemented. None of them should be documented as if they were, and a pack
@@ -345,4 +370,5 @@ npm run test:tax-pack-management
 npm run test:manual-tax-config
 npm run test:legacy-tax-pack-digest
 npm run test:community-tax-packs
+npm run test:pizza-tax-bc
 ```
