@@ -85,7 +85,9 @@ step playwright-tier env HOME="$FAKE_HOME" CI=true PLAYWRIGHT_HTML_OUTPUT_DIR="$
   --grep='@ci-tier1|@ci-tier2' --grep-invert="$GREP_INVERT"
 if [ "$OS" = "Linux" ]; then
   step electron-e2e "${XVFB[@]}" env HOME="$FAKE_HOME" CI=true FLO_E2E_SHOW_WINDOW=1 \
-    npx playwright test --config=playwright.electron.config.ts --project=electron-desktop
+    PLAYWRIGHT_HTML_OUTPUT_DIR="$OUT/playwright-report/electron" \
+    npx playwright test --config=playwright.electron.config.ts --project=electron-desktop \
+    --output="$OUT/test-results/electron"
 else
   printf 'electron-e2e\tskipped (%s: runs on Linux only)\t0s\n' "$OS" >> "$OUT/steps.tsv"
 fi
