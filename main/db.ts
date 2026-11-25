@@ -28,6 +28,7 @@ import {
 import { clearInMemoryRevokedTokens, clearUserAuthCache } from './middleware/security';
 import { clearJWTSecretCache } from './security/jwt-secret';
 import { instrumentDatabase } from './services/db-timing';
+import { runPizzaMigrations } from './pizza/migrations';
 
 const USER_ROLE_SQL_CHECK = `CHECK (role IN (${ROLE_KEYS.map((role) => `'${role}'`).join(', ')}))`;
 
@@ -10511,7 +10512,20 @@ export function isSchemaVersionMismatchError(error: unknown): error is SchemaVer
   return error instanceof SchemaVersionMismatchError;
 }
 
+// SPIKE: core track first, then the fork-owned pizza track (main/pizza/migrations.ts).
 function runMigrations(targetVersion?: number, skipPreMigrationBackup = false): void {
+  const coreBefore = getCurrentSchemaVersion();
+  runCoreMigrations(targetVersion, skipPreMigrationBackup);
+  const coreAfter = getCurrentSchemaVersion();
+  runPizzaMigrations(db, () => {
+    // The core track already snapshotted the file if it had pending work of its own.
+    if (coreBefore === coreAfter && !buildingIdealSchema && !skipPreMigrationBackup) {
+      syncBackupBeforeMigration(coreAfter, coreAfter);
+    }
+  });
+}
+
+function runCoreMigrations(targetVersion?: number, skipPreMigrationBackup = false): void {
   const current = getCurrentSchemaVersion();
   const maxSupported = MIGRATIONS.length > 0 ? MIGRATIONS[MIGRATIONS.length - 1].version : 0;
   const target = targetVersion !== undefined ? targetVersion : maxSupported;
