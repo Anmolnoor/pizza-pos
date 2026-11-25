@@ -4,8 +4,18 @@
 # fails; results go to <reportDir>/steps.tsv, one log per step.
 #
 # Usage: scripts/pizza/local-ci.sh <reportDir> [baseRef]
-# Run from the repository root with dependencies installed (npm ci in the root
-# and in frontend/). Skipped on purpose: dependency review and the Windows jobs.
+# Run from the repository root after `npm ci` in the root (its postinstall
+# rebuilds the native modules) and `npm ci` in frontend/.
+#
+# Differences from CI:
+# - The core suite is a superset: it runs every suite in "pretest" and "test",
+#   so the release regression suites run twice (once here with the evidence
+#   flag, as CI does).
+# - The native Electron suite runs on Linux only, under Xvfb with shown
+#   windows, as CI runs it. On macOS it is recorded as "skipped": with a
+#   throwaway HOME the app asks macOS for a keychain that is not there, and a
+#   system dialog offers to reset the user's keychain.
+# - Not run anywhere: dependency review and the Windows jobs.
 set -u
 OUT=${1:?usage: local-ci.sh <reportDir> [baseRef]}
 BASE=${2:-origin/main}
@@ -19,13 +29,12 @@ rm -f "$OUT/steps.tsv" "$OUT/DONE"
 export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/pizza-pos/ms-playwright}"
 export NEXT_TELEMETRY_DISABLED=1
 FAKE_HOME="$OUT/home"
+OS=$(uname -s)
 
-# Linux has no display in an agent shell; CI wraps the same steps in xvfb-run.
-# The native window tests need a shown window there.
+# CI wraps the core suite and the Electron suite in xvfb-run on Linux.
 XVFB=()
-if [ "$(uname -s)" = "Linux" ] && [ -z "${DISPLAY:-}" ]; then
+if [ "$OS" = "Linux" ]; then
   XVFB=(xvfb-run -a --server-args='-screen 0 1280x800x24')
-  export FLO_E2E_SHOW_WINDOW=1
 fi
 
 FAILED=0
@@ -38,6 +47,10 @@ step() {
   local rc=$?
   [ "$rc" -eq 0 ] || FAILED=1
   printf '%s\trc=%s\t%ss\n' "$name" "$rc" "$(($(date +%s) - t))" >> "$OUT/steps.tsv"
+}
+finish() {
+  if [ "$FAILED" -eq 0 ]; then echo "pass" > "$OUT/DONE"; else echo "fail" > "$OUT/DONE"; fi
+  exit "$FAILED"
 }
 
 {
@@ -63,16 +76,18 @@ step playwright-install npm --prefix frontend exec -- playwright install chromiu
 step release-regressions env HOME="$FAKE_HOME" CI=true REQUIRE_VISUAL_EVIDENCE=1 EVIDENCE_DIR="$OUT/evidence" npm run test:release-regressions
 
 GREP_INVERT='FINDING:|a paid order offers a refund, and issuing it settles against the recorded sale'
-cd "$ROOT/frontend" || exit 2
+cd "$ROOT/frontend" || { FAILED=1; finish; }
 step playwright-standard env HOME="$FAKE_HOME" CI=true PLAYWRIGHT_HTML_OUTPUT_DIR="$OUT/playwright-report/standard" \
   npx playwright test --config=playwright.config.ts --project=chromium --output="$OUT/test-results/standard" \
   --grep-invert="$GREP_INVERT|@ci-tier1|@ci-tier2"
 step playwright-tier env HOME="$FAKE_HOME" CI=true PLAYWRIGHT_HTML_OUTPUT_DIR="$OUT/playwright-report/tier" \
   npx playwright test --config=playwright.config.ts --project=chromium --retries=0 --output="$OUT/test-results/tier" \
   --grep='@ci-tier1|@ci-tier2' --grep-invert="$GREP_INVERT"
-step electron-e2e ${XVFB[@]+"${XVFB[@]}"} env HOME="$FAKE_HOME" CI=true \
-  npx playwright test --config=playwright.electron.config.ts --project=electron-desktop
-cd "$ROOT" || exit 2
+if [ "$OS" = "Linux" ]; then
+  step electron-e2e "${XVFB[@]}" env HOME="$FAKE_HOME" CI=true FLO_E2E_SHOW_WINDOW=1 \
+    npx playwright test --config=playwright.electron.config.ts --project=electron-desktop
+else
+  printf 'electron-e2e\tskipped (%s: runs on Linux only)\t0s\n' "$OS" >> "$OUT/steps.tsv"
+fi
 
-if [ "$FAILED" -eq 0 ]; then echo "pass" > "$OUT/DONE"; else echo "fail" > "$OUT/DONE"; fi
-exit "$FAILED"
+finish

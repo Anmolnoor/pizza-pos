@@ -152,14 +152,14 @@ Tests are written before the code they cover. Each file gets its own `test:pizza
 | :--- | :--- | :--- |
 | Role | Orchestrator and up to three coding agents | One integration agent; later one coding agent for the Linux work |
 | Does | Writes code and tests, runs targeted tests, typecheck, lint; runs local CI for each pull request | Takes each pushed branch, opens the pull request, runs the review loop, merges. Runs the full suite once per wave. Acts as the shop's headless mini PC. |
-| Limits | One full test suite at a time (machine lock) | At most three agents; one full suite at a time |
+| Limits | One full test suite at a time (machine lock). No native Electron tests. | At most three agents; one full suite at a time |
 
 At most five agents run at once. Coding agents are Claude; Codex is kept for reviews because its quota is shared between the machines.
 
 ### Review and CI
 
 - **Reviewer.** The standing reviewer is GPT-6.2 Sol. Its usage limit was reached on 2026-11-25 and returns on 2026-11-28. Until then Claude Opus 5.5 reviews each pull request in the same loop. On 2026-11-28 Sol reviews everything merged in the meantime, and its findings are fixed in follow-up pull requests.
-- **CI.** GitHub Actions is not enabled on the fork. Each pull request is checked on the Mac with `scripts/pizza/local-ci.sh`, which runs the steps of `.github/workflows/ci.yml` (lint, typecheck, format, docs, builds, the full core suite, the Playwright browser suites and the Electron suite), and the result table is posted on the pull request. Dependency review and the Windows jobs are not run.
+- **CI.** GitHub Actions is not enabled on the fork. Each pull request is checked with `scripts/pizza/local-ci.sh`, which runs the steps of `.github/workflows/ci.yml`, and the result table is posted on the pull request. The Mac runs lint, typecheck, format, docs, builds, the full core suite and the Playwright browser suites. Fedora runs the native Electron suite under Xvfb, as upstream's CI does; it never runs on the Mac, where it raises a system keychain dialog. Dependency review and the Windows jobs are not run.
 
 ### Rules every agent follows
 
@@ -170,7 +170,7 @@ At most five agents run at once. Coding agents are Claude; Codex is kept for rev
 5. Push a branch and report the branch, commit and test output. Coding agents do not open pull requests.
 6. A brief sent to the other machine stands alone.
 7. A failure stops the work and is reported. No workarounds, no skipped tests, no temporary fixes.
-8. Tests and servers run with a throwaway `HOME`. Never finish the setup wizard of a build that does not have offline mode on.
+8. Tests and servers run with a throwaway `HOME`. Never finish the setup wizard of a build that does not have offline mode on. Never launch the Electron app or its native tests on the Mac.
 
 ### Pull requests
 
@@ -181,7 +181,7 @@ At most five agents run at once. Coding agents are Claude; Codex is kept for rev
 | 2 pricing | Pricing engine, validation, combos, presets, cart merge and split. | 1 | Mac A |
 | 3 ticket | Ticket formatter with its own wrapping; `detailLines` through the print kernel; server ESC/POS and raster paths; classic and compact receipts; phone and address in the ticket header. | 1 | Mac B |
 | 4 database and API | Pizza migration list, tables including `pizza_products`, recovery reference keyed by pizza version, API routes, menu import, currency reset. | 1 | Mac C |
-| 5 shop mode | Offline by default, `pizza` setup profile, wizard pre-fill, BC tax, sidebar, permission overrides that hide inventory and expenses. | 4 | Mac A |
+| 5 shop mode | Offline by default, `pizza` setup profile, wizard pre-fill, BC tax, sidebar, permission overrides that hide Dashboard, Inventory, Expenses and Staff where the shop does not use them. | 4 | Mac A |
 | 6 order pricing | Price helper at the three sites, recipe validation at the API, the D14 guards, replacement edit keeps the recipe, kitchen display allow-list. | 2, 3, 4 | Mac B |
 | 7 builder | Pizza builder, cart integration, "Customize 1", the order page's add and edit dialogs, browser ticket paths, kitchen display views. | 2, 3 | Mac C |
 | 8 quick buttons and combos | Quick buttons, customer favourites, combo tabs, category popups, large category buttons. | 6, 7 | Mac A |

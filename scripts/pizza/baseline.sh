@@ -3,7 +3,9 @@
 # Usage: baseline.sh <worktree> <outDir> <toolsDir>
 set -u
 WT=$1; OUT=$2; TOOLS=$3
-mkdir -p "$OUT"; cd "$WT" || exit 2
+# Absolute before the cd, so relative arguments keep their meaning.
+mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd); TOOLS=$(cd "$TOOLS" && pwd) || exit 2
+cd "$WT" || exit 2
 rm -f "$OUT/DONE" "$OUT/steps.tsv"
 step() {
   local name=$1; shift
@@ -24,9 +26,9 @@ step lint-budget npm run lint:budget
 step build npm run build
 step build-frontend npm run build:frontend
 mkdir -p "$OUT/home"
-# Linux has no display in an agent shell; CI wraps the suite in xvfb-run.
+# CI wraps the suite in xvfb-run on Linux.
 XVFB=()
-if [ "$(uname -s)" = "Linux" ] && [ -z "${DISPLAY:-}" ]; then
+if [ "$(uname -s)" = "Linux" ]; then
   XVFB=(xvfb-run -a --server-args='-screen 0 1280x800x24')
 fi
 step suite python3 "$TOOLS/with-suite-lock.py" ${XVFB[@]+"${XVFB[@]}"} env HOME="$OUT/home" node "$TOOLS/run-suite-report.cjs" "$WT" "$OUT"

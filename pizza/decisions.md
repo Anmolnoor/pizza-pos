@@ -22,7 +22,7 @@ The recipe is JSON in `order_items.modifier_selection` with `kind: "pizza"` and 
 | Add or edit items (`insertOrderItems`) | `main/routes/orders.ts:1121-1126`, override at `1128-1139` |
 | Cart quote (`POST /api/tax/preview`) | `main/services/tax.ts:1546-1553` |
 
-**The hook.** A helper in `main/pizza/pricing.ts`, `pizzaUnitPrice(db, item, product, variant): number | null`, returns null for lines that are not pizzas. Each site becomes `pizzaUnitPrice(...) ?? (existing expression)`. Placed before `menuUnitPrice = unitPrice`, it leaves the owner price override working, and the override audit records the computed pizza price as the original.
+**The hook.** A helper in `main/pizza/pricing.ts`, `pizzaUnitPrice(db, item, product, variant): number | null`, returns null for lines that are not pizzas. At each site it wraps only the catalogue price: `pizzaUnitPrice(...) ?? (variant ? ... : ...)`. At the add-or-edit site the existing expression starts with `context.preserveUnitPrice ? Number(item.unit_price) : ...`; the helper goes inside the second branch, so a quantity edit keeps the stored price. Placed before `menuUnitPrice = unitPrice`, it leaves the owner price override working, and the override audit records the computed pizza price as the original.
 
 **Must not miss:**
 
@@ -190,7 +190,9 @@ A pizza table, `pizza_products(product_id, kind)`, marks specialty and build-you
 
 `better-sqlite3` 13.2.0 is built on Node-API and ships one binary per platform in its `prebuilds/` folder; plain Node 22 and Electron loaded the same file on macOS, so the headless server needs no second build. Installing it still runs a `node-gyp` step, which failed on Fedora for want of `make`.
 
-**Checked on macOS** (`spike/pizza-db`): after `npm run build` and `npm run build:frontend`, `node dev-server.js` with `PORT`, `KDS_PORT`, `SERVER_APP_PORT` and `FLO_DEV_USER_DATA` served `/api/health` on all three ports and the login page, wrote its database under the data folder, and exited cleanly on `SIGTERM`. Not checked: Linux, a real browser session, printing.
+Upstream's full suite passes on Fedora with plain Node 22 ([baseline.md](baseline.md)).
+
+**Checked on macOS** (`spike/pizza-db`): after `npm run build` and `npm run build:frontend`, `node dev-server.js` with `PORT`, `KDS_PORT`, `SERVER_APP_PORT` and `FLO_DEV_USER_DATA` served `/api/health` on all three ports and the login page, wrote its database under the data folder, and exited cleanly on `SIGTERM`. Not checked: the headless server on Linux, a real browser session, printing.
 
 **Does not start in this mode** (`main/standalone-startup.ts` against `initialize()` in `main/index.ts`): daily, startup and shutdown backups (`index.ts:1613-1628, 1911-1918`); schema self-repair (`index.ts:1609`); LAN HTTPS and mDNS (`index.ts:1640-1645`); cloud sync, telemetry and Drive. Restore over HTTP needs a token from a native file dialog (`main/routes/database.ts:865, 884`). Raster printing and PDF need an Electron window. On a taken port the server moves to the next one silently (`main/server.ts:446-459`).
 
