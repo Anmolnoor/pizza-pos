@@ -24,5 +24,10 @@ step lint-budget npm run lint:budget
 step build npm run build
 step build-frontend npm run build:frontend
 mkdir -p "$OUT/home"
-step suite python3 "$TOOLS/with-suite-lock.py" env HOME="$OUT/home" node "$TOOLS/run-suite-report.cjs" "$WT" "$OUT"
+# Linux has no display in an agent shell; CI wraps the suite in xvfb-run.
+XVFB=()
+if [ "$(uname -s)" = "Linux" ] && [ -z "${DISPLAY:-}" ]; then
+  XVFB=(xvfb-run -a --server-args='-screen 0 1280x800x24')
+fi
+step suite python3 "$TOOLS/with-suite-lock.py" ${XVFB[@]+"${XVFB[@]}"} env HOME="$OUT/home" node "$TOOLS/run-suite-report.cjs" "$WT" "$OUT"
 finish "complete"

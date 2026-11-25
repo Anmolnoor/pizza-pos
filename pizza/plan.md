@@ -25,9 +25,7 @@ Online ordering and order sync to the POS, Global Payments terminal integration 
 | :--- | :--- | :--- |
 | 1 | **The real menu**: pizzas and prices per size, crusts, toppings (and which are premium), combos, pasta, wings and sides, dips, drinks. | The menu file. Core work starts against a small test menu. |
 | 2 | **Shop identity**: name, logo, colours, phone, address, hours, existing website. | Menu site design, receipt header. |
-| 3 | **Fedora sudo password** (asked through a secret card): one `dnf install` of `gcc-c++`, `make` and Xvfb. | Everything on Fedora. |
-| 4 | Answers to the open questions in section 11. | The scope of two pull requests. |
-| 5 | A look at the preview link before the site goes to production. | Production deploy. |
+| 3 | A look at the preview link before the site goes to production. | Production deploy. |
 
 ## 3. Facts that shape the plan
 
@@ -137,11 +135,11 @@ Tests are written before the code they cover. Each file gets its own `test:pizza
 
 | Stage | Output | Gate | State |
 | :--- | :--- | :--- | :--- |
-| **1. Intake and gap analysis** | The real menu as a draft menu file. Pricing rules. [gap-analysis.md](gap-analysis.md). | Owner confirms the menu and the open questions. | Gap analysis done; menu owed |
-| **2. Fork, baseline and spike** | The fork. [baseline.md](baseline.md). [decisions.md](decisions.md). | Baseline on both machines. Decisions confirmed. | Mac done; Fedora waiting for compilers |
+| **1. Intake and gap analysis** | The real menu as a draft menu file. Pricing rules. [gap-analysis.md](gap-analysis.md). | Owner confirms the menu and the open questions. | Gap analysis done and scope confirmed; menu owed |
+| **2. Fork, baseline and spike** | The fork. [baseline.md](baseline.md). [decisions.md](decisions.md). | Baseline on both machines. Decisions confirmed. | Decisions approved by the owner; see baseline.md for each machine |
 | **3. Design** | Menu site: references from the shop's brand, a brand sheet, wireframes of the menu and builder. POS: builder, combo and quick button layouts in FloCafe's style. | Owner picks a direction. | Waiting for shop identity |
 | **4. Task briefs** | One brief per pull request in `pizza/briefs/`: scope, files, tests to write first, how to verify. Reviewed against the architect, QA and security checklists. | No open review findings. | |
-| **5. Build** | Waves 1 to 4 in section 8. | Each pull request: tests first and passing, CI green, review clean. Each wave: full suite on Fedora. | |
+| **5. Build** | Waves 1 to 4 in section 8. | Each pull request: tests first and passing, local CI green, review clean. Each wave: full suite on Fedora. | |
 | **6. Hardening** | QA against the product plan. Security pass on the new routes and the site's headers. Accessibility and speed pass on the site. POS running headless on Fedora, opened from another device. | No open findings. Golden prices identical in core, server, POS cart and site. | |
 | **7. Deploy** | Section 9. | Preview verified, owner approves, production verified. | |
 | **8. Learn** | Retrospective and updated notes. | — | |
@@ -153,10 +151,15 @@ Tests are written before the code they cover. Each file gets its own `test:pizza
 | | MacBook Pro | Fedora |
 | :--- | :--- | :--- |
 | Role | Orchestrator and up to three coding agents | One integration agent; later one coding agent for the Linux work |
-| Does | Writes code and tests, runs targeted tests, typecheck, lint | Takes each pushed branch, runs the gates, opens the pull request, runs the review with GPT-6.2 Sol, merges. Runs the full suite once per wave. Acts as the shop's headless mini PC. |
+| Does | Writes code and tests, runs targeted tests, typecheck, lint; runs local CI for each pull request | Takes each pushed branch, opens the pull request, runs the review loop, merges. Runs the full suite once per wave. Acts as the shop's headless mini PC. |
 | Limits | One full test suite at a time (machine lock) | At most three agents; one full suite at a time |
 
-At most five agents run at once. Coding agents are Claude; Codex is kept for reviews because its quota is shared between the machines. Until Fedora has its compilers, the Mac does the integration work as well.
+At most five agents run at once. Coding agents are Claude; Codex is kept for reviews because its quota is shared between the machines.
+
+### Review and CI
+
+- **Reviewer.** The standing reviewer is GPT-6.2 Sol. Its usage limit was reached on 2026-11-25 and returns on 2026-11-28. Until then Claude Opus 5.5 reviews each pull request in the same loop. On 2026-11-28 Sol reviews everything merged in the meantime, and its findings are fixed in follow-up pull requests.
+- **CI.** GitHub Actions is not enabled on the fork. Each pull request is checked on the Mac with `scripts/pizza/local-ci.sh`, which runs the steps of `.github/workflows/ci.yml` (lint, typecheck, format, docs, builds, the full core suite, the Playwright browser suites and the Electron suite), and the result table is posted on the pull request. Dependency review and the Windows jobs are not run.
 
 ### Rules every agent follows
 
@@ -198,7 +201,7 @@ At most five agents run at once. Coding agents are Claude; Codex is kept for rev
 | 5 | Hardening, PR 11 | Stage 6 gate |
 | 6 | Deploy | Stage 7 gate |
 
-Every pull request goes through the review loop with GPT-6.2 Sol and is merged when CI and the review are clean. One review loop runs at a time.
+Every pull request goes through the review loop and is merged when local CI and the review are clean. One review loop and one local CI run happen at a time.
 
 ## 9. Deploying the menu site to Vercel
 
@@ -222,15 +225,17 @@ The site depends only on PRs 1, 2 and 9, so it could go live after wave 4 withou
 | R2 | Plain ESC/POS printing in headless mode is unverified, and raster printing needs an Electron window. | PR 10 tests network ESC/POS printing on Linux. The shop uses ESC/POS printers, not raster. |
 | R3 | The real menu has a rule the core does not model (a free topping count, a weekday special). | Stage 1 reads the whole menu before the schema is frozen. |
 | R4 | A path we did not patch adds a pizza without a recipe (barcode scan, waiter app, order page). | D14: the server refuses it, so a missed path fails loudly instead of selling a blank pizza. |
-| R5 | Codex review quota runs out. | One review loop at a time; limited threads resume by themselves. |
+| R5 | Codex review quota runs out again after it returns. | One review loop at a time; the Opus arrangement in section 8 is the standing answer. |
 | R6 | The big upstream files change under us and later upstream pulls conflict. | One-line hooks only (D6); settings instead of deletions (D8); process docs outside `docs/`. |
 | R7 | BC tax treatment is wrong for an item. | Checked against the official bulletins, covered by `pizza-tax-bc`, and kept as editable tax settings. |
 | R8 | Something still phones home with offline mode on. | `pizza-offline-default` asserts no outbound request during install and setup. |
-| R9 | CI does not run on the fork's pull requests until Actions is enabled for it. | Checked on PR 0; if it needs a click in the repository's Actions tab, the owner is asked. |
+| R9 | Local CI differs from upstream's Linux CI (macOS, one machine, no Windows jobs). | The per-wave full suite on Fedora covers Linux. Enabling Actions on the fork later needs one click by the owner. |
 
-## 11. Open questions for the owner
+## 11. Scope questions, decided
 
-| # | Question | Default if unanswered |
+The owner accepted every default on 2026-11-25. Anything left out can come later as its own pull request.
+
+| # | Question | Decision |
 | :--- | :--- | :--- |
 | Q1 | FloCafe can hold an order only for a dine-in table. Should the counter be able to park a pickup or delivery order and recall it? | Not built now. |
 | Q2 | Does the shop charge a delivery fee? FloCafe's POS screen never fills its delivery charge field, and its custom charges are not taxed. | Not built now; delivery orders carry no fee. |

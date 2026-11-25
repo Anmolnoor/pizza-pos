@@ -36,7 +36,9 @@ Upstream files get one-line hooks, not rewrites. A change to `main/db.ts`, `main
 7. Run the full suite only under the machine lock, and only when a gate calls for it:
    `python3 scripts/pizza/with-suite-lock.py node scripts/pizza/run-suite-report.cjs . <report folder>`.
    Unlike `npm test`, it does not stop at the first failure and it writes one result line and one log per suite.
-8. If something fails, stop and report it with the output. No workarounds.
+8. GitHub Actions is not enabled on this fork. The checks of `.github/workflows/ci.yml` run on a
+   developer machine instead: `python3 scripts/pizza/with-suite-lock.py scripts/pizza/local-ci.sh <report folder>`.
+9. If something fails, stop and report it with the output. No workarounds.
 
 ## Running the backend without Electron
 
