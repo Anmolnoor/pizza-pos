@@ -139,7 +139,11 @@ async function main() {
       await settle();
 
       assertEqualOrThrow(registerCalls, 0, 'no cloud registration starts');
-      assertEqualOrThrow(outbound.join(', '), '', 'no registration or telemetry request is sent');
+      assertEqualOrThrow(
+        outbound.join(', '),
+        '',
+        'no registration or telemetry collector request is sent',
+      );
     });
 
     await testCase('4. An existing database keeps its own values', () => {

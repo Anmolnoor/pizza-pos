@@ -89,6 +89,8 @@ async function main() {
 
   try {
     initDatabase();
+    // These cases cover setup of a store that is online.
+    require('../main/db').upsertSettings({ offline_mode: 'false' });
   } catch (error: any) {
     if (isNativeAbiMismatch(error)) {
       console.log('   ⚠ Skipping: better-sqlite3 is not built for this shell Node ABI.');
@@ -408,14 +410,10 @@ async function main() {
     assert.equal(setting('onboarding_completed'), 'true');
     assert.equal(
       setting('anonymous_data_consent'),
-      'false',
-      'consent stays off when setup runs in Offline mode without a sharing choice',
+      'true',
+      'setup ignores a client-supplied consent field',
     );
-    assert.equal(
-      setting('telemetry_enabled'),
-      'false',
-      'telemetry stays off when setup runs in Offline mode without a sharing choice',
-    );
+    assert.equal(setting('telemetry_enabled'), 'true', 'telemetry is on by default after setup');
     assert.equal(
       setting('telemetry_scope'),
       'usage_stats,country,app_version,platform,session_duration,feature_usage,error_diagnostics',
@@ -478,20 +476,20 @@ async function main() {
     assert.equal(count('users'), 1, 'disabled setup still cannot create a third owner');
     console.log('   ✓ disabled setup returns 403 before timezone validation');
 
-    // A new install is in Offline mode, so setup leaves cloud v2 coordination off.
+    // Cloud v2 coordination is automatic for new installs.
     // '1', not 'true' — cloud-sync.ts reads this key with a strict '1' check
     // everywhere, matching FloAdmin's own `stores` table.
     assert.equal(
       setting('cloud_sync_enabled'),
-      '0',
-      'cloud coordination stays off when setup runs in Offline mode',
+      '1',
+      'cloud coordination is enabled automatically on v2 setup',
     );
     assert.equal(
       setting('cloud_server_url'),
       'https://blue.flopos.com',
       'cloud server URL keeps the default',
     );
-    console.log('   ✓ setup endpoint leaves cloud coordination off in Offline mode');
+    console.log('   ✓ setup endpoint enables cloud coordination automatically');
   } finally {
     cloudSync.refreshRegistrationProfile = originalRefreshRegistrationProfile;
     await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -506,6 +504,7 @@ async function main() {
   fs.rmSync(testDir, { recursive: true, force: true });
   testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-first-run-cloud-'));
   initDatabase();
+  require('../main/db').upsertSettings({ offline_mode: 'false' });
 
   const cloudApi = express();
   cloudApi.use(express.json());
@@ -575,15 +574,15 @@ async function main() {
     );
     assert.equal(
       setting('cloud_sync_enabled'),
-      '0',
-      'cloud sync stays off in Offline mode even when requested at setup',
+      '1',
+      'cloud sync is enabled when requested at setup',
     );
     assert.equal(
       setting('cloud_server_url'),
       'https://cloud.example.test/relay',
       'the custom cloud server URL is persisted, normalized',
     );
-    console.log('   ✓ setup keeps cloud sync off in Offline mode + custom cloud_server_url');
+    console.log('   ✓ setup persists an explicit cloud_sync_enabled + custom cloud_server_url');
   } finally {
     await new Promise<void>((resolve) => cloudServer.close(() => resolve()));
   }

@@ -1786,7 +1786,7 @@ router.post('/setup/initialize', (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Invalid service model' });
     }
 
-    // New installs start with cloud coordination enabled unless Offline mode is on.
+    // New installs ask for cloud coordination; Offline mode overrides it where the setting is written.
     const cloudSyncEnabled = true;
     let normalizedCloudServerUrl: string | undefined;
     if (cloudSyncEnabled) {
