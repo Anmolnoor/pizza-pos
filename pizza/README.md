@@ -10,6 +10,7 @@ Everything specific to the fork's process lives in this folder. Upstream's `docs
 | [contract.md](contract.md) | The menu format, function signatures, tables, and which lane owns which files |
 | [decisions.md](decisions.md) | Design decisions and the spike evidence behind each |
 | [gap-analysis.md](gap-analysis.md) | Every required feature marked as existing, needing a setting, partly there, or to build |
+| [headless.md](headless.md) | Running the POS as a service on a Linux PC without Electron: install, health, backups, restore |
 | [baseline.md](baseline.md) | Upstream's install, build and test results on our machines before any change |
 
 ## Where pizza code goes
@@ -54,4 +55,4 @@ HOME=$(mktemp -d) FLO_DEV_USER_DATA=<data folder> PORT=4311 KDS_PORT=4312 SERVER
 curl http://127.0.0.1:4311/api/health
 ```
 
-If a port is taken the server moves to the next one without failing, so read the bound port from its log. Daily backups, LAN HTTPS and mDNS do not start in this mode.
+If a port is taken the server moves to the next one without failing, so read the bound port from its log. Daily backups, LAN HTTPS and mDNS do not start in this mode. To run it for a shop, use the headless kit in [headless.md](headless.md).
