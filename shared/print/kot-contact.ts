@@ -9,7 +9,9 @@ export interface KotContactLine {
   readonly text: string;
 }
 
-const text = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
+/** One line of text: a stored line break becomes a space, so the two parts do not run together. */
+const text = (value: unknown): string =>
+  typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
 
 /**
  * Contact lines for a raw order: the customer's phone number when the order

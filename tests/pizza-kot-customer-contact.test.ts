@@ -226,6 +226,16 @@ runCases('pizza-kot-customer-contact', {
     }
   },
 
+  'Case 2c: an address stored on two lines prints with a space between them': () => {
+    const order = { ...deliveryOrder, delivery_address: '12 Main St\nApt 4' };
+    forEveryPath((name, render) => {
+      assertOrThrow(
+        flat(render(order, true)).includes('Delivery address: 12 Main St Apt 4'),
+        `${name}: the two lines are separated`,
+      );
+    });
+  },
+
   'Case 3: setting on, a pickup ticket with a phone prints the phone only': () => {
     forEveryPath((name, render) => {
       const text = flat(render(pickupOrder, true));
