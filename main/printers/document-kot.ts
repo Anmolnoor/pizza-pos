@@ -25,6 +25,7 @@ import {
 } from '../../shared/print/thermal-capabilities';
 import { detectPrintLanguageDirection } from './document-classic';
 import { displayCellWidth } from '../../shared/print/width';
+import { pizzaDetailLines } from '../../shared/pizza/ticket';
 import {
   buildKotDocument,
   isKotItemPending,
@@ -77,6 +78,7 @@ export function buildKotPrintData(order: any, items: any[], stationName: string)
           : {}),
       })),
       specialInstructions: String(item?.special_instructions ?? ''),
+      detailLines: pizzaDetailLines(item?.modifier_selection),
     })),
   };
 }
@@ -461,6 +463,20 @@ function kotItemLines(
   );
   sourceLines?.push(`${row.quantity}x  ${row.name.text}`);
   sourceControlLines?.push(lines[nameStart] ?? '');
+  for (const detail of row.detailLines ?? []) {
+    const detailStart = lines.length;
+    pushWrappedShapedLine(
+      lines,
+      detail.text,
+      Math.max(1, cols - 5),
+      arabicShaping,
+      language,
+      capabilities,
+      (segment, index) => (index === 0 ? '   ' : '     ') + segment,
+    );
+    sourceLines?.push('   ' + detail.text);
+    sourceControlLines?.push(lines[detailStart] ?? '');
+  }
   for (const addon of row.addons) {
     const quantity = addon.quantity ?? 1;
     const quantitySuffix = quantity > 1 ? ` x${quantity}` : '';

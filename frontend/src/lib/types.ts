@@ -253,6 +253,7 @@ export interface OrderItem {
   product_sku: string | null;
   variant_id?: string | null;
   variant_selection?: { id: string; name: string; price: number; sku?: string | null } | null;
+  modifier_selection?: unknown;
   unit_price: number;
   quantity: number;
   subtotal: number;

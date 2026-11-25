@@ -18,6 +18,7 @@ import type {
   ReceiptLanguagePolicy,
   ResolvedPrintLanguages,
 } from '@print/types';
+import { pizzaDetailLines } from '@shared/pizza/ticket';
 import { createTranslator } from 'use-intl/core';
 import { getCachedMessages } from '@/lib/i18n/loader';
 import { LANGUAGES, getLanguageDirection, type Language } from '@/lib/i18n/languages';
@@ -395,6 +396,7 @@ export function buildFrontendKotDocument(
             : {}),
         })),
         specialInstructions: String(item.special_instructions ?? ''),
+        detailLines: pizzaDetailLines(item.modifier_selection),
       })),
   };
   const printContext: PrintContext = {

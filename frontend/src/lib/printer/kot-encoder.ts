@@ -27,6 +27,7 @@ import { printLabelResolver } from './print-document';
 import { isKotItemPending } from '@print/document';
 import { layoutStyledUnit } from '@print/layout';
 import { formatItemHeading } from './item-heading';
+import { pizzaDetailLines } from '@shared/pizza/ticket';
 
 export interface KotOptions {
   /** 58 mm (32 cols) or 80 mm (42 cols). Default: 58 */
@@ -351,6 +352,24 @@ export function buildKotBytes(
       });
     }
     enc.bold(false);
+
+    for (const detail of pizzaDetailLines(item.modifier_selection)) {
+      wrapPrinterText(
+        normalizeThermalText(detail, thermalCapabilities),
+        Math.max(1, cols - 5),
+      ).forEach((line, index) => {
+        safePrinterText(
+          enc,
+          `${index === 0 ? '   ' : '     '}${line}`,
+          warnings,
+          false,
+          arabicShaping,
+          undefined,
+          undefined,
+          language,
+        ).newline();
+      });
+    }
 
     // Addons can come from older/API paths as a JSON string. Normalize before
     // iterating so a stored string cannot abort KOT printing.

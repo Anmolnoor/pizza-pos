@@ -866,6 +866,8 @@ export interface KotItemSnapshot {
   readonly quantity: number;
   readonly addons: readonly KotAddonSnapshot[];
   readonly specialInstructions: string;
+  /** Pre-formatted lines printed under the heading, before add-ons. */
+  readonly detailLines?: readonly string[];
 }
 
 /** The order behind the ticket (order number, canonical timestamp, table, type, optional customer). */
@@ -931,6 +933,7 @@ export interface KotItemsBlock {
     readonly name: DirectionalText;
     readonly addons: readonly KotAddonValue[];
     readonly specialInstructions: DirectionalText | null;
+    readonly detailLines?: readonly DirectionalText[];
   }[];
 }
 
@@ -1580,7 +1583,9 @@ function isKotDocumentBlock(value: unknown): value is KotDocumentBlock {
           isDirectionalText(addon) &&
           (addon.quantity === undefined || isFiniteNumber(addon.quantity)),
       ) &&
-      isOptionalDirectionalText(row.specialInstructions),
+      isOptionalDirectionalText(row.specialInstructions) &&
+      (row.detailLines === undefined ||
+        (Array.isArray(row.detailLines) && row.detailLines.every(isDirectionalText))),
   );
 }
 
@@ -1684,6 +1689,13 @@ export function buildKotDocument(printData: KotPrintData, printContext: PrintCon
               ),
           ),
           specialInstructions: optionalDirectional(item?.specialInstructions, base),
+          ...(item?.detailLines?.length
+            ? {
+                detailLines: Object.freeze(
+                  item.detailLines.map((line: string) => directionalText(String(line), base)),
+                ),
+              }
+            : {}),
         }),
       ),
     ),
