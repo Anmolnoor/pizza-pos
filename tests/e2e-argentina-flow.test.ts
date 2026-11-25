@@ -267,6 +267,8 @@ async function runArgentinaTranslations(db) {
     referenced.size >= 20,
     `at least 20 translation keys should be wired in (found ${referenced.size})`,
   );
+  const pizzaSrc = fs.readFileSync(path.join(i18nDir, '../messages-pizza/en.json'), 'utf8');
+  for (const k of extractJsonKeys(pizzaSrc)) enKeys.add(`pizza.${k}`);
   const unknownRefs = [...referenced].filter((k) => !enKeys.has(k));
   assertEqual(
     unknownRefs.length,

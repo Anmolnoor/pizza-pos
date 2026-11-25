@@ -131,7 +131,7 @@ Pizza strings live in `frontend/src/lib/i18n/messages-pizza/en.json` and are mer
 
 **Checked.** On `spike/pizza-ui`: pizza keys render under German, Arabic and Traditional Chinese next to translated core strings; the frontend typecheck passes and a misspelled key fails it; the loader suites `phase6-locale-loading`, `kot-locale-cold-start` and `decoupled-ui-locale` still pass.
 
-**One upstream test changes.** `tests/translations.test.ts` check 7a requires every literal `t()` key to exist in the 32 language files, so it fails on pizza keys. Four added lines (at `tests/translations.test.ts:3206`) add the pizza file's keys to the known set; `npm run i18n:check` then passes. Parity and the identical-to-English checks for the 32 languages are untouched.
+**Two upstream tests change.** Two tests scan the frontend for literal `t()` keys and fail on pizza keys: check 7a of `tests/translations.test.ts`, which wants each key in the 32 language files, and step 4 of `tests/e2e-argentina-flow.test.ts`, which wants it in `en.json`. Each gets the pizza file's keys added to its known set (four lines at `tests/translations.test.ts:3206`, two lines in `runArgentinaTranslations`); `npm run i18n:check` and `npm run test:e2e-argentina-flow` then pass. The second file was not formatted, and the changed-file format gate checks a touched file whole, so it is also formatted. Parity and the identical-to-English checks for the 32 languages are untouched.
 
 **Must not miss:** the pizza file gets no message-syntax, duplicate-key or placeholder checks from upstream's test, so `pizza-i18n` adds them.
 
@@ -143,16 +143,20 @@ A new profile `pizza` next to `empty`, `express` and `demo` (`main/routes/auth.t
 
 | Setting | Value | Why |
 | :--- | :--- | :--- |
-| `service_model` | `qsr` | Counter service; also sets `tables_required=false` (`auth.ts:1857`) |
+| `service_model`, `tables_required` | `qsr`, `false` | Counter service. The profile writes both itself, whatever service model the request carries |
 | `kds_enabled`, `server_app_enabled` | owner's choice, default off | Hides the kitchen display and waiter app |
 | `auto_print_kot` | `true` | Default is `false` (`main/routes/settings.ts:182`) |
 | `cash_drawer_pulse_enabled`, `cash_drawer_pulse_methods` | `true`, `["cash"]` | The default method list includes card |
+| `kot_show_customer_contact` | `true` | Kitchen tickets print the customer's contact details |
 | `taxes_enabled` | `true` | Default is `false` (`main/db.ts:11240`) |
-| Kitchen printer `text_size` | `large` | Whole-ticket size; there is no per-field size |
 
-A profile cannot choose the region: country, currency and time zone come from the setup request, and upstream forbids a fallback country. The pizza wizard pre-fills Canada, CAD and `America/Vancouver`.
+The profile seeds no menu, printers, kitchen stations or permission overrides.
 
-Category colours are stored as names (`red`, `orange`), not hex; upstream's own seeds store hex and those show uncoloured (`ProductGrid.tsx:153-287`). Dashboard, Inventory, Expenses and Staff are hidden only by permissions, so the profile seeds `role_permission_overrides` rows for the entries the shop does not use.
+A profile cannot choose the region: country, currency and time zone come from the setup request, and upstream forbids a fallback country. The pizza wizard pre-fills Canada, CAD and `America/Vancouver`. The wizard asks for the region at step 1 and the profile at step 4, so choosing the pizza card overwrites the country, currency and time zone the owner picked at step 1; the owner goes back to step 1 to change them.
+
+The tax category ids come from the labels: `Food` gives `food` and `Soda` gives `soda`, held in `tax_categories.category_id` and in `products.tax_category_id`. They change if the owner renames a category in Settings.
+
+Category colours are stored as names (`red`, `orange`), not hex; upstream's own seeds store hex and those show uncoloured (`ProductGrid.tsx:153-287`).
 
 ## D9. The menu site
 
