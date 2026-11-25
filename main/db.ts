@@ -26,6 +26,7 @@ import {
   resolveTenantCurrency,
 } from './countries';
 import { clearInMemoryRevokedTokens, clearUserAuthCache } from './middleware/security';
+import * as pizzaSchema from './pizza/migrations';
 import { clearJWTSecretCache } from './security/jwt-secret';
 import { instrumentDatabase } from './services/db-timing';
 
@@ -1523,7 +1524,7 @@ function validateDatabaseSchemaTableColumns(
   subjectLabel = 'Database',
 ): string | null {
   const tables = new Set(getTables(dbInstance));
-  const expectedSchema = getRecoverySchemaReference(schemaVersion).tableColumns;
+  const expectedSchema = getRecoverySchemaReference(schemaVersion, dbInstance).tableColumns;
   if (
     tables.size !== expectedSchema.size ||
     ![...expectedSchema.keys()].every((table) => tables.has(table))
@@ -1770,7 +1771,7 @@ interface SchemaRecoveryReference {
   definitions: Map<string, string>;
 }
 
-const cachedSchemaRecoveryReferences = new Map<number, SchemaRecoveryReference>();
+const cachedSchemaRecoveryReferences = new Map<string, SchemaRecoveryReference>();
 const RUNTIME_KDS_INDEX_MIN_SCHEMA_VERSION = 121;
 const RUNTIME_ENSURED_SCHEMA_OBJECTS = new Set(['index:idx_order_items_active_kds']);
 let buildingIdealSchema = false;
@@ -1792,23 +1793,29 @@ function getMigrationRegistryIdentity(targetVersion?: number): string {
   return `${version}:${MIGRATIONS.length}:${last?.version ?? 0}:${last?.name ?? ''}`;
 }
 
-function getRecoverySchemaReference(targetVersion?: number): SchemaRecoveryReference {
+// A candidate file is compared at its own pizza version, as it is at its own upstream version.
+function getRecoverySchemaReference(
+  targetVersion?: number,
+  candidate?: Database.Database,
+): SchemaRecoveryReference {
   const supportedVersion = MIGRATIONS[MIGRATIONS.length - 1]?.version || 0;
   const version = targetVersion !== undefined ? targetVersion : supportedVersion;
+  const pizzaVersion = pizzaSchema.referencePizzaVersion(candidate);
+  const cacheKey = `${version}:${pizzaVersion}`;
   const currentIdentity = getMigrationRegistryIdentity(version);
-  const cached = cachedSchemaRecoveryReferences.get(version);
+  const cached = cachedSchemaRecoveryReferences.get(cacheKey);
   if (cached && cached.identity === currentIdentity) {
     return cached;
   }
   recoverySchemaBuildCount += 1;
-  const idealDb = buildIdealSchemaDb(version);
+  const idealDb = buildIdealSchemaDb(version, pizzaVersion);
   try {
     const ref: SchemaRecoveryReference = {
       identity: currentIdentity,
       tableColumns: new Map(getTables(idealDb).map((table) => [table, getColumns(idealDb, table)])),
       definitions: getSchemaDefinitions(idealDb),
     };
-    cachedSchemaRecoveryReferences.set(version, ref);
+    cachedSchemaRecoveryReferences.set(cacheKey, ref);
     return ref;
   } finally {
     idealDb.close();
@@ -1858,7 +1865,7 @@ function checkHealthyDatabaseFile(
         }
 
         const tables = new Set(getTables(candidate));
-        const schemaRef = getRecoverySchemaReference(schemaVersion);
+        const schemaRef = getRecoverySchemaReference(schemaVersion, candidate);
         const expectedSchema = schemaRef.tableColumns;
         const columnsValid = [...expectedSchema.entries()].every(([table, columns]) => {
           const available = new Set(getColumns(candidate, table));
@@ -2238,6 +2245,12 @@ function readCanonicalMetaVersionInfo(probeDb: Database.Database): {
     const rawAppVersion = metaValues.get('app_version');
     const appVersion =
       typeof rawAppVersion === 'string' && rawAppVersion.trim() ? rawAppVersion.trim() : null;
+    // A pizza schema newer than this build is reported as a schema one past the supported one.
+    const newerPizza = pizzaSchema.newerPizzaSchemaDetail(probeDb);
+    if (newerPizza) {
+      console.warn(`[DB] ${newerPizza}`);
+      return { schemaVersion: getLatestSupportedSchemaVersion() + 1, appVersion };
+    }
     return { schemaVersion, appVersion };
   } catch (error) {
     if (isShutdownOrMaintenanceAbortError(error) || isSqliteStorageOrOpenError(error)) {
@@ -3429,6 +3442,7 @@ export async function resetDatabaseForCurrencyChange(
       throw Object.assign(new Error('Active currency changed'), { code: 'ERR_CURRENCY_CHANGED' });
     }
     const snapshot = captureCurrencyResetMenu(currentDb);
+    const pizzaMenu = pizzaSchema.capturePizzaMenu(currentDb);
     const regional = resolveRegionalSnapshot({
       country: settings.country,
       currency: targetCurrency,
@@ -3439,6 +3453,7 @@ export async function resetDatabaseForCurrencyChange(
       freshDb.transaction(() => {
         freshDb.exec('CREATE TABLE IF NOT EXISTS _flo_meta (key TEXT PRIMARY KEY, value TEXT)');
         restoreCurrencyResetMenu(freshDb, snapshot);
+        pizzaSchema.restorePizzaMenu(freshDb, pizzaMenu);
         const writeSetting = freshDb.prepare(
           'INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)',
         );
@@ -3945,12 +3960,15 @@ function inspectOpenBackupDatabaseForDowngrade(
     };
   }
 
-  if (pragmaVersion > maxSupportedSchemaVersion) {
+  const newerPizza = pizzaSchema.newerPizzaSchemaDetail(candidateDb);
+  if (pragmaVersion > maxSupportedSchemaVersion || newerPizza) {
     return {
       status: 'incompatible_newer',
       schemaVersion: pragmaVersion,
       appVersion,
-      detail: `Requires schema v${pragmaVersion} (this version supports up to v${maxSupportedSchemaVersion})`,
+      detail:
+        newerPizza ??
+        `Requires schema v${pragmaVersion} (this version supports up to v${maxSupportedSchemaVersion})`,
     };
   }
 
@@ -5437,6 +5455,8 @@ function validateDirectBackup(backupPath: string, currentVersion: number): strin
     if (metadataVersion !== currentVersion || pragmaVersion !== currentVersion) {
       return `Direct restore requires matching metadata/header schema v${currentVersion}`;
     }
+    const newerPizza = pizzaSchema.newerPizzaSchemaDetail(backupDb);
+    if (newerPizza) return `Direct restore rejected: ${newerPizza}`;
 
     const integrity = backupDb.prepare('PRAGMA integrity_check').all() as {
       integrity_check: string;
@@ -6944,7 +6964,10 @@ export function rebuildSearchIndex(targetDb?: Database.Database): void {
 }
 
 /** Builds in-memory database using migration pipeline as ideal schema reference. */
-export function buildIdealSchemaDb(targetVersion?: number): Database.Database {
+export function buildIdealSchemaDb(
+  targetVersion?: number,
+  pizzaVersion?: number,
+): Database.Database {
   const idealDb = new Database(':memory:');
   registerOrderSearchFunctions(idealDb);
   idealDb.pragma('foreign_keys = OFF'); // Off during migrations
@@ -6952,7 +6975,7 @@ export function buildIdealSchemaDb(targetVersion?: number): Database.Database {
   db = idealDb;
   try {
     buildingIdealSchema = true;
-    runMigrations(targetVersion);
+    runMigrations(targetVersion, false, pizzaVersion);
   } finally {
     buildingIdealSchema = false;
     db = previousDb;
@@ -10511,7 +10534,21 @@ export function isSchemaVersionMismatchError(error: unknown): error is SchemaVer
   return error instanceof SchemaVersionMismatchError;
 }
 
-function runMigrations(targetVersion?: number, skipPreMigrationBackup = false): void {
+// Upstream's list first, then the pizza list, which takes a backup only if upstream took none.
+function runMigrations(
+  targetVersion?: number,
+  skipPreMigrationBackup = false,
+  pizzaVersion?: number,
+): void {
+  const coreBefore = getCurrentSchemaVersion();
+  runCoreMigrations(targetVersion, skipPreMigrationBackup);
+  pizzaSchema.runPizzaMigrations(db, pizzaVersion, () => {
+    if (!skipPreMigrationBackup && coreBefore === getCurrentSchemaVersion())
+      syncBackupBeforeMigration(coreBefore, coreBefore);
+  });
+}
+
+function runCoreMigrations(targetVersion?: number, skipPreMigrationBackup = false): void {
   const current = getCurrentSchemaVersion();
   const maxSupported = MIGRATIONS.length > 0 ? MIGRATIONS[MIGRATIONS.length - 1].version : 0;
   const target = targetVersion !== undefined ? targetVersion : maxSupported;
