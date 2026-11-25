@@ -19,8 +19,8 @@ What `parseMenuFile` rejects, each with a `MenuError` naming the entry. Nothing 
 
 - A category id other than `pizzas`, `sides`, `drinks` or `deals`, a category listed twice, or no `pizzas` category. `sides`, `drinks` and `deals` may be absent and are then empty.
 - Duplicate ids within a category, and a pizza whose id is `half-and-half` (reserved for the half-and-half product).
-- A side with more than one modifier.
-- A deal with more than one drink pick (a `pop` pick and a `choice` pick count as one each), more than one `choice` pick, more than one `wing-flavour` pick, a `wing-flavour` pick whose count is not 1, a `2l` option whose count is not 1, a `pizza` pick with an unknown size, or a `wing-flavour` pick when there is no `wings` side.
+- A side with more than one modifier, or a modifier that is not a required single choice (`required` true, `choose` 1 or absent), because the import always creates a required single-choice group.
+- A deal with more than one drink pick (a `pop` pick and a `choice` pick count as one each), more than one `choice` pick, more than one `wing-flavour` pick, a `wing-flavour` pick whose count is not 1, a `2l` option whose count is not 1, a `pizza` pick with an unknown size, a `pizza` or `pop` pick whose count is below 1, a `choice` pick whose options are not exactly one `pop` and one `2l`, or a `wing-flavour` pick when there is no `wings` side.
 
 Unknown extra fields on any entry are ignored.
 
@@ -38,7 +38,7 @@ export function toCents(dollars: number): number;                // rejects valu
 // recipe.ts
 export class RecipeError extends Error {}                        // message is one a cashier can act on
 export function validateRecipe(catalog: PizzaCatalog, raw: unknown): OrderLineRecipe; // normalised copy
-export function recipeKey(recipe: OrderLineRecipe): string;      // same recipe, same key, whatever the tap order
+export function recipeKey(recipe: OrderLineRecipe): string;      // same recipe, same key, whatever order removals and pops were tapped in
 export function dealPickCount(deal: CatalogDeal): { pizzas: { sizeId: string }[]; pops: number; wingFlavour: boolean; choice: boolean };
 
 // ticket.ts
@@ -47,7 +47,7 @@ export function ticketLines(catalog: PizzaCatalog, recipe: OrderLineRecipe, colu
 
 Recipe rules:
 
-- A pizza recipe has exactly one of `whole` and `halves`. Both halves may be the same pizza only if their removals differ; otherwise it is normalised to `whole`.
+- A pizza recipe has exactly one of `whole` and `halves`. Both halves may be the same pizza only if their removals differ. Two identical halves are rejected with a `RecipeError` telling the cashier to choose a whole pizza; nothing is converted, because a whole pizza and a half and half are different products.
 - `removed` entries must be ingredients of that pizza. Duplicates are dropped and the list is sorted, so the key is stable.
 - A deal recipe has one pizza recipe per pizza pick, each with the deal's size; its pops add up to the pick's count; a `choice` deal has either `pops` or `twoLitre`, never both.
 - A recipe never changes the price. A pizza costs its size price, a half and half costs the size price, a deal costs the deal price.
@@ -55,7 +55,7 @@ Recipe rules:
 - Inside a part, `removed` is sorted and de-duplicated. In `pops`, zero entries are dropped and keys are sorted. These are the only reorderings.
 - A deal with a wing-flavour pick needs `wingFlavour`; a deal without one must not have it. The same holds for `pops` and `twoLitre` against the deal's drink pick.
 
-Ticket text, at 42 and 48 columns. The print layer indents every detail line by 3 and re-wraps on whitespace anything wider than `columns - 3`, which would lose the nesting below. So `ticketLines` keeps every detail line at `columns - 3` display cells or fewer, wrapping at commas itself; a continuation line starts at the same indent as the line it continues. No line ends in a lone `NO`. Text is upper-cased as written; a letter such as `Ñ` is kept, and the print layer decides how a printer shows it.
+Ticket text, at 42 and 48 columns. The print layer indents every detail line by 3 and re-wraps on whitespace anything wider than `columns - 3`, which would lose the nesting below. So `ticketLines` keeps every detail line at `columns - 3` display cells or fewer, wrapping at commas itself; an item still too wide (a long name with no comma) wraps on spaces; a continuation line starts at the same indent as the line it continues. The heading is not under this budget: the print layer wraps headings. No line ends in a lone `NO`. Text is upper-cased as written; a letter such as `Ñ` is kept, and the print layer decides how a printer shows it.
 
 ```text
 heading:  LARGE GARDEN
@@ -108,13 +108,13 @@ export function importMenu(db: Database, catalog: PizzaCatalog): { created: numb
 | :--- | :--- | :--- |
 | Category `pizzas` | Category "Pizzas"; one product per pizza; one variant per size at the size price | `cat-pizzas`; `pz-<pizza>`; `pz-<pizza>-<size>` |
 | Half and half | One extra product "Half & Half" in "Pizzas" with the same size variants | `pz-half-and-half`; `pz-half-and-half-<size>` |
-| Dips | An add-on group "Dips" linked to the "Pizzas" category, one add-on per dip at its price. Optional, any number, several of one kind: `is_required=0, min_selection=0, max_selection=NULL, allow_multiple_quantities=1` | `ag-dips`; `ad-dip-<option>` |
-| Side with a modifier (the `dip` side included) | A product in "Sides" plus a required single-choice add-on group at price 0, linked to that product: `is_required=1, min_selection=1, max_selection=1` | `cat-sides`; `sd-<side>`; `ag-<side>-<modifier>`; `ad-<side>-<option>` |
+| Dips | An add-on group "Dips" linked to the "Pizzas" category, one add-on per dip at its price. Optional, any number, several of one kind: `is_required=0, min_selection=0, max_selection=NULL, allow_multiple_quantities=1` | `ag-dips`; `ad-dips-<option>` |
+| Side with a modifier (the `dip` side included) | A product in "Sides" plus a required single-choice add-on group at price 0, linked to that product: `is_required=1, min_selection=1, max_selection=1` | `cat-sides`; `sd-<side>`; `ag-<side>-<modifier>`; `ad-<side>-<modifier>-<option>` |
 | Side without | A product in "Sides" | `sd-<side>` |
 | Drinks | Category "Drinks"; one product per drink; one variant per drink variant | `cat-drinks`; `dr-<drink>`; `dr-<drink>-<variant>` |
 | Deals | Category "Deals"; one product per deal at the deal price | `cat-deals`; `dl-<deal>` |
 
-All of FloCafe's id columns here are text. Because every id is derived from the menu's ids, importing the same file twice changes nothing and a changed price updates one row. Category colours are colour names. Money is converted from cents with `getCurrencyMinorUnitFactor`.
+All of FloCafe's id columns here are text, and an id is unique across its whole table, so `tests/pizza-menu-import.test.ts` asserts that the sample menu produces no duplicate id in any table. Because every id is derived from the menu's ids, importing the same file twice changes nothing and a changed price updates one row. Category colours are colour names. Money is converted from cents with `getCurrencyMinorUnitFactor`.
 
 Tax: drinks get the tax category with code `soda` when `drinksPst`; every other imported product gets `food`. Lane C's setup profile creates both. If a category does not exist (tax not set up), the product is left without one, which FloCafe treats as untaxed, and the import summary says so.
 
