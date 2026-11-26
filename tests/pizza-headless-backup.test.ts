@@ -113,6 +113,93 @@ void runCases('Pizza headless kit: online backup and retention', [
     },
   ],
   [
+    "retention counts only the kit's own backups, and a stale partial file is removed",
+    async () => {
+      const env = await headlessEnv({ BACKUP_KEEP: '2' });
+      const dir = backupDir(env);
+      fs.mkdirSync(dir);
+      const spared = [
+        'pre-restore-2020-01-01T00-00-00-000Z.db',
+        'pizza-pos-before-upgrade.db',
+        'notes.partial',
+      ];
+      for (const name of spared) fs.writeFileSync(path.join(dir, name), 'kept by the operator');
+      const stalePartial = '.pizza-pos-2020-01-01T00-00-00-000Z.db.partial';
+      fs.writeFileSync(path.join(dir, stalePartial), 'left by an interrupted run');
+
+      const server = await startHeadless(env);
+      try {
+        const made: string[] = [];
+        for (let i = 0; i < 3; i++) {
+          const result = await runKit('backup.cjs', [], env);
+          assertEqualOrThrow(result.status, 0, `backup ${i + 1} exits 0: ${result.output}`);
+          made.push(path.basename(result.stdout.trim().split('\n').pop()!));
+        }
+        const kept = fs.readdirSync(dir).sort();
+        console.log(`  kept: ${kept.join(', ')}`);
+        assertEqualOrThrow(
+          JSON.stringify(kept),
+          JSON.stringify([...spared, ...made.slice(-2)].sort()),
+          'the two newest backups and every file the kit did not write remain',
+        );
+      } finally {
+        await server.stop();
+      }
+    },
+  ],
+  [
+    'a backup of a database with fixable schema drift passes the health predicate',
+    async () => {
+      const env = await headlessEnv({ BACKUP_KEEP: '2' });
+      const server = await startHeadless(env);
+      try {
+        const live = new Database(liveDbPath(env), { timeout: 5000 });
+        let dropped: string;
+        try {
+          dropped = (
+            live
+              .prepare(
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_%' ORDER BY name LIMIT 1",
+              )
+              .get() as { name: string }
+          ).name;
+          live.exec(`DROP INDEX ${dropped}`);
+        } finally {
+          live.close();
+        }
+        console.log(`  dropped index ${dropped} from the live database`);
+        const result = await runKit('backup.cjs', [], env);
+        console.log(
+          result.output
+            .split('\n')
+            .filter((line) => !line.startsWith('[MIGRATION'))
+            .join('\n'),
+        );
+        assertEqualOrThrow(result.status, 0, 'backup exits 0');
+        const copyPath = result.stdout.trim().split('\n').pop()!;
+        assertOrThrow(
+          appDb().isHealthyDatabaseFile(copyPath),
+          'the copy passes the app health predicate',
+        );
+        const copy = new Database(copyPath, { readonly: true });
+        try {
+          assertOrThrow(
+            Boolean(
+              copy
+                .prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?")
+                .get(dropped),
+            ),
+            'the copy has the missing index back',
+          );
+        } finally {
+          copy.close();
+        }
+      } finally {
+        await server.stop();
+      }
+    },
+  ],
+  [
     'a backup without BACKUP_KEEP fails and writes nothing',
     async () => {
       const env = await headlessEnv();

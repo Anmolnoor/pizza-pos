@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {
   config,
+  BACKUP_NAME,
   backupDir,
   timestamp,
   appModule,
@@ -21,6 +22,10 @@ main(async () => {
 
   const dir = backupDir(FLO_DEV_USER_DATA);
   fs.mkdirSync(dir, { recursive: true });
+  for (const name of fs.readdirSync(dir).filter((n) => /^\.pizza-pos-.*\.partial$/.test(n))) {
+    fs.unlinkSync(path.join(dir, name));
+    console.log(`removed stale ${name}`);
+  }
   const finalPath = path.join(dir, `pizza-pos-${timestamp()}.db`);
   const partialPath = path.join(dir, `.${path.basename(finalPath)}.partial`);
   try {
@@ -37,7 +42,7 @@ main(async () => {
 
   const backups = fs
     .readdirSync(dir)
-    .filter((name) => /^pizza-pos-.*\.db$/.test(name))
+    .filter((name) => BACKUP_NAME.test(name))
     .sort();
   for (const name of backups.slice(0, -keep)) {
     fs.unlinkSync(path.join(dir, name));

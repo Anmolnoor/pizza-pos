@@ -19,11 +19,14 @@ main(async () => {
   if (process.argv.length !== 4)
     throw new Error('Usage: write-units.cjs <environment file> <unit folder>');
   const [envFile, unitDir] = process.argv.slice(2).map((p) => path.resolve(p));
-  for (const name of ['PORT', 'KDS_PORT', 'SERVER_APP_PORT']) {
-    const port = Number(settings[name]);
-    if (!Number.isInteger(port) || port < 1 || port > 65535)
-      throw new Error(`${name} must be a port number, got ${settings[name]}`);
+  const ports = ['PORT', 'KDS_PORT', 'SERVER_APP_PORT'];
+  for (const name of ports) {
+    const value = settings[name];
+    if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 65535)
+      throw new Error(`${name} must be a port number from 1 to 65535, got ${value}`);
   }
+  if (new Set(ports.map((name) => Number(settings[name]))).size !== ports.length)
+    throw new Error(`PORT, KDS_PORT and SERVER_APP_PORT must be three different numbers`);
   if (!/^[1-9]\d*$/.test(settings.BACKUP_KEEP))
     throw new Error(
       `BACKUP_KEEP must be a whole number of at least 1, got ${settings.BACKUP_KEEP}`,

@@ -10,9 +10,31 @@ export const repoRoot = path.resolve(__dirname, '..', '..');
 export const kitDir = path.join(repoRoot, 'scripts', 'pizza', 'headless');
 
 const children = new Set<ChildProcess>();
+const scratchDirs: string[] = [];
 process.on('exit', () => {
   for (const child of children) child.kill('SIGKILL');
+  for (const dir of scratchDirs) fs.rmSync(dir, { recursive: true, force: true });
 });
+
+export function scratchDir(prefix: string): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  scratchDirs.push(dir);
+  return dir;
+}
+
+// Stands in for systemctl so the kit never sees this machine's real user services. It reports
+// the units named in FAKE_SYSTEMCTL_ACTIVE as active and every other unit as inactive.
+const FAKE_SYSTEMCTL = `#!/bin/sh
+status=3
+for arg in "$@"; do
+  case "$arg" in --*|is-active) continue ;; esac
+  case " $FAKE_SYSTEMCTL_ACTIVE " in
+    *" $arg "*) echo active; status=0 ;;
+    *) echo inactive ;;
+  esac
+done
+exit $status
+`;
 
 export async function freePorts(count: number): Promise<number[]> {
   const servers = await Promise.all(
@@ -49,13 +71,18 @@ export type HeadlessEnv = NodeJS.ProcessEnv & {
 
 export async function headlessEnv(extra: Record<string, string> = {}): Promise<HeadlessEnv> {
   const [api, kds, serverApp] = await freePorts(3);
-  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-pizza-headless-'));
+  const scratch = scratchDir('flo-pizza-headless-');
   const home = path.join(scratch, 'home');
   const data = path.join(scratch, 'data');
+  const bin = path.join(scratch, 'bin');
   fs.mkdirSync(home);
   fs.mkdirSync(data);
+  fs.mkdirSync(bin);
+  fs.writeFileSync(path.join(bin, 'systemctl'), FAKE_SYSTEMCTL, { mode: 0o755 });
   return {
     ...process.env,
+    PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+    FAKE_SYSTEMCTL_ACTIVE: '',
     HOME: home,
     PORT: String(api),
     KDS_PORT: String(kds),
@@ -77,7 +104,7 @@ export function backupDir(env: HeadlessEnv): string {
 export function appDb(): typeof import('../../main/db') {
   const Module = require('node:module');
   const originalLoad = Module._load;
-  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-pizza-headless-appdb-'));
+  const scratch = scratchDir('flo-pizza-headless-appdb-');
   Module._load = function (request: string, ...rest: unknown[]) {
     if (request === 'electron')
       return { app: { isPackaged: true, getPath: () => scratch, getVersion: () => 'test' } };

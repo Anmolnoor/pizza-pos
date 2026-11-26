@@ -15,7 +15,9 @@ mkdir -p "$FLO_DEV_USER_DATA"
 (cd "$repo" && npm run build && npm run build:frontend)
 
 systemctl --user daemon-reload
-systemctl --user enable --now pizza-pos.service pizza-pos-backup.timer
+systemctl --user enable pizza-pos.service pizza-pos-backup.timer
+# Restart, not start: a running service from an earlier install keeps its old settings and code.
+systemctl --user restart pizza-pos.service pizza-pos-backup.timer
 
 set -a
 # shellcheck disable=SC1090

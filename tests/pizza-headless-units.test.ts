@@ -94,4 +94,29 @@ void runCases('Pizza headless kit: unit files', [
       assertOrThrow(!fs.existsSync(unitDir), 'no unit was written');
     },
   ],
+  [
+    'refuses a port that is not plain digits',
+    async () => {
+      const env = await headlessEnv({ BACKUP_KEEP: '7', KDS_PORT: '0x1F90' });
+      const unitDir = path.join(env.HOME!, 'units');
+      const result = await runKit('write-units.cjs', [path.join(env.HOME!, 'env'), unitDir], env);
+      console.log(result.output);
+      assertOrThrow(result.status !== 0, 'write-units exits non-zero');
+      assertIncludesOrThrow(result.stderr, 'KDS_PORT', 'the error names the setting');
+      assertOrThrow(!fs.existsSync(unitDir), 'no unit was written');
+    },
+  ],
+  [
+    'refuses two services on the same port',
+    async () => {
+      const env = await headlessEnv({ BACKUP_KEEP: '7' });
+      env.SERVER_APP_PORT = env.KDS_PORT;
+      const unitDir = path.join(env.HOME!, 'units');
+      const result = await runKit('write-units.cjs', [path.join(env.HOME!, 'env'), unitDir], env);
+      console.log(result.output);
+      assertOrThrow(result.status !== 0, 'write-units exits non-zero');
+      assertIncludesOrThrow(result.stderr, 'different', 'the error says the ports must differ');
+      assertOrThrow(!fs.existsSync(unitDir), 'no unit was written');
+    },
+  ],
 ]);

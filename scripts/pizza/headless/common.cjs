@@ -17,6 +17,9 @@ function config(...names) {
   return Object.fromEntries(names.map((name) => [name, process.env[name]]));
 }
 
+/** Only names the kit writes; a file an operator copies in is never counted or deleted. */
+const BACKUP_NAME = /^pizza-pos-\d{4}-\d{2}-\d{2}T[\d-]+Z\.db$/;
+
 function backupDir(dataDir) {
   return path.join(dataDir, 'headless-backups');
 }
@@ -59,12 +62,13 @@ function fsync(filePath) {
 
 /**
  * Copies a database that may be open in another process through SQLite's online backup, then
- * turns the copy into one self-contained file with the _flo_meta stamp the app's backups carry.
+ * prepares the copy as the app's own createBackup does: one self-contained file, the same safe
+ * schema fixes, and the _flo_meta stamp.
  */
 async function onlineCopy(sourcePath, targetPath) {
   const Database = require('better-sqlite3');
   if (fs.existsSync(targetPath)) throw new Error(`Refusing to overwrite ${targetPath}`);
-  const source = new Database(sourcePath, { fileMustExist: true, timeout: 10_000 });
+  const source = new Database(sourcePath, { readonly: true, fileMustExist: true, timeout: 10_000 });
   try {
     // After the first step, copy every remaining page in one step, so a write from the server
     // cannot restart the copy part-way through.
@@ -76,6 +80,13 @@ async function onlineCopy(sourcePath, targetPath) {
   try {
     copy.pragma('journal_mode = DELETE');
     const schemaVersion = copy.pragma('user_version', { simple: true });
+    // The safe fixes compare against this code's schema, so they apply only at its version.
+    if (schemaVersion === appModule('main/db').getLatestSupportedSchemaVersion()) {
+      const { applySafeFixes } = appModule('main/services/schema-health');
+      const fixes = applySafeFixes(undefined, copy);
+      if (fixes.applied.length > 0) console.log(`repaired ${fixes.applied.join(', ')}`);
+      for (const { id, error } of fixes.errors) console.error(`could not repair ${id}: ${error}`);
+    }
     copy.exec('CREATE TABLE IF NOT EXISTS _flo_meta (key TEXT PRIMARY KEY, value TEXT)');
     const stamp = copy.prepare('INSERT OR REPLACE INTO _flo_meta (key, value) VALUES (?, ?)');
     stamp.run('schema_version', String(schemaVersion));
@@ -97,4 +108,14 @@ function main(run) {
   );
 }
 
-module.exports = { repoRoot, config, backupDir, timestamp, appModule, fsync, onlineCopy, main };
+module.exports = {
+  repoRoot,
+  config,
+  BACKUP_NAME,
+  backupDir,
+  timestamp,
+  appModule,
+  fsync,
+  onlineCopy,
+  main,
+};
