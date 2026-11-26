@@ -55,8 +55,11 @@ export type SheetAction =
   | { type: 'size'; sizeId: string }
   | { type: 'split'; split: boolean }
   | { type: 'pizza'; half: 0 | 1; pizzaId: string }
-  /** One tap on an ingredient of that half: normal, then off, then extra, then normal again. */
-  | { type: 'ingredient'; half: 0 | 1; name: string }
+  /**
+   * One tap on an ingredient of that half: normal, then off, then extra, then normal again.
+   * `extras: false` leaves extra out, for a menu that has no topping price to charge it at.
+   */
+  | { type: 'ingredient'; half: 0 | 1; name: string; extras?: boolean }
   /** Puts one of the menu's toppings on that half, or takes it off again. */
   | { type: 'topping'; half: 0 | 1; toppingId: string }
   | { type: 'cook'; cook: CookNote | null }
@@ -162,7 +165,10 @@ export function sheetReducer(state: SheetState, action: SheetAction): SheetState
       return withHalf(state, action.half, {
         ...half,
         removed: wasRemoved || wasExtra ? without(half.removed) : [...half.removed, action.name],
-        extra: wasRemoved ? [...half.extra, action.name] : without(half.extra),
+        extra:
+          wasRemoved && action.extras !== false
+            ? [...half.extra, action.name]
+            : without(half.extra),
       });
     }
     case 'topping': {
@@ -273,6 +279,8 @@ export interface SheetQuote {
   dips: Record<string, number>;
   /** What one topping on a whole pizza and one on a half cost; null for one the POS does not sell. */
   toppings: ToppingPrices;
+  /** How many of each the pizza has as it stands. */
+  counts: { whole: number; half: number };
   /** One pizza at the size chosen, without its dips and toppings; null until a size is chosen. */
   pizza: number | null;
   /** One of the line: the pizza, its dips and its toppings; null while a price it needs is not known. */
@@ -330,11 +338,13 @@ export function sheetQuote(
     0,
   );
   const toppings = toppingPrices(product, sold?.toppings);
-  const toppingsTotal = toppingTotal(toppingCounts(sheetDraft(state) as PizzaRecipe), toppings);
+  const counts = toppingCounts(sheetDraft(state) as PizzaRecipe);
+  const toppingsTotal = toppingTotal(counts, toppings);
   return {
     sizes,
     dips,
     toppings,
+    counts,
     pizza,
     unit: pizza === null || toppingsTotal === null ? null : pizza + dipTotal + toppingsTotal,
     kept: Boolean(override),

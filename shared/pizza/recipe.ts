@@ -77,21 +77,27 @@ function checkPart(catalog: PizzaCatalog, raw: unknown, label: string): void {
   const part = fields(raw);
   const pizza = catalog.pizzas.find((entry) => entry.id === part.pizzaId);
   if (!pizza) throw new RecipeError(`${label}That pizza is not on the menu. Pick another pizza`);
-  const { removed = [], extra = [], added = [] } = part;
-  if (![removed, extra, added].every(Array.isArray)) throw new RecipeError(UNREADABLE);
+  const lists = [part.removed ?? [], part.extra ?? [], part.added ?? []];
+  if (!lists.every(Array.isArray)) throw new RecipeError(UNREADABLE);
+  const [removed, extra, added] = lists as unknown[][];
   const has = (name: unknown) => pizza.ingredients.includes(name as string);
-  if (!(removed as unknown[]).every(has))
+  if (!removed.every(has))
     throw new RecipeError(
       `${label}${pizza.name} does not have that ingredient. Choose what to remove again`,
     );
-  if (!(extra as unknown[]).every(has))
+  if (!extra.every(has))
     throw new RecipeError(
       `${label}${pizza.name} does not have that ingredient. Choose what to make extra again`,
     );
-  const both = (extra as unknown[]).find((name) => (removed as unknown[]).includes(name));
+  // An extra is charged the topping price, which only a menu with toppings has.
+  if (extra.length > 0 && !catalog.toppings)
+    throw new RecipeError(
+      `${label}This menu has no price for extra ${extra[0]}. Take the extra off`,
+    );
+  const both = extra.find((name) => removed.includes(name));
   if (both !== undefined)
     throw new RecipeError(`${label}${both} cannot be both removed and extra. Choose one`);
-  for (const id of added as unknown[]) {
+  for (const id of added) {
     const topping = catalog.toppings?.items.find((item) => item.id === id);
     if (!topping)
       throw new RecipeError(`${label}That topping is not on the menu. Pick another topping`);
@@ -101,7 +107,7 @@ function checkPart(catalog: PizzaCatalog, raw: unknown, label: string): void {
         `${label}${pizza.name} already has ${topping.label}. Choose extra ${topping.label} instead`,
       );
   }
-  if (new Set(added as unknown[]).size > MAX_ADDED_TOPPINGS)
+  if (new Set(added).size > MAX_ADDED_TOPPINGS)
     throw new RecipeError(
       `${label}A pizza takes at most ${MAX_ADDED_TOPPINGS} added toppings. Take one off`,
     );

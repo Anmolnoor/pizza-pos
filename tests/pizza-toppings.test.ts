@@ -280,6 +280,18 @@ runCases('Pizza toppings', {
       error = caught;
     }
     assertOrThrow(error instanceof RecipeError, 'a menu without toppings takes no added topping');
+    // An extra is charged the topping price, and a menu without toppings has none.
+    try {
+      error = undefined;
+      validateRecipe(parseMenuFile(without), whole('garden', { extra: ['Cheese'] }));
+    } catch (caught) {
+      error = caught;
+    }
+    assertEqualOrThrow(
+      error?.message,
+      'This menu has no price for extra Cheese. Take the extra off',
+      'a menu without toppings takes no extra either',
+    );
 
     assertEqualOrThrow(
       validateRecipe(catalog(), whole('island', { added: ['mushrooms'] })).whole.added[0],
@@ -523,6 +535,8 @@ runCases('Pizza toppings', {
     const twice = tap(once, olives);
     same([twice.halves[0].removed, twice.halves[0].extra], [[], ['Olives']], 'two taps: EXTRA');
     same(tap(twice, olives), start, 'three taps: normal again');
+    // A menu without toppings has no price for an extra: there a second tap puts the ingredient back.
+    same(tap(once, { ...olives, extras: false }), start, 'without extras, two taps: normal again');
     same(start.halves[0].extra, [], 'the state given is not changed');
 
     const split = tap(

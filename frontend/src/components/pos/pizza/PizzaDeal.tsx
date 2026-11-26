@@ -29,6 +29,7 @@ import {
   Segmented,
   WholeOrHalf,
 } from './PizzaSheet';
+import { ToppingPriceLines } from './PizzaToppings';
 
 const MISSING =
   'border-dashed border-amber-700 bg-amber-50 text-amber-900 dark:border-amber-500 dark:bg-amber-950/30 dark:text-amber-200';
@@ -162,7 +163,12 @@ export default function PizzaDeal({
           <WholeOrHalf state={sheet} dispatch={send} />
         </div>
         <div className="grid grid-cols-2 items-start gap-3">
-          <PizzaHalves catalog={catalog} state={sheet} dispatch={send} />
+          <PizzaHalves
+            catalog={catalog}
+            state={sheet}
+            dispatch={send}
+            toppingPrices={quote.toppings}
+          />
           <CookAndCut state={sheet} dispatch={send} />
         </div>
       </>
@@ -463,6 +469,9 @@ export default function PizzaDeal({
                   <span>{t('dealPrice')}</span>
                   <span className="tabular-nums">{fmt(quote.price)}</span>
                 </p>
+                <dl className="grid grid-cols-[1fr_auto] gap-x-4 text-sm text-foreground">
+                  <ToppingPriceLines counts={quote.counts} prices={quote.toppings} />
+                </dl>
                 {quote.kept && (
                   <p
                     data-testid="deal-price-kept"
