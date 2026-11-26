@@ -11,6 +11,13 @@ const repoRoot = path.resolve(__dirname, '..', '..', '..');
 // the kit writes is readable by another account, from the first byte of a copy.
 process.umask(0o077);
 
+// The app opens this path instead of the data folder's database when it is set (its own
+// end-to-end tests use it). Headless, the database is the one in the data folder, always.
+if (process.env.FLO_E2E_DB_PATH) {
+  console.error(`[headless] ignored FLO_E2E_DB_PATH=${process.env.FLO_E2E_DB_PATH}`);
+  delete process.env.FLO_E2E_DB_PATH;
+}
+
 function config(...names) {
   const missing = names.filter((name) => !process.env[name]);
   if (missing.length > 0) {
@@ -50,7 +57,10 @@ let heldLock;
 function dataLock(dataDir, mode) {
   const Database = require('better-sqlite3');
   const lockPath = path.join(dataDir, 'headless-lock.db');
-  const lock = new Database(lockPath, { timeout: 0 });
+  // Two restores that start in the same instant can each stop the other from taking the lock.
+  // A wait of a tenth of a second lets one of them through; the other is still refused, because
+  // a restore holds the lock far longer than that.
+  const lock = new Database(lockPath, { timeout: mode === 'exclusive' ? 100 : 0 });
   try {
     // In WAL mode a reader does not keep a writer out, so the lock would not hold. A new lock
     // database is in rollback mode; one that is not is refused, never used.

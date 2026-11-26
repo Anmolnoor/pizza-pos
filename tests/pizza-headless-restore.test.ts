@@ -213,7 +213,10 @@ void runCases('Pizza headless kit: restore', [
       for (const name of ['dist', 'node_modules', 'frontend'])
         fs.symlinkSync(path.join(repoRoot, name), path.join(root, name));
       const elsewhere = scratchDir('flo-pizza-headless-elsewhere-');
-      fs.writeFileSync(path.join(root, '.env'), `FLO_DEV_USER_DATA=${elsewhere}\n`);
+      fs.writeFileSync(
+        path.join(root, '.env'),
+        `FLO_DEV_USER_DATA=${elsewhere}\nFLO_E2E_DB_PATH=${path.join(elsewhere, 'flo.db')}\nHOME=${elsewhere}\n`,
+      );
 
       const before = fs.statSync(liveDbPath(env)).mtimeMs;
       const server = await startHeadless(env, kit);
@@ -232,6 +235,33 @@ void runCases('Pizza headless kit: restore', [
       } finally {
         await server.stop();
       }
+    },
+  ],
+  [
+    'an inherited FLO_E2E_DB_PATH cannot move the service or a restore to another database',
+    async () => {
+      const { env, backup } = await storeWithBackup();
+      const elsewhere = scratchDir('flo-pizza-headless-elsewhere-');
+      const redirected = { ...env, FLO_E2E_DB_PATH: path.join(elsewhere, 'flo.db') };
+      const server = await startHeadless(redirected);
+      try {
+        assertOrThrow(
+          server.output().includes(`Opening database at: ${liveDbPath(env)}`),
+          "the server opened the database in the unit's folder",
+        );
+        assertOrThrow(
+          server.output().includes('ignored FLO_E2E_DB_PATH'),
+          'and its log says the variable was ignored',
+        );
+        assertEqualOrThrow(fs.readdirSync(elsewhere).length, 0, 'the other folder is untouched');
+        await assertRefused(env, backup, IN_USE);
+      } finally {
+        await server.stop();
+      }
+      const result = await runKit('restore.cjs', [backup], redirected);
+      assertEqualOrThrow(result.status, 0, `a restore exits 0: ${result.output}`);
+      assertOrThrow(!hasCategory(liveDbPath(env), 'cat-after'), "it restored the unit's folder");
+      assertEqualOrThrow(fs.readdirSync(elsewhere).length, 0, 'and left the other folder alone');
     },
   ],
   [
