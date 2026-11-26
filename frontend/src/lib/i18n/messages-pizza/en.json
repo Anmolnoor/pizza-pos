@@ -47,6 +47,7 @@
   "inOrder": "{count} in order",
   "ingredientsHint": "Ingredients: tap to remove, no charge",
   "justAdded": "just added",
+  "linePriceKept": "This line keeps the price set on it.",
   "lineQuantity": "{count}x",
   "menuConfirmButton": "Load this menu",
   "menuConfirmFollows": "Names, prices and which items are on sale follow the file.",

@@ -14,7 +14,7 @@ import { HalfAndHalfTile, PIZZA_GRID_CLASS, PizzaCategoryBlocks, PizzaTile } fro
 import PizzaSheet from './PizzaSheet';
 import { useSentLineOpen } from './SentPizzaLine';
 import { SmallItemBlocks, useSmallItems, type SmallItemsPos } from './SmallItems';
-import { usePizzaCatalog } from './usePizzaCatalog';
+import { usePizzaCatalog, usePizzaMenuRefresh } from './usePizzaCatalog';
 import { PizzaDealDialog, usePizzaDeal } from './usePizzaDeal';
 import { QuickButtonsArea } from './QuickButtons';
 import { useQuickButtonSheet } from './useQuickButtons';
@@ -69,6 +69,8 @@ export function usePizzaPos(
   products: Product[],
   categories: Category[],
   selectCategory: (id: string | null) => void,
+  setProducts: (products: Product[]) => void,
+  setCategories: (categories: Category[]) => void,
 ): PizzaPos | null {
   const t = useTranslations('pizza');
   const catalog = usePizzaCatalog();
@@ -77,6 +79,11 @@ export function usePizzaPos(
   const small = useSmallItems(catalog, products);
   const sentLineOpen = useSentLineOpen();
   const [session, setSession] = useState<Session | null>(null);
+  usePizzaMenuRefresh(
+    Boolean(session || deal.session || quick.dialogOpen || sentLineOpen),
+    setProducts,
+    setCategories,
+  );
   /** The line "Customize 1" split off, merged back unless the sheet saves it. */
   const split = useRef<CartItem | null>(null);
   /** The cart line the sheet last wrote, which takes the focus when the sheet's opener is gone. */
@@ -249,6 +256,10 @@ export function usePizzaPos(
     sheet: session ? (
       <PizzaSheet
         catalog={catalog}
+        products={products}
+        priceOverride={
+          useCartStore.getState().items.find((item) => item.id === session.lineId)?.price_override
+        }
         initial={session.initial}
         editing={session.lineId !== null}
         onSave={save}

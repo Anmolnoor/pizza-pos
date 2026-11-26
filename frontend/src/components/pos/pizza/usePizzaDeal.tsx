@@ -80,6 +80,10 @@ export function PizzaDealDialog({
     <PizzaDeal
       catalog={catalog}
       deal={session.deal}
+      product={session.product}
+      priceOverride={
+        useCartStore.getState().items.find((item) => item.id === session.lineId)?.price_override
+      }
       initial={session.initial}
       editing={session.lineId !== null}
       quantity={session.quantity}
