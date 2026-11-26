@@ -28,6 +28,7 @@ import type { CustomPaymentMethod } from '@/lib/payment-methods';
 import { useCartStore } from '@/store/cart';
 import { useHeldOrdersStore } from '@/store/held-orders';
 import { useAuthStore } from '@/store/auth';
+import { offeredOrderTypes } from '@/lib/pizza/order-types';
 import { usePosSettingsStore } from '@/store/pos-settings';
 import { useTranslations } from 'use-intl';
 import toast from 'react-hot-toast';
@@ -281,7 +282,18 @@ export default function CartPanel({
     delivery: t('orderTypeDelivery'),
     online: t('orderTypeOnline'),
   };
-  const visibleOrderTypes = ORDER_TYPES.filter((type) => isRestaurant || type !== 'dine_in');
+  const posOrderTypes = usePosSettingsStore((s) => s.posOrderTypes);
+  const visibleOrderTypes = offeredOrderTypes(
+    ORDER_TYPES.filter((type) => isRestaurant || type !== 'dine_in'),
+    posOrderTypes,
+    existingOrder?.type,
+  );
+  const defaultOrderType = visibleOrderTypes[0];
+  const orderTypeOffered = Boolean(existingOrder) || visibleOrderTypes.includes(cart.orderType);
+  const setOrderType = cart.setOrderType;
+  useEffect(() => {
+    if (!orderTypeOffered) setOrderType(defaultOrderType);
+  }, [orderTypeOffered, defaultOrderType, setOrderType]);
   const orderTypeMeasureKey = `${isRestaurant ? '1' : '0'}:${visibleOrderTypes.map((type) => orderTypeLabels[type]).join('|')}`;
 
   useIsomorphicLayoutEffect(() => {
@@ -304,7 +316,7 @@ export default function CartPanel({
       const availableWidth = currentTrack.clientWidth - inlinePadding;
       if (availableWidth <= 0) return;
 
-      const types = ORDER_TYPES.filter((type) => isRestaurant || type !== 'dine_in');
+      const types = ORDER_TYPES.filter((type) => orderTypeLabelRefs.current[type]);
       const sampleFullModeButton = !isOrderTypeCompact
         ? (orderTypeLabelRefs.current[types[0]]?.parentElement ?? null)
         : null;

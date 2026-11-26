@@ -1,7 +1,9 @@
 /**
  * Customer contact on the kitchen ticket: with `kot_show_customer_contact` on,
  * the header prints the customer's phone number, and for a delivery order the
- * delivery address and delivery note. Off (the default) changes nothing.
+ * delivery address and delivery note. Off (the default) changes nothing. Set to
+ * `delivery`, only a delivery ticket prints them. A scheduled pickup or delivery
+ * order's header also prints its time.
  *
  * Run: npm run test:pizza-kot-customer-contact
  */
@@ -76,11 +78,12 @@ const kotOptions = (columns: number) => ({
 });
 
 /** The four kitchen ticket paths, each rendered to comparable text. */
-const paths: Record<string, (order: any, show: boolean, columns: number) => string> = {
+type Show = boolean | 'delivery';
+const paths: Record<string, (order: any, show: Show, columns: number) => string> = {
   'server ESC/POS': (order, show, columns) =>
     rows(
       renderKotViaDocument(
-        show ? { ...order, show_customer_contact: true } : order,
+        show ? { ...order, show_customer_contact: show } : order,
         order.items,
         'Kitchen',
         kotOptions(columns),
@@ -133,7 +136,7 @@ const paths: Record<string, (order: any, show: boolean, columns: number) => stri
 /** Ticket text with wrapped rows rejoined, so a wrapped address still reads whole. */
 const flat = (text: string): string => text.replace(/\s+/g, ' ');
 
-function forEveryPath(run: (name: string, render: (order: any, show: boolean) => string) => void) {
+function forEveryPath(run: (name: string, render: (order: any, show: Show) => string) => void) {
   for (const [name, render] of Object.entries(paths)) {
     for (const columns of name === 'browser HTML' ? [COLUMNS[0]] : COLUMNS) {
       run(`${name} ${columns}`, (order, show) => render(order, show, columns));
@@ -325,6 +328,110 @@ runCases('pizza-kot-customer-contact', {
     });
   },
 
+  'Case 4b: set to delivery, a pickup ticket carries the name only': () => {
+    forEveryPath((name, render) => {
+      const pickup = flat(render(pickupOrder, 'delivery'));
+      assertOrThrow(pickup.includes('Asha Kumar'), `${name}: the customer name prints`);
+      assertOrThrow(!pickup.includes('6045550100'), `${name}: no phone on a pickup ticket`);
+      assertEqualOrThrow(
+        render(pickupOrder, 'delivery'),
+        render(pickupOrder, false),
+        `${name}: a pickup ticket is the same as with the setting off`,
+      );
+      assertEqualOrThrow(
+        render(deliveryOrder, 'delivery'),
+        render(deliveryOrder, true),
+        `${name}: a delivery ticket is the same as with the setting on`,
+      );
+    });
+  },
+
+  'Case 4c: a scheduled order prints PICKUP or DELIVERY and its time in the header': () => {
+    const at = { scheduled_for: '2026-01-01T18:30:00.000Z' };
+    forEveryPath((name, render) => {
+      const pickup = flat(render({ ...pickupOrder, ...at }, false));
+      assertOrThrow(
+        pickup.indexOf('PICKUP 6:30 PM') > pickup.indexOf('Asha Kumar'),
+        `${name}: the pickup time follows the customer name`,
+      );
+      assertOrThrow(
+        pickup.indexOf('1x') > pickup.indexOf('PICKUP 6:30 PM'),
+        `${name}: the pickup time is in the header, above the items`,
+      );
+      assertOrThrow(!pickup.includes('DELIVERY 6'), `${name}: a pickup is not called a delivery`);
+      const delivery = flat(render({ ...deliveryOrder, ...at }, true));
+      assertOrThrow(
+        delivery.indexOf('DELIVERY 6:30 PM') > delivery.indexOf(NOTE_LINE),
+        `${name}: the delivery time follows the contact lines`,
+      );
+      assertOrThrow(!delivery.includes('PICKUP'), `${name}: a delivery is not called a pickup`);
+      for (const [label, order] of [
+        ['an order that is not scheduled', pickupOrder],
+        ['a scheduled dine-in order', { ...pickupOrder, ...at, type: 'dine_in' }],
+        ['an unreadable time', { ...pickupOrder, scheduled_for: 'soon' }],
+      ] as const) {
+        const text = render(order, false);
+        assertOrThrow(!/PICKUP|DELIVERY \d/.test(text), `${name}: ${label} prints no such line`);
+        assertEqualOrThrow(
+          text,
+          render({ ...order, scheduled_for: null }, false),
+          `${name}: ${label} prints the ticket it always did`,
+        );
+      }
+    });
+  },
+
+  'Case 4d: the pickup time is in the shop time zone and its clock format': () => {
+    const order = { ...pickupOrder, scheduled_for: '2026-01-02T02:05:00.000Z' };
+    const server = (timezone: string, locale: string) =>
+      flat(
+        rows(
+          renderKotViaDocument(order, order.items, 'Kitchen', {
+            ...kotOptions(42),
+            timezone,
+            locale,
+          }).data,
+        ).join('\n'),
+      );
+    assertOrThrow(
+      server('America/Vancouver', 'en-CA').includes('PICKUP 6:05 p.m.'),
+      'server ESC/POS: Vancouver time, as Canada writes it',
+    );
+    assertOrThrow(
+      /PICKUP 3:05(?! ?[AaPp])/.test(server('Europe/Berlin', 'de-DE')),
+      'server ESC/POS: a 24-hour country prints a 24-hour time',
+    );
+    const browser = flat(
+      rows(
+        frontend.kotEncoder.buildKotBytes(
+          order,
+          {
+            columns: 42,
+            paperWidth: 80,
+            stationName: 'Kitchen',
+            language: 'en',
+            timezone: 'America/Vancouver',
+          } as any,
+          [],
+        ),
+      ).join('\n'),
+    );
+    assertOrThrow(/PICKUP 6:05 PM/i.test(browser), 'browser ESC/POS: Vancouver time');
+    assertOrThrow(
+      flat(
+        rows(
+          renderKotViaDocument(
+            { ...order, scheduled_for: '2026-01-02 02:05:00' },
+            order.items,
+            'Kitchen',
+            { ...kotOptions(42), timezone: 'America/Vancouver', locale: 'en-CA' },
+          ).data,
+        ).join('\n'),
+      ).includes('PICKUP 6:05 p.m.'),
+      'an instant stored without its zone is read as UTC',
+    );
+  },
+
   'Case 5: the stored setting reaches the server and the browser print paths': async () => {
     const db = initTestDb();
     const owner = seedOwnerUser(db);
@@ -366,6 +473,37 @@ runCases('pizza-kot-customer-contact', {
       for (const line of [PHONE_LINE, ADDRESS_LINE, NOTE_LINE]) {
         assertOrThrow(onJob.includes(line), `server, setting on: prints "${line}"`);
       }
+
+      // Stored as `delivery`, the server keeps the phone off a pickup ticket.
+      await api(baseUrl, `/api/settings/${SETTING}`, {
+        method: 'PUT',
+        headers: owner.authHeader,
+        body: { value: 'delivery' },
+      });
+      const deliveryOnly = await api(baseUrl, '/api/settings/business', {
+        headers: owner.authHeader,
+      });
+      assertEqualOrThrow(deliveryOnly.data[SETTING], 'delivery', 'the route reports `delivery`');
+      const routePickup = { ...pickupOrder, customer: { name: customer.name } };
+      await printKOTDetailed(routePickup, items, 'Kitchen', false, capture.printer);
+      const pickupJob = flat(await capture.lastJob());
+      assertOrThrow(pickupJob.includes('Asha Kumar'), 'server, delivery only: pickup has the name');
+      assertOrThrow(
+        !pickupJob.includes('6045550100'),
+        'server, delivery only: pickup has no phone',
+      );
+      await printKOTDetailed(routeOrder, items, 'Kitchen', false, capture.printer);
+      assertOrThrow(
+        flat(await capture.lastJob()).includes(PHONE_LINE),
+        'server, delivery only: a delivery ticket has the phone',
+      );
+      frontend.posSettings.usePosSettingsStore.getState().hydrateReceiptSettings(deliveryOnly.data);
+      assertEqualOrThrow(
+        frontend.posSettings.usePosSettingsStore.getState().kotShowCustomerContact,
+        'delivery',
+        'the browser store keeps `delivery`',
+      );
+      frontend.posSettings.usePosSettingsStore.setState({ kotShowCustomerContact: false });
 
       // The browser reads the same settings response, then prints through the hook.
       frontend.api.get = async (url: string) =>

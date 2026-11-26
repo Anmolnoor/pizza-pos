@@ -142,7 +142,9 @@ All of FloCafe's id columns here are text, and an id is unique across its whole 
 
 Tax: drinks get the tax category with code `soda` when `drinksPst`; every other imported product gets `food`. Lane C's setup profile creates both. If a category does not exist (tax not set up), the import does not write the product's tax category: a new product has none, which FloCafe treats as untaxed, a product that already has one keeps it, and the import summary says so.
 
-`importMenu` also writes the parsed catalogue to `pizza_menu`, with the list of catalogue rows the load owns (`owned_rows`), and one `pizza_products` row per pizza, for the half-and-half product, and per deal. The next load switches off the rows on that list that it no longer writes. That stored catalogue is what the server validates recipes against. A pizza's row has the pizza's menu id as `menu_id` and kind `pizza`. The half-and-half product's row has `menu_id` `half-and-half` and kind `half-and-half`. A deal's row has the deal's menu id and kind `deal`.
+`importMenu` also writes the parsed catalogue to `pizza_menu`, with the list of catalogue rows this load or an earlier one made (`owned_rows`), and one `pizza_products` row per pizza, for the half-and-half product, and per deal. The next load switches off the rows on that list that it no longer writes, and keeps them on the list so that a later file can bring them back.
+
+The file is the master of the rows on that list: a load puts back a name or price changed by hand, switches on a row switched off by hand, restores one deleted in the back office and makes again one removed from the database. A load never takes over a row that is not on the list. When the menu derives the id of a category, product, variant, add-on group or add-on that exists and no load made, `importMenu` throws a `MenuImportError` that names it ("A product with the id pz-garden already exists and was not made by a menu load. Rename or remove it, then load the menu again.") and writes nothing. That stored catalogue is what the server validates recipes against. A pizza's row has the pizza's menu id as `menu_id` and kind `pizza`. The half-and-half product's row has `menu_id` `half-and-half` and kind `half-and-half`. A deal's row has the deal's menu id and kind `deal`.
 
 ## Tables (lane B1, `main/pizza/migrations.ts`)
 
@@ -159,11 +161,11 @@ CREATE TABLE IF NOT EXISTS pizza_products (
   updated_at  TEXT NOT NULL
 );
 
--- One row: the catalogue parsed from the last menu file loaded, and the catalogue rows that load owns.
+-- One row: the catalogue parsed from the last menu file loaded, and the catalogue rows menu loads have made.
 CREATE TABLE IF NOT EXISTS pizza_menu (
   id          INTEGER PRIMARY KEY CHECK (id = 1),
   catalog     TEXT NOT NULL,   -- JSON PizzaCatalog
-  owned_rows  TEXT NOT NULL DEFAULT '[]',   -- JSON array of "<table>:<id>", sorted: the categories, products, variants, add-on groups and add-ons the load wrote
+  owned_rows  TEXT NOT NULL DEFAULT '[]',   -- JSON array of "<table>:<id>", sorted: the categories, products, variants, add-on groups and add-ons a load wrote
   imported_at TEXT NOT NULL
 );
 

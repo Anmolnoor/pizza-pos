@@ -554,6 +554,21 @@ spec that loads a menu uses `loadSampleMenu` and, in `test.afterAll`, `clearPizz
 `frontend/e2e/helpers/pizza-menu.ts`, because the suite shares one database and a loaded menu puts
 its categories first in the POS.
 
+### Order types the POS offers
+
+The order type switch of the cart panel offers Dine-in, Takeaway, Delivery and Online. The setting
+`pos_order_types` narrows it: a comma-separated list of `dine_in`, `takeaway`, `delivery` and
+`online`, written with `PUT /api/settings/pos_order_types`. `GET /api/settings/business` returns it
+as an array, `hydrateReceiptSettings()` stores it as `posOrderTypes`, and `offeredOrderTypes()` in
+`frontend/src/lib/pizza/order-types.ts` applies it:
+
+- An absent or empty setting, or one that names no known type, offers every type.
+- The switch keeps its own order, and a new order starts on the first type offered.
+- An order being added to keeps its own type on the switch even when the setting hides it.
+
+The setting changes only the switch. The order routes accept every type whatever it holds, and no
+Settings screen exposes it. `tests/pizza-order-types.test.ts` covers the rule.
+
 ### Pizza screens
 
 [`frontend/src/components/pos/pizza/`](../../frontend/src/components/pos/pizza) holds the pizza
@@ -685,7 +700,7 @@ show with the pizza screens, while `usePizzaPos` returns a `PizzaPos`.
 | Module | Contents |
 | --- | --- |
 | `lib/pizza/quick-buttons.ts` | No React. `fetchQuickButtons`, `saveQuickButton`, `updateQuickButton`, and `deleteQuickButton` are the four requests. `buttonContents` gives what the route stores of a cart line: product, variant, the recipe through `lineRecipe`, add-ons as id and quantity, and the note. `buttonLine` builds the line a tap adds from the POS page's product list, with that product's own variant and add-on objects, so `generateCartItemId` gives the id of the line the button was saved from. It is `null` when the button's `usable` is false, when the list lacks the product, the variant, or an add-on, or when `buttonSoldOut` finds the variant sold out by `isVariantSoldOut`, the rule the size buttons of a pizza tile use. `buttonPrice` is the variant or product price plus the add-ons, at the variant's online price while the order is for an online platform, as the cart charges it; the server stores no price. `buttonSummary` is the one line a tile shows. `buttonSheetLine` turns a button into the line the pizza sheet opens on, under an id `sheetButtonId` reads back, and `isPizzaButton` says which buttons the sheet can open. `refusalMessage` reads the server's `error` text. |
-| `components/pos/pizza/useQuickButtons.tsx` | `useQuickButtonStore` is a Zustand store of the listed buttons and the open dialog; `load(customerId)` lists for that customer, `load()` lists again for the last one, and only the latest answer is kept. The area passes the id of `cart.customer`, the customer the cart panel shows, and the same customer is the one a save is for. `useQuickButtonRights()` mirrors the routes: `catalog.manage` for shop-wide buttons, `orders.create` for a customer's. `QuickButtonsBlock` is the block among the category blocks, with the number of shop-wide buttons. `QuickButtonSaveAction` is the "Save as quick button" control of a cart line and of the pizza sheet; it renders nothing for a user who may save for neither the shop nor the order's customer. `useQuickButtonSheet()` tells `usePizzaPos` whether a dialog is open and takes a pizza the sheet saves for a button. |
+| `components/pos/pizza/useQuickButtons.tsx` | `useQuickButtonStore` is a Zustand store of the listed buttons and the open dialog; `load(customerId)` lists for that customer, `load()` lists again for the last one, and only the latest answer is kept. The area passes the id of `cart.customer`, the customer the cart panel shows, when the user may keep a customer's buttons, and no customer otherwise, because the route refuses a customer's list to anyone else. The same customer is the one a save is for. `useQuickButtonRights()` mirrors the routes: `catalog.manage` for shop-wide buttons, `orders.create` for a customer's. `QuickButtonsBlock` is the block among the category blocks, with the number of shop-wide buttons. `QuickButtonSaveAction` is the "Save as quick button" control of a cart line and of the pizza sheet; it renders nothing for a user who may save for neither the shop nor the order's customer. `useQuickButtonSheet()` tells `usePizzaPos` whether a dialog is open and takes a pizza the sheet saves for a button. |
 | `components/pos/pizza/QuickButtons.tsx` | `QuickButtonsArea` sits in the product grid's scroll area above the tiles. It lists the buttons when it mounts and when the cart's customer changes, shows the page or the favourites row, and mounts the open dialog: save, label and colour, or the delete confirm. |
 
 The Quick Buttons block selects the id `quick-buttons` in place of a category. No product has that

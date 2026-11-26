@@ -29,6 +29,14 @@ export class MenuImportError extends Error {}
 
 /** The catalogue tables a menu owns rows in; the stored `owned_rows` names rows in these only. */
 const SWITCHABLE = ['categories', 'products', 'product_variants', 'addon_groups', 'addons'];
+/** What the owner is told a row of each is. */
+const NOUN: Record<string, string> = {
+  categories: 'A category',
+  products: 'A product',
+  product_variants: 'A product variant',
+  addon_groups: 'An add-on group',
+  addons: 'An add-on',
+};
 const LINKS = ['category_addon_groups', 'addon_group_product'];
 /** The column a derived id is tied to: a variant to its product, an add-on to its group. */
 const PARENT: Record<string, string> = {
@@ -201,7 +209,7 @@ function menuRows(
   return rows;
 }
 
-/** The `"<table>:<id>"` entries the last load stored, or none before the first load. */
+/** The `"<table>:<id>"` entries of every row a load made, or none before the first load. */
 function lastOwnedRows(db: Database.Database): string[] {
   const stored = db.prepare('SELECT owned_rows FROM pizza_menu WHERE id = 1').get() as
     | { owned_rows: string }
@@ -299,7 +307,8 @@ function writeRow(
 
 /**
  * Loads a menu in one transaction. A row the last load owned and this one does not is switched
- * off, not deleted, because orders point at it; a row no load owned is never touched.
+ * off, not deleted, because orders point at it; a row no load owned is never touched, so a menu
+ * that derives the id of one is refused.
  */
 export function importMenu(db: Database.Database, catalog: PizzaCatalog): ImportSummary {
   const currency = getTenantCurrency(db);
@@ -316,14 +325,17 @@ export function importMenu(db: Database.Database, catalog: PizzaCatalog): Import
     .filter((row) => SWITCHABLE.includes(row.table))
     .map((row) => `${row.table}:${row.key.id}`)
     .sort();
+  const ownedBefore = lastOwnedRows(db);
+  // A row that leaves the menu stays in the list, so the load that brings it back still owns it.
+  const everOwned = [...new Set([...ownedBefore, ...owned])].sort();
   rows.push({
     table: 'pizza_menu',
     key: { id: 1 },
-    values: { catalog: JSON.stringify(catalog), owned_rows: JSON.stringify(owned) },
+    values: { catalog: JSON.stringify(catalog), owned_rows: JSON.stringify(everOwned) },
   });
   // Categories last: one is judged after the menu's own products in it are switched off.
   const isCategory = (entry: string): number => Number(entry.startsWith('categories:'));
-  const gone = lastOwnedRows(db)
+  const gone = ownedBefore
     .filter((entry) => !owned.includes(entry))
     .sort((a, b) => isCategory(a) - isCategory(b));
   const summary: ImportSummary = {
@@ -335,6 +347,15 @@ export function importMenu(db: Database.Database, catalog: PizzaCatalog): Import
   };
 
   db.transaction(() => {
+    const ours = new Set(ownedBefore);
+    for (const entry of owned) {
+      const table = entry.split(':', 1)[0];
+      const id = entry.slice(table.length + 1);
+      if (!ours.has(entry) && db.prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(id))
+        throw new MenuImportError(
+          `${NOUN[table]} with the id ${id} already exists and was not made by a menu load. Rename or remove it, then load the menu again.`,
+        );
+    }
     const stamp = now();
     for (const row of rows) summary[writeRow(db, row, stamp)] += 1;
     for (const entry of gone) {

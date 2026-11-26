@@ -18,10 +18,10 @@ const text = (value: unknown): string =>
 /**
  * Contact lines for a raw order: the customer's phone number when the order
  * has one, then the delivery address and delivery note of a delivery order.
- * Empty unless `enabled`, the `kot_show_customer_contact` setting.
+ * `show` is the `kot_show_customer_contact` setting: `true` prints them, `'delivery'`
+ * prints them on delivery orders only, and anything else prints none.
  */
-export function kotContactLines(order: unknown, enabled: boolean): KotContactLine[] {
-  if (!enabled) return [];
+export function kotContactLines(order: unknown, show: unknown): KotContactLine[] {
   const row = (order ?? {}) as {
     type?: unknown;
     delivery_address?: unknown;
@@ -30,10 +30,31 @@ export function kotContactLines(order: unknown, enabled: boolean): KotContactLin
   };
   const phone = text(row.customer?.phone);
   const isDelivery = text(row.type) === 'delivery';
+  if (show !== true && !(show === 'delivery' && isDelivery)) return [];
   const lines: KotContactLine[] = [
     { concept: 'print.numberShort', text: phone },
     { concept: 'print.deliverySlip.address', text: isDelivery ? text(row.delivery_address) : '' },
     { concept: 'print.deliverySlip.deliveryNote', text: isDelivery ? text(row.delivery_note) : '' },
   ];
   return lines.filter((line) => line.text.length > 0);
+}
+
+/**
+ * `PICKUP 6:30 PM` or `DELIVERY 6:30 PM` for a scheduled takeaway or delivery order, in the
+ * store's time zone and the locale's clock format; null for any other order.
+ */
+export function kotScheduleLine(order: unknown, locale: string, timeZone?: string): string | null {
+  const row = (order ?? {}) as { type?: unknown; scheduled_for?: unknown };
+  const type = text(row.type);
+  const word = type === 'takeaway' ? 'PICKUP' : type === 'delivery' ? 'DELIVERY' : null;
+  // A stored instant is UTC, with or without the zone written out.
+  const at = new Date(text(row.scheduled_for).replace(/^(\S+) (\S+)$/, '$1T$2Z'));
+  if (!word || Number.isNaN(at.getTime())) return null;
+  const time = new Intl.DateTimeFormat(`${locale}-u-nu-latn`, {
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone,
+  }).format(at);
+  // Intl separates the day period with a narrow no-break space, which a thermal code page lacks.
+  return `${word} ${time.replace(/\s/g, ' ')}`;
 }

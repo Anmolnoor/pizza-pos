@@ -743,6 +743,80 @@ async function main() {
       );
     });
 
+    await testCase('16. A row no load made is never taken over', async () => {
+      const db = getDatabase();
+      load(sampleMenu());
+      const menu = sampleMenu();
+      pizzas(menu).push({ ...pizzas(menu)[0], id: 'byhand', number: 9, name: 'Sample special' });
+      const notOurs = (noun: string, id: string) =>
+        `${noun} with the id ${id} already exists and was not made by a menu load. Rename or remove it, then load the menu again.`;
+      const refused = async (file: unknown, message: string, why: string) => {
+        const before = dump();
+        let thrown = '';
+        try {
+          load(file);
+        } catch (error: any) {
+          thrown = error.message;
+        }
+        assertEqualOrThrow(thrown, message, why);
+        const answer = await post(owner, file);
+        assertEqualOrThrow(answer.status, 400, 'the route answers 400');
+        assertEqualOrThrow(answer.data.error, message, 'with the same message');
+        assertEqualOrThrow(dump(), before, 'and nothing is written');
+      };
+
+      db.prepare(
+        `INSERT INTO products (id, category_id, name, price, created_at, updated_at)
+         VALUES ('pz-byhand', 'cat-pizzas', 'Made by hand', 9.5, @old, @old)`,
+      ).run({ old: LONG_AGO });
+      await refused(menu, notOurs('A product', 'pz-byhand'), 'a hand-made product stops the load');
+      db.prepare("DELETE FROM products WHERE id = 'pz-byhand'").run();
+
+      db.prepare(
+        `INSERT INTO product_variants (id, product_id, name, price, created_at, updated_at)
+         VALUES ('pz-byhand-small', 'pz-garden', 'Made by hand', 9.5, @old, @old)`,
+      ).run({ old: LONG_AGO });
+      await refused(
+        menu,
+        notOurs('A product variant', 'pz-byhand-small'),
+        'a hand-made size stops the load',
+      );
+      db.prepare("DELETE FROM product_variants WHERE id = 'pz-byhand-small'").run();
+
+      // A category that is in the catalogue but in no load's list was not made by a load.
+      const owned = rows('SELECT owned_rows FROM pizza_menu')[0].owned_rows;
+      db.prepare('UPDATE pizza_menu SET owned_rows = ?').run(
+        JSON.stringify(
+          JSON.parse(owned).filter((entry: string) => entry !== 'categories:cat-deals'),
+        ),
+      );
+      await refused(sampleMenu(), notOurs('A category', 'cat-deals'), 'a category stops it too');
+      db.prepare('UPDATE pizza_menu SET owned_rows = ?').run(owned);
+
+      // What a load made stays the file's: switched off or removed by hand, the next load restores it.
+      db.prepare("UPDATE products SET is_active = 0 WHERE id = 'pz-garden'").run();
+      db.prepare("UPDATE categories SET is_active = 0 WHERE id = 'cat-sides'").run();
+      db.prepare("DELETE FROM product_variants WHERE id = 'pz-island-small'").run();
+      const restored = load(sampleMenu());
+      assertEqualOrThrow(restored.updated, 2, 'the product and category switched off are updated');
+      assertEqualOrThrow(restored.created, 1, 'the size removed by hand is made again');
+      same(lines('products', 'is_active', "id = 'pz-garden'"), ['1'], 'the product is on again');
+      same(lines('categories', 'is_active', "id = 'cat-sides'"), ['1'], 'the category is on again');
+      same(lines('product_variants', 'is_active', "id = 'pz-island-small'"), ['1'], 'the size too');
+
+      // A pizza that left the menu is still a load's own, so it can come back.
+      const without = sampleMenu();
+      pizzas(without).splice(1, 1);
+      load(without);
+      same(lines('products', 'is_active', "id = 'pz-island'"), ['0'], 'gone from the file: off');
+      load(without);
+      assertEqualOrThrow(load(sampleMenu()).created, 0, 'and back with the file, not refused');
+      same(lines('products', 'is_active', "id = 'pz-island'"), ['1'], 'on again');
+
+      assertEqualOrThrow(load(menu).created, 5, 'with the id free, the new pizza loads');
+      load(sampleMenu());
+    });
+
     closeDatabase();
     let headers: Record<string, string> = {};
     const order = (items: unknown[]) =>

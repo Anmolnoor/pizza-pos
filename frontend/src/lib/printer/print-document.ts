@@ -329,7 +329,7 @@ export function buildFrontendKotDocument(
     language: string;
     timezone?: string;
     showLargeOrderNumber?: boolean;
-    showCustomerContact?: boolean;
+    showCustomerContact?: boolean | 'delivery';
   },
 ): KotDocument {
   const orderShape = order as Order & {
@@ -387,7 +387,8 @@ export function buildFrontendKotDocument(
         orderShape.orderNotes,
         orderShape.notes,
       ).trim(),
-      contactLines: kotContactLines(order, opts.showCustomerContact === true),
+      contactLines: kotContactLines(order, opts.showCustomerContact),
+      ...(order.scheduled_for ? { scheduledFor: String(order.scheduled_for) } : {}),
     },
     items: items
       .filter((item) => isKotItemPending(item.status))
