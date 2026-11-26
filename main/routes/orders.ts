@@ -1344,7 +1344,7 @@ function resolveOrderLevelDiscountAmount(
       ? configuredValue
       : existingDiscountAmount;
   if (flatDiscount <= 0) return 0;
-  return Math.min(subtotal, Number(flatDiscount.toFixed(decimals)));
+  return discountOn(subtotal, 'amount', flatDiscount, decimals);
 }
 
 interface OrderItemRow {
