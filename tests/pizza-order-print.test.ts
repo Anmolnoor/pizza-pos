@@ -1,7 +1,7 @@
 /**
  * The recipe on an order line, on the server print paths and the kitchen
- * display: the kitchen ticket and the classic, compact and merchant-template
- * receipts print the recipe's detail lines under FloCafe's own item heading,
+ * display: the kitchen ticket and the classic, compact, merchant-template and
+ * tax-pack receipts print the recipe's detail lines under FloCafe's own item heading,
  * wrapped for the printer's real column count; a recipe that cannot be printed
  * leaves a warning line; and a restricted station's item carries the recipe.
  *
@@ -21,7 +21,11 @@ const {
 const { seedPizzaMenu, writePizzaMenu } = require('./helpers/pizza-fixture');
 const net = require('node:net');
 const { projectKdsItem } = require('../main/db');
-const { printKOTDetailed, prepareReceipt } = require('../main/printers/thermal');
+const {
+  printKOTDetailed,
+  prepareReceipt,
+  renderPluginReceipt,
+} = require('../main/printers/thermal');
 const { orderRoutes } = require('../main/routes/orders');
 const { billRoutes } = require('../main/routes/bills');
 const { getEffectiveOrderItems, printerRoutes } = require('../main/routes/printers');
@@ -97,6 +101,15 @@ const PRINTERS = [
   },
 ];
 const business = { name: 'Sample Pizza Co.', country: 'US', currency: 'USD', timezone: 'UTC' };
+/** A receipt template as a tax pack installs it, with the renderer's default layout. */
+const taxPackTemplate = {
+  template_id: 'sample-pack-receipt',
+  renderer_json: JSON.stringify({ id: 'flocafe-thermal-receipt-template', version: 1 }),
+  template_payload_json: JSON.stringify({
+    format: 'escpos-line-template-v1',
+    widthProfiles: [42, 48].map((columns) => ({ columns, layout: {} })),
+  }),
+};
 
 /** A loopback socket that stands in for a network printer and keeps what it is sent. */
 async function startCapturePrinter() {
@@ -203,6 +216,18 @@ async function main() {
       'classic receipt': receipt('classic'),
       'compact receipt': receipt('compact'),
       'merchant receipt': receipt(merchant),
+      'tax-pack receipt': rows(
+        renderPluginReceipt(
+          taxPackTemplate,
+          placed.order,
+          placed.bill,
+          business,
+          printer.columns,
+          false,
+          false,
+          'full',
+        ),
+      ),
     };
   }
 
