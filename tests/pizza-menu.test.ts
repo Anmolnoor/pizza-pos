@@ -572,7 +572,7 @@ runCases('Pizza menu', {
   },
 
   'Case 13: names, labels and descriptions are short and hold no control bytes': () => {
-    const long = 'x'.repeat(121);
+    const long = 'x'.repeat(241);
     const fields: Array<[set: (menu: any, value: string) => void, at: string]> = [
       [(menu, value) => (menu.sizes.pizza[0].label = value), 'sizes.pizza[0].label'],
       [
@@ -617,14 +617,14 @@ runCases('Pizza menu', {
       ],
     ];
     for (const [set, at] of fields) {
-      rejected((menu) => set(menu, long), at, `121 characters at ${at}`);
+      rejected((menu) => set(menu, long), at, `241 characters at ${at}`);
       rejected((menu) => set(menu, 'Cut\x1Bhere'), at, `an escape byte at ${at}`);
       rejected((menu) => set(menu, 'Two\nlines'), at, `a line break at ${at}`);
       const atCap = structuredClone(sample);
-      set(atCap, 'x'.repeat(120));
+      set(atCap, 'x'.repeat(240));
       parseMenuFile(atCap);
     }
-    assertOrThrow(true, '120 characters is accepted in every field');
+    assertOrThrow(true, '240 characters is accepted in every field');
   },
 
   'Case 14: every list has a cap': () => {

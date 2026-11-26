@@ -22,7 +22,7 @@ What `parseMenuFile` rejects, each with a `MenuError` naming the entry. Nothing 
 - A side with more than one modifier, or a modifier that is not a required single choice (`required` true, `choose` 1 or absent), because the import always creates a required single-choice group.
 - A deal with more than one drink pick (a `pop` pick and a `choice` pick count as one each), more than one `choice` pick, more than one `wing-flavour` pick, a `wing-flavour` pick whose count is not 1, a `2l` option whose count is not 1, a `pizza` pick with an unknown size, a `pizza` or `pop` pick whose count is below 1, a `choice` pick whose options are not exactly one `pop` and one `2l`, or a `wing-flavour` pick when there is no `wings` side.
 - An id that does not match `^[a-z0-9][a-z0-9-]{0,39}$`: lower-case letters, digits and hyphens, starting with a letter or digit, at most 40 characters. This holds for every size, pizza, side, modifier, option, drink, drink variant and deal id. Ids become parts of database keys.
-- A name, label or description longer than 120 characters, or holding a control character (a line break and a tab count). These are printed on tickets and receipts.
+- A name, label or description longer than 240 characters, or holding a control character (a line break and a tab count). These are printed on tickets and receipts.
 - A list longer than its limit:
 
   | List | Most entries |

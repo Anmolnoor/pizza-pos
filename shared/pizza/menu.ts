@@ -25,7 +25,7 @@ const CATEGORY_IDS = ['pizzas', 'sides', 'drinks', 'deals'];
 /** Limits on a menu file. Ids become parts of database keys, and names are printed. */
 const ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const CONTROL_BYTE = /[\x00-\x1F\x7F]/;
-const MAX_TEXT = 120;
+const MAX_TEXT = 240;
 const MAX_INGREDIENTS = 60;
 const MAX_ENTRIES = { pizzas: 200, sides: 50, drinks: 50, deals: 50, sizes: 12, other: 30 };
 
