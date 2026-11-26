@@ -2,8 +2,8 @@
  * Customer contact on the kitchen ticket: with `kot_show_customer_contact` on,
  * the header prints the customer's phone number, and for a delivery order the
  * delivery address and delivery note. Off (the default) changes nothing. Set to
- * `delivery`, only a delivery ticket prints them. A scheduled pickup or delivery
- * order's header also prints its time.
+ * `delivery`, only a delivery ticket prints them. A scheduled order's header also
+ * prints the time it is scheduled for.
  *
  * Run: npm run test:pizza-kot-customer-contact
  */
@@ -26,6 +26,7 @@ const { buildEscPos } = require('../main/printers/formatting-helpers');
 const { printKOTDetailed } = require('../main/printers/thermal');
 const { settingsRoutes } = require('../main/routes/settings');
 const { isKotDocument } = require('../shared/print');
+const { kotScheduleLine } = require('../shared/print/kot-contact');
 
 const frontend = loadFrontend();
 
@@ -338,6 +339,10 @@ runCases('pizza-kot-customer-contact', {
         render(pickupOrder, false),
         `${name}: a pickup ticket is the same as with the setting off`,
       );
+      const online = flat(render({ ...deliveryOrder, type: 'online' }, 'delivery'));
+      assertOrThrow(online.includes('Asha Kumar'), `${name}: an online order has the name`);
+      assertOrThrow(!online.includes('6045550100'), `${name}: and no phone number`);
+      assertOrThrow(!online.includes('West Broadway'), `${name}: and no address`);
       assertEqualOrThrow(
         render(deliveryOrder, 'delivery'),
         render(deliveryOrder, true),
@@ -346,32 +351,39 @@ runCases('pizza-kot-customer-contact', {
     });
   },
 
-  'Case 4c: a scheduled order prints PICKUP or DELIVERY and its time in the header': () => {
-    const at = { scheduled_for: '2026-01-01T18:30:00.000Z' };
+  'Case 4c: a scheduled order prints SCHEDULED and its time in the header': () => {
+    // Later today on the test's UTC clock, so the line carries the time alone.
+    const today = new Date().toISOString().slice(0, 10);
+    const at = { scheduled_for: `${today}T18:30:00.000Z` };
     forEveryPath((name, render) => {
       const pickup = flat(render({ ...pickupOrder, ...at }, false));
       assertOrThrow(
-        pickup.indexOf('PICKUP 6:30 PM') > pickup.indexOf('Asha Kumar'),
-        `${name}: the pickup time follows the customer name`,
+        pickup.indexOf('SCHEDULED 6:30 PM') > pickup.indexOf('Asha Kumar'),
+        `${name}: the time follows the customer name`,
       );
       assertOrThrow(
-        pickup.indexOf('1x') > pickup.indexOf('PICKUP 6:30 PM'),
-        `${name}: the pickup time is in the header, above the items`,
+        pickup.indexOf('1x') > pickup.indexOf('SCHEDULED 6:30 PM'),
+        `${name}: the time is in the header, above the items`,
       );
-      assertOrThrow(!pickup.includes('DELIVERY 6'), `${name}: a pickup is not called a delivery`);
+      assertOrThrow(!/PICKUP|DELIVERY \d/.test(pickup), `${name}: it is not called a pickup time`);
       const delivery = flat(render({ ...deliveryOrder, ...at }, true));
       assertOrThrow(
-        delivery.indexOf('DELIVERY 6:30 PM') > delivery.indexOf(NOTE_LINE),
-        `${name}: the delivery time follows the contact lines`,
+        delivery.indexOf('SCHEDULED 6:30 PM') > delivery.indexOf(NOTE_LINE),
+        `${name}: on a delivery ticket it follows the contact lines`,
       );
-      assertOrThrow(!delivery.includes('PICKUP'), `${name}: a delivery is not called a pickup`);
+      const another = flat(
+        render({ ...pickupOrder, scheduled_for: '2026-01-01T18:30:00.000Z' }, false),
+      );
+      assertOrThrow(
+        another.includes('SCHEDULED 1/1/2026 6:30 PM'),
+        `${name}: a time on another day carries the date`,
+      );
       for (const [label, order] of [
         ['an order that is not scheduled', pickupOrder],
-        ['a scheduled dine-in order', { ...pickupOrder, ...at, type: 'dine_in' }],
         ['an unreadable time', { ...pickupOrder, scheduled_for: 'soon' }],
       ] as const) {
         const text = render(order, false);
-        assertOrThrow(!/PICKUP|DELIVERY \d/.test(text), `${name}: ${label} prints no such line`);
+        assertOrThrow(!text.includes('SCHEDULED'), `${name}: ${label} prints no such line`);
         assertEqualOrThrow(
           text,
           render({ ...order, scheduled_for: null }, false),
@@ -381,25 +393,48 @@ runCases('pizza-kot-customer-contact', {
     });
   },
 
-  'Case 4d: the pickup time is in the shop time zone and its clock format': () => {
+  'Case 4d: the scheduled time is in the shop time zone and its clock format': () => {
     const order = { ...pickupOrder, scheduled_for: '2026-01-02T02:05:00.000Z' };
-    const server = (timezone: string, locale: string) =>
-      flat(
-        rows(
-          renderKotViaDocument(order, order.items, 'Kitchen', {
-            ...kotOptions(42),
-            timezone,
-            locale,
-          }).data,
-        ).join('\n'),
-      );
-    assertOrThrow(
-      server('America/Vancouver', 'en-CA').includes('PICKUP 6:05 p.m.'),
-      'server ESC/POS: Vancouver time, as Canada writes it',
+    // 2 January 02:05 UTC is 1 January 18:05 in Vancouver and 2 January 03:05 in Berlin.
+    const line = (locale: string, timezone: string, now: string, stored = order.scheduled_for) =>
+      kotScheduleLine({ ...order, scheduled_for: stored }, locale, timezone, new Date(now));
+    assertEqualOrThrow(
+      line('en-CA', 'America/Vancouver', '2026-01-02T01:00:00Z'),
+      'SCHEDULED 6:05 p.m.',
+      'printed the same Vancouver day: the time, as Canada writes it',
+    );
+    assertEqualOrThrow(
+      line('en-CA', 'America/Vancouver', '2026-01-01T07:00:00Z'),
+      'SCHEDULED 2026-01-01 6:05 p.m.',
+      'printed the Vancouver day before: the date too, as Canada writes it',
+    );
+    assertEqualOrThrow(
+      line('de-DE', 'Europe/Berlin', '2026-01-02T01:00:00Z'),
+      'SCHEDULED 3:05',
+      'a 24-hour country prints a 24-hour time',
+    );
+    assertEqualOrThrow(
+      line('de-DE', 'Europe/Berlin', '2026-01-01T12:00:00Z'),
+      'SCHEDULED 2.1.2026 3:05',
+      'and its own date',
+    );
+    assertEqualOrThrow(
+      line('en-CA', 'America/Vancouver', '2026-01-02T01:00:00Z', '2026-01-02 02:05:00'),
+      'SCHEDULED 6:05 p.m.',
+      'an instant stored without its zone is read as UTC',
+    );
+    const server = flat(
+      rows(
+        renderKotViaDocument(order, order.items, 'Kitchen', {
+          ...kotOptions(42),
+          timezone: 'America/Vancouver',
+          locale: 'en-CA',
+        }).data,
+      ).join('\n'),
     );
     assertOrThrow(
-      /PICKUP 3:05(?! ?[AaPp])/.test(server('Europe/Berlin', 'de-DE')),
-      'server ESC/POS: a 24-hour country prints a 24-hour time',
+      server.includes('SCHEDULED 2026-01-01 6:05 p.m.'),
+      'server ESC/POS: the renderer passes its locale and time zone',
     );
     const browser = flat(
       rows(
@@ -416,20 +451,7 @@ runCases('pizza-kot-customer-contact', {
         ),
       ).join('\n'),
     );
-    assertOrThrow(/PICKUP 6:05 PM/i.test(browser), 'browser ESC/POS: Vancouver time');
-    assertOrThrow(
-      flat(
-        rows(
-          renderKotViaDocument(
-            { ...order, scheduled_for: '2026-01-02 02:05:00' },
-            order.items,
-            'Kitchen',
-            { ...kotOptions(42), timezone: 'America/Vancouver', locale: 'en-CA' },
-          ).data,
-        ).join('\n'),
-      ).includes('PICKUP 6:05 p.m.'),
-      'an instant stored without its zone is read as UTC',
-    );
+    assertOrThrow(/SCHEDULED 1\/1\/2026 6:05 PM/i.test(browser), 'browser ESC/POS: the same');
   },
 
   'Case 5: the stored setting reaches the server and the browser print paths': async () => {

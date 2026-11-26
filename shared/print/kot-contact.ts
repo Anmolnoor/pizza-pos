@@ -40,21 +40,25 @@ export function kotContactLines(order: unknown, show: unknown): KotContactLine[]
 }
 
 /**
- * `PICKUP 6:30 PM` or `DELIVERY 6:30 PM` for a scheduled takeaway or delivery order, in the
- * store's time zone and the locale's clock format; null for any other order.
+ * `SCHEDULED 6:30 PM` for an order with a `scheduled_for`, the time it goes to the kitchen, in
+ * the store's time zone and the locale's clock format; null for any other order. A time on
+ * another day than `now`, the day the ticket prints, carries its date: `SCHEDULED 1/2/2026 6:30 PM`.
  */
-export function kotScheduleLine(order: unknown, locale: string, timeZone?: string): string | null {
-  const row = (order ?? {}) as { type?: unknown; scheduled_for?: unknown };
-  const type = text(row.type);
-  const word = type === 'takeaway' ? 'PICKUP' : type === 'delivery' ? 'DELIVERY' : null;
+export function kotScheduleLine(
+  order: unknown,
+  locale: string,
+  timeZone?: string,
+  now = new Date(),
+): string | null {
   // A stored instant is UTC, with or without the zone written out.
-  const at = new Date(text(row.scheduled_for).replace(/^(\S+) (\S+)$/, '$1T$2Z'));
-  if (!word || Number.isNaN(at.getTime())) return null;
-  const time = new Intl.DateTimeFormat(`${locale}-u-nu-latn`, {
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZone,
-  }).format(at);
+  const stored = text((order as { scheduled_for?: unknown } | null)?.scheduled_for);
+  const at = new Date(stored.replace(/^(\S+) (\S+)$/, '$1T$2Z'));
+  if (!stored || Number.isNaN(at.getTime())) return null;
+  const format = (options: Intl.DateTimeFormatOptions, instant: Date): string =>
+    new Intl.DateTimeFormat(`${locale}-u-nu-latn`, { ...options, timeZone }).format(instant);
+  const day = { year: 'numeric', month: 'numeric', day: 'numeric' } as const;
+  const date = format(day, at);
+  const time = format({ hour: 'numeric', minute: '2-digit' }, at);
   // Intl separates the day period with a narrow no-break space, which a thermal code page lacks.
-  return `${word} ${time.replace(/\s/g, ' ')}`;
+  return `SCHEDULED ${date === format(day, now) ? '' : `${date} `}${time}`.replace(/\s/g, ' ');
 }

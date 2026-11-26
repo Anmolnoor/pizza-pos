@@ -896,7 +896,7 @@ export interface KotOrderSnapshot {
   readonly orderNotes?: string;
   /** Customer contact lines, when the merchant prints them on the ticket. */
   readonly contactLines?: readonly KotContactLine[];
-  /** The instant a scheduled order is for, when it has one. */
+  /** The instant a scheduled order goes to the kitchen, when it has one. */
   readonly scheduledFor?: string;
 }
 
@@ -935,7 +935,7 @@ export interface KotHeaderBlock {
     readonly label: SemanticLabel;
     readonly text: DirectionalText;
   }[];
-  /** The instant a scheduled order is for; the renderer prints it as a pickup or delivery time. */
+  /** The instant a scheduled order goes to the kitchen; the renderer prints it as a time. */
   readonly scheduledFor?: string;
   readonly timeLabel: SemanticLabel;
   /** Canonical stored timestamp; presentation formatting is a renderer duty. */

@@ -96,8 +96,8 @@ The kitchen display has three more views: `KdsItemModal.tsx:62-110`, `KdsTabsVie
 - The two ESC/POS renderers already differ outside pizza lines (heading prefix, blank lines, add-on indent). The guarantee is "same detail lines", not "same ticket".
 - The server's print route uses the client's `items` array when one is sent (`main/routes/printers.ts:1474`), so what prints is what the browser holds.
 - Receipts: classic and compact are driven by the kernel's bill document, so `detailLines` on `OrderItemSnapshot` and `ItemTableRow` (`shared/print/document.ts:103-110, 313-323`) reaches `main/printers/document-classic.ts:809`, `document-compact.ts:429` and `frontend/src/lib/printer/receipt-encoder.ts:813, 1366`. The detailed receipt, tax bill, compliance templates, delivery slip and payment ticket are not document-driven and each needs its own edit if the shop uses it.
-- The ticket header prints the phone number and delivery address through `kotContactLines` (`shared/print/kot-contact.ts`), under the setting `kot_show_customer_contact`: `true` on every ticket, `delivery` on delivery tickets only. A pickup ticket then carries the customer's name and nothing else about them.
-- A scheduled order's header prints `PICKUP <time>` or `DELIVERY <time>` through `kotScheduleLine` in the same file, on all four paths. The time is upstream's `scheduled_for`, which is when the order is released to the kitchen and the ticket prints, not a separate "ready at" time: upstream has no lead time, so the counter enters the time the kitchen should start. The kitchen display shows no such line, because its payload has no `scheduled_for`.
+- The ticket header prints the phone number and delivery address through `kotContactLines` (`shared/print/kot-contact.ts`), under the setting `kot_show_customer_contact`: `true` on every ticket, `delivery` on delivery tickets only. Under `delivery` a pickup ticket carries the customer's name and nothing else about them, and so does the ticket of an online or aggregator order, whatever address it has.
+- A scheduled order's header prints `SCHEDULED <time>` through `kotScheduleLine` in the same file, on all four paths, with the date when the scheduled day is not the day the ticket prints. The time is upstream's `scheduled_for`, which is when the order is released to the kitchen, not when the customer comes: upstream has no lead time, so the line does not say pickup or delivery, and the counter enters the time the kitchen should start. The line needs no setting of the fork's: a store that already has scheduled orders on prints it on scheduled tickets as soon as it upgrades. The kitchen display shows no such line, because its payload has no `scheduled_for`.
 
 ## D6. POS hooks
 
@@ -149,7 +149,7 @@ A new profile `pizza` next to `empty`, `express` and `demo` (`main/routes/auth.t
 | `auto_print_kot` | `true` | Default is `false` (`main/routes/settings.ts:182`) |
 | `cash_drawer_pulse_enabled`, `cash_drawer_pulse_methods` | `true`, `["cash"]` | The default method list includes card |
 | `kot_show_customer_contact` | `delivery` | Kitchen tickets print the phone number and address on delivery orders only; a pickup ticket has the name |
-| `scheduled_orders_enabled` | `true` | A phone order has a time: the POS offers upstream's "Send to kitchen at", and the ticket prints it |
+| `scheduled_orders_enabled` | `true` | A phone order has a time: the POS offers upstream's "Send to kitchen at", and the ticket prints it as `SCHEDULED <time>` |
 | `pos_order_types` | `takeaway,delivery` | The order type switch offers pickup and delivery, and starts on Takeaway. The fork's own setting: upstream can hide Dine-in only by changing `business_type`, and nothing hides Online |
 | `taxes_enabled` | `true` | Default is `false` (`main/db.ts:11240`) |
 

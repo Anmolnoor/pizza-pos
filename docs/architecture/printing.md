@@ -45,7 +45,7 @@ checks the consumer boundary from outside the kernel; it does not close this gap
 | `bilingual.ts` | `BilingualLabel` and width-fit strategies. |
 | `width.ts` | Grapheme- and display-cell-aware measurement and truncation. |
 | `detail-lines.ts` | `readDetailLines` and `detailLineRows`: the ready-formatted lines an order item prints under its heading, with their indent and wrap rule. |
-| `kot-contact.ts` | `kotContactLines`: the customer phone, delivery address, and delivery note a kitchen ticket header prints when `kot_show_customer_contact` allows it. `kotScheduleLine`: the pickup or delivery time of a scheduled order. |
+| `kot-contact.ts` | `kotContactLines`: the customer phone, delivery address, and delivery note a kitchen ticket header prints when `kot_show_customer_contact` allows it. `kotScheduleLine`: the scheduled time of a scheduled order. |
 | `thermal-capabilities.ts` | Capability shape, code pages, representability, and warning policy. |
 | `merchant-template.ts` | Merchant template payload validation and canonical serialization. |
 | `raster.ts`, `raster-canvas.ts`, `image-raster.ts` | Raster band construction, shared canvas painter (`paintRasterRequest`), ESC/POS raster encoding, and 1-bit logo trimming, contrast normalization, dithering, and packing. |
@@ -308,7 +308,7 @@ directly after the customer name. It has three values:
 | Stored value | Tickets that print contact lines |
 | --- | --- |
 | `true` | Every ticket |
-| `delivery` | Tickets of a `delivery` order only; any other ticket carries the customer's name and no phone number |
+| `delivery` | Tickets of a `delivery` order only; any other ticket, a pickup order's and an online or aggregator order's included, carries the customer's name and no phone number or address |
 | Anything else, or absent | None |
 
 `kotContactLines()` in `shared/print/kot-contact.ts` is the one rule every path applies:
@@ -341,21 +341,26 @@ No Settings screen exposes the setting; it is written with
 `PUT /api/settings/kot_show_customer_contact`. `tests/pizza-kot-customer-contact.test.ts` covers
 the rule and the route from the stored setting to the printed ticket.
 
-### Pickup and delivery time on kitchen tickets
+### Scheduled time on kitchen tickets
 
 The ticket of a [scheduled order](order-lifecycle.md#scheduled-orders-and-kitchen-release) prints
-one more header line, after the contact lines and before the time line: `PICKUP <time>` for a
-`takeaway` order and `DELIVERY <time>` for a `delivery` order. `<time>` is the order's
-`scheduled_for`, the instant the order is released to the kitchen, as hours and minutes in the store
-timezone and in the clock format of the ticket's locale (`PICKUP 6:30 PM`, `PICKUP 18:30`). An order
-with no `scheduled_for`, or of another type, prints no such line, so a store with
-`scheduled_orders_enabled` off prints the tickets it always did.
+one more header line, after the contact lines and before the time line: `SCHEDULED <time>`.
+`<time>` is the order's `scheduled_for`, the instant the order is released to the kitchen, as hours
+and minutes in the store timezone and in the clock format of the ticket's locale
+(`SCHEDULED 6:30 PM`, `SCHEDULED 18:30`). It is not a pickup or delivery time; the order type line
+says which of the two the order is. When the scheduled day is not the day the ticket prints, as on
+a ticket printed by an early manual release or a reprint, the date comes first in the locale's
+numeric form, the one receipts print (`SCHEDULED 1/2/2026 6:30 PM`).
+
+Every order with a `scheduled_for` prints the line, whatever any setting holds, so a store that
+schedules orders prints it on those tickets. An order with no `scheduled_for` prints no such line:
+a store with `scheduled_orders_enabled` off prints the tickets it always did.
 
 `kotScheduleLine()` in `shared/print/kot-contact.ts` builds the line for all four paths. The two
 browser paths that read the raw order call it with the order. The document paths carry the instant
 as `KotOrderSnapshot.scheduledFor` and `KotHeaderBlock.scheduledFor`, and `renderKotDocumentToLines`
-calls it with the header's order type. The words are English on every ticket. Kitchen display
-payloads do not carry `scheduled_for`, so the display shows no such line.
+calls it with that. The word is English on every ticket. Kitchen display payloads do not carry
+`scheduled_for`, so the display shows no such line.
 
 ## Transports
 

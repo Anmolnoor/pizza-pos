@@ -234,6 +234,26 @@ function lastOwnedRows(db: Database.Database): string[] {
   );
 }
 
+/** The `"<table>:<id>"` entries of the switchable rows among a menu's rows, sorted. */
+const switchable = (rows: Row[]): string[] =>
+  rows
+    .filter((row) => SWITCHABLE.includes(row.table))
+    .map((row) => `${row.table}:${row.key.id}`)
+    .sort();
+
+/** What the previous load wrote, worked out from the catalogue it stored; null when that cannot be read. */
+function previousLoadRows(db: Database.Database): string[] | null {
+  const stored = db.prepare('SELECT catalog FROM pizza_menu WHERE id = 1').get() as
+    | { catalog: string }
+    | undefined;
+  if (!stored) return [];
+  try {
+    return switchable(menuRows(JSON.parse(stored.catalog), Number, { food: null, drinks: null }));
+  } catch {
+    return null;
+  }
+}
+
 /** `food` and `soda` as the store's active tax pack knows them, or null where it has no such category. */
 function taxCategories(db: Database.Database): { food: string | null; soda: string | null } {
   const country =
@@ -321,13 +341,13 @@ export function importMenu(db: Database.Database, catalog: PizzaCatalog): Import
   const { food, soda } = taxCategories(db);
   const tax = { food, drinks: catalog.drinksPst ? soda : food };
   const rows = menuRows(catalog, money, tax);
-  const owned = rows
-    .filter((row) => SWITCHABLE.includes(row.table))
-    .map((row) => `${row.table}:${row.key.id}`)
-    .sort();
+  const owned = switchable(rows);
   const ownedBefore = lastOwnedRows(db);
   // A row that leaves the menu stays in the list, so the load that brings it back still owns it.
   const everOwned = [...new Set([...ownedBefore, ...owned])].sort();
+  // Only what the previous load wrote is switched off, so a row switched back on by hand stays on.
+  // With that load's catalogue unreadable, everything a load ever made stands in for it.
+  const previous = previousLoadRows(db) ?? ownedBefore;
   rows.push({
     table: 'pizza_menu',
     key: { id: 1 },
@@ -335,8 +355,8 @@ export function importMenu(db: Database.Database, catalog: PizzaCatalog): Import
   });
   // Categories last: one is judged after the menu's own products in it are switched off.
   const isCategory = (entry: string): number => Number(entry.startsWith('categories:'));
-  const gone = ownedBefore
-    .filter((entry) => !owned.includes(entry))
+  const gone = previous
+    .filter((entry) => ownedBefore.includes(entry) && !owned.includes(entry))
     .sort((a, b) => isCategory(a) - isCategory(b));
   const summary: ImportSummary = {
     created: 0,
@@ -348,12 +368,24 @@ export function importMenu(db: Database.Database, catalog: PizzaCatalog): Import
 
   db.transaction(() => {
     const ours = new Set(ownedBefore);
+    // A pizza or deal loaded before the list kept rows that left the menu: its `pizza_products` row
+    // says a load made it, and its sizes with it.
+    const madeBefore = (productId: unknown): boolean =>
+      !ours.has(`products:${productId}`) &&
+      Boolean(db.prepare('SELECT 1 FROM pizza_products WHERE product_id = ?').get(productId));
     for (const entry of owned) {
       const table = entry.split(':', 1)[0];
       const id = entry.slice(table.length + 1);
-      if (!ours.has(entry) && db.prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(id))
+      if (ours.has(entry)) continue;
+      const found = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id) as
+        | { product_id?: string }
+        | undefined;
+      const known =
+        (table === 'products' && madeBefore(id)) ||
+        (table === 'product_variants' && madeBefore(found?.product_id));
+      if (found && !known)
         throw new MenuImportError(
-          `${NOUN[table]} with the id ${id} already exists and was not made by a menu load. Rename or remove it, then load the menu again.`,
+          `${NOUN[table]} with the id ${id} already exists and was not made by a menu load. Give that item a different id in the menu file, then load it again.`,
         );
     }
     const stamp = now();

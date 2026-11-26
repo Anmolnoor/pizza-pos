@@ -422,7 +422,7 @@ function kotHeaderLines(
     sourceLines?.push(...wrapped);
     sourceControlLines?.push(...wrapped);
   }
-  const scheduled = { type: header.orderType?.code, scheduled_for: header.scheduledFor };
+  const scheduled = { scheduled_for: header.scheduledFor };
   const schedule = kotScheduleLine(scheduled, options.locale ?? 'en-US', options.timezone);
   if (schedule) {
     const printable = thermalSafeText(

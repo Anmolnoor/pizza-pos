@@ -749,7 +749,7 @@ async function main() {
       const menu = sampleMenu();
       pizzas(menu).push({ ...pizzas(menu)[0], id: 'byhand', number: 9, name: 'Sample special' });
       const notOurs = (noun: string, id: string) =>
-        `${noun} with the id ${id} already exists and was not made by a menu load. Rename or remove it, then load the menu again.`;
+        `${noun} with the id ${id} already exists and was not made by a menu load. Give that item a different id in the menu file, then load it again.`;
       const refused = async (file: unknown, message: string, why: string) => {
         const before = dump();
         let thrown = '';
@@ -770,6 +770,15 @@ async function main() {
          VALUES ('pz-byhand', 'cat-pizzas', 'Made by hand', 9.5, @old, @old)`,
       ).run({ old: LONG_AGO });
       await refused(menu, notOurs('A product', 'pz-byhand'), 'a hand-made product stops the load');
+      // Deleting it in the back office only stamps deleted_at: the row is still someone else's.
+      db.prepare("UPDATE products SET deleted_at = ?, is_active = 0 WHERE id = 'pz-byhand'").run(
+        LONG_AGO,
+      );
+      await refused(
+        menu,
+        notOurs('A product', 'pz-byhand'),
+        'deleted in the back office, it still does',
+      );
       db.prepare("DELETE FROM products WHERE id = 'pz-byhand'").run();
 
       db.prepare(
@@ -812,6 +821,29 @@ async function main() {
       load(without);
       assertEqualOrThrow(load(sampleMenu()).created, 0, 'and back with the file, not refused');
       same(lines('products', 'is_active', "id = 'pz-island'"), ['1'], 'on again');
+
+      // Switched on by hand after it left the file, a row stays on: only what the last load wrote is switched off.
+      load(without);
+      db.prepare("UPDATE products SET is_active = 1 WHERE id = 'pz-island'").run();
+      assertEqualOrThrow(load(without).deactivated, 0, 'a later load leaves it on');
+      same(lines('products', 'is_active', "id = 'pz-island'"), ['1'], 'still on');
+      assertEqualOrThrow(load(sampleMenu()).created, 0, 'and the file still takes it back');
+
+      // A pizza or deal that left the menu before loads kept the list is known by its pizza_products row.
+      load(without);
+      const keeping = rows('SELECT owned_rows FROM pizza_menu')[0].owned_rows;
+      db.prepare('UPDATE pizza_menu SET owned_rows = ?').run(
+        JSON.stringify(
+          JSON.parse(keeping).filter((entry: string) => !entry.includes(':pz-island')),
+        ),
+      );
+      assertEqualOrThrow(load(sampleMenu()).created, 0, 'so it comes back with its sizes');
+      same(lines('products', 'is_active', "id = 'pz-island'"), ['1'], 'and is on');
+      same(
+        lines('product_variants', 'is_active', "product_id = 'pz-island'"),
+        ['1', '1', '1'],
+        'with every size',
+      );
 
       assertEqualOrThrow(load(menu).created, 5, 'with the id free, the new pizza loads');
       load(sampleMenu());

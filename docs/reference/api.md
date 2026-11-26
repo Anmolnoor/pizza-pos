@@ -192,7 +192,7 @@ Router: `main/routes/auth.ts`. Full path: `/api/auth`.
 | `auto_print_kot` | `true` |
 | `cash_drawer_pulse_enabled`, `cash_drawer_pulse_methods` | `true`, `["cash"]` |
 | `kot_show_customer_contact` | `delivery`: [kitchen tickets](../architecture/printing.md#customer-contact-on-kitchen-tickets) print the phone number and address on delivery orders only |
-| `scheduled_orders_enabled` | `true`: the POS offers "Send to kitchen at", and the ticket prints [the pickup or delivery time](../architecture/printing.md#pickup-and-delivery-time-on-kitchen-tickets) |
+| `scheduled_orders_enabled` | `true`: the POS offers "Send to kitchen at", and the ticket prints [the scheduled time](../architecture/printing.md#scheduled-time-on-kitchen-tickets) |
 | `pos_order_types` | `takeaway,delivery`: [the order types the POS offers](../architecture/frontend.md#order-types-the-pos-offers) |
 | `taxes_enabled` | `true` |
 
@@ -723,14 +723,19 @@ half-and-half product, and per deal.
 A load never takes over a row it does not own. When the menu derives the id of a category, product,
 variant, add-on group or add-on that exists and is not in `owned_rows`, for example a product made by
 hand or by a CSV import, the load is refused with a `400` that names it ("A product with the id
-pz-garden already exists and was not made by a menu load. Rename or remove it, then load the menu
-again.") and nothing is written.
+pz-garden already exists and was not made by a menu load. Give that item a different id in the menu
+file, then load it again.") and nothing is written. A row deleted in the back office still exists,
+so it still refuses the load. A product that has a `pizza_products` row counts as a load's own
+whether or not the list names it, and so do its variants.
 
-A row in `owned_rows` that this load does not write is switched off (`is_active = 0`) and counted in
+A row the previous load wrote and this one does not is switched off (`is_active = 0`) and counted in
 `deactivated`; it is not deleted, because orders point at it, and its `pizza_products` row stays. A
 side that loses its modifier keeps the link to its add-on group; the group is switched off, so the
 side sells without the choice. A category the menu no longer uses stays on while it still holds an
-active product. A later file that has the entry again switches it back on. Rows no load owned, such
+active product. A later file that has the entry again switches it back on. A row that left the file and was
+switched on again by hand stays on through later loads, until a file has it again. The previous
+load's rows are worked out from the catalogue it stored; while that catalogue is unreadable, every
+row in `owned_rows` that the load does not write is switched off. Rows no load owned, such
 as a product or a variant added by hand under an id no menu derives, are never touched.
 
 | Method | Path           | Authorization           | Parameters                                         | Response                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |

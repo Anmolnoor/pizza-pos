@@ -14,7 +14,7 @@ const {
 const { isDeepStrictEqual } = require('node:util');
 
 const frontend = loadFrontend();
-const { offeredOrderTypes } = require('../frontend/src/lib/pizza/order-types');
+const { offeredOrderTypes, orderTypeToStartOn } = require('../frontend/src/lib/pizza/order-types');
 
 const ALL = ['dine_in', 'takeaway', 'delivery', 'online'];
 const COUNTER = ['takeaway', 'delivery'];
@@ -42,6 +42,25 @@ runCases('pizza-order-types', {
     same(offeredOrderTypes(ALL, COUNTER, 'dine_in'), ['dine_in', ...COUNTER], 'dine-in order');
     same(offeredOrderTypes(ALL, COUNTER, 'delivery'), COUNTER, 'an offered type adds nothing');
     same(offeredOrderTypes(ALL, COUNTER, null), COUNTER, 'a new order adds nothing');
+  },
+
+  'Case 3b: a new order moves off a hidden type only when the setting narrowed the switch': () => {
+    const RETAIL = ['takeaway', 'delivery', 'online'];
+    assertEqualOrThrow(
+      orderTypeToStartOn(RETAIL, [], 'dine_in'),
+      null,
+      'no setting: a store whose business type hides dine-in keeps the cart as upstream has it',
+    );
+    assertEqualOrThrow(orderTypeToStartOn(RETAIL, ['curbside'], 'dine_in'), null, 'nor a bad one');
+    assertEqualOrThrow(orderTypeToStartOn(ALL, [], 'dine_in'), null, 'nor a restaurant');
+    assertEqualOrThrow(orderTypeToStartOn(ALL, COUNTER, 'dine_in'), 'takeaway', 'a counter does');
+    assertEqualOrThrow(orderTypeToStartOn(ALL, COUNTER, 'online'), 'takeaway', 'from online too');
+    assertEqualOrThrow(orderTypeToStartOn(ALL, COUNTER, 'delivery'), null, 'an offered type stays');
+    assertEqualOrThrow(
+      orderTypeToStartOn(ALL, COUNTER, 'dine_in', 'dine_in'),
+      null,
+      'an order being added to keeps its type',
+    );
   },
 
   'Case 4: the browser store takes the setting from the business settings': () => {

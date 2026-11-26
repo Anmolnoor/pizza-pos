@@ -559,11 +559,12 @@ its categories first in the POS.
 The order type switch of the cart panel offers Dine-in, Takeaway, Delivery and Online. The setting
 `pos_order_types` narrows it: a comma-separated list of `dine_in`, `takeaway`, `delivery` and
 `online`, written with `PUT /api/settings/pos_order_types`. `GET /api/settings/business` returns it
-as an array, `hydrateReceiptSettings()` stores it as `posOrderTypes`, and `offeredOrderTypes()` in
+as an array with the spaces around each entry removed, `hydrateReceiptSettings()` stores it as `posOrderTypes`, and `offeredOrderTypes()` in
 `frontend/src/lib/pizza/order-types.ts` applies it:
 
 - An absent or empty setting, or one that names no known type, offers every type.
-- The switch keeps its own order, and a new order starts on the first type offered.
+- The switch keeps its own order. A new order whose type the setting hides moves to the first type
+  offered (`orderTypeToStartOn()`); without the setting the cart's order type is left alone.
 - An order being added to keeps its own type on the switch even when the setting hides it.
 
 The setting changes only the switch. The order routes accept every type whatever it holds, and no

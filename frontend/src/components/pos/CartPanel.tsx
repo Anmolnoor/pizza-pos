@@ -28,7 +28,7 @@ import type { CustomPaymentMethod } from '@/lib/payment-methods';
 import { useCartStore } from '@/store/cart';
 import { useHeldOrdersStore } from '@/store/held-orders';
 import { useAuthStore } from '@/store/auth';
-import { offeredOrderTypes } from '@/lib/pizza/order-types';
+import { offeredOrderTypes, orderTypeToStartOn } from '@/lib/pizza/order-types';
 import { usePosSettingsStore } from '@/store/pos-settings';
 import { useTranslations } from 'use-intl';
 import toast from 'react-hot-toast';
@@ -283,17 +283,18 @@ export default function CartPanel({
     online: t('orderTypeOnline'),
   };
   const posOrderTypes = usePosSettingsStore((s) => s.posOrderTypes);
-  const visibleOrderTypes = offeredOrderTypes(
-    ORDER_TYPES.filter((type) => isRestaurant || type !== 'dine_in'),
+  const storeOrderTypes = ORDER_TYPES.filter((type) => isRestaurant || type !== 'dine_in');
+  const visibleOrderTypes = offeredOrderTypes(storeOrderTypes, posOrderTypes, existingOrder?.type);
+  const startOn = orderTypeToStartOn(
+    storeOrderTypes,
     posOrderTypes,
+    cart.orderType,
     existingOrder?.type,
   );
-  const defaultOrderType = visibleOrderTypes[0];
-  const orderTypeOffered = Boolean(existingOrder) || visibleOrderTypes.includes(cart.orderType);
   const setOrderType = cart.setOrderType;
   useEffect(() => {
-    if (!orderTypeOffered) setOrderType(defaultOrderType);
-  }, [orderTypeOffered, defaultOrderType, setOrderType]);
+    if (startOn) setOrderType(startOn);
+  }, [startOn, setOrderType]);
   const orderTypeMeasureKey = `${isRestaurant ? '1' : '0'}:${visibleOrderTypes.map((type) => orderTypeLabels[type]).join('|')}`;
 
   useIsomorphicLayoutEffect(() => {

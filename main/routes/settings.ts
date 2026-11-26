@@ -300,7 +300,10 @@ function businessShape(s: Record<string, string>) {
       s.kot_show_customer_contact === 'delivery'
         ? 'delivery'
         : s.kot_show_customer_contact === 'true',
-    pos_order_types: (s.pos_order_types || '').split(',').filter(Boolean),
+    pos_order_types: (s.pos_order_types || '')
+      .split(',')
+      .map((type) => type.trim())
+      .filter(Boolean),
     bill_show_logo: s.bill_show_logo === 'true',
     receipt_logo: s.receipt_logo || '',
     receipt_logo_raster: s.receipt_logo_raster || '',

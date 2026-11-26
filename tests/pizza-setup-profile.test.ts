@@ -230,6 +230,23 @@ async function main() {
       );
     });
 
+    await testCase('2a. Order types written with spaces are read without them', async () => {
+      const write = (value: string) =>
+        api(baseUrl, '/api/settings/pos_order_types', {
+          method: 'PUT',
+          headers: ownerAuth,
+          body: { value },
+        });
+      assertEqualOrThrow((await write(' takeaway , delivery,, ')).status, 200, 'the list is saved');
+      const business = await api(baseUrl, '/api/settings/business', { headers: ownerAuth });
+      assertEqualOrThrow(
+        JSON.stringify(business.data.pos_order_types),
+        '["takeaway","delivery"]',
+        'the POS is told takeaway and delivery',
+      );
+      await write('takeaway,delivery');
+    });
+
     await testCase('2b. The manual Canada tax pack is the active one', () => {
       const packs = getDatabase()
         .prepare(
