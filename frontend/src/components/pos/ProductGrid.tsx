@@ -549,7 +549,7 @@ export default function ProductGrid({
         <div
           className={`grid gap-3 ${gridClassName ?? pizza?.gridClassName ?? (sidebarOpen ? 'grid-cols-4' : 'grid-cols-5')}`}
         >
-          {filtered.map((product) => {
+          {(pizza?.sorted(filtered) ?? filtered).map((product) => {
             const inCartQty = cartQuantities.get(product.id) || 0;
             const pizzaTile = pizza?.tile(product, inCartQty, disabled, fmt);
             if (pizzaTile) return pizzaTile;

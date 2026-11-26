@@ -9,6 +9,7 @@ import { newSheet, sheetReducer, type SheetLine, type SheetState } from '@/lib/p
 import type { CartItem, Category, Product } from '@/lib/types';
 import { useCartStore } from '@/store/cart';
 import { pizzaLineEditButton } from './PizzaCartLine';
+import { PizzaDealTile } from './PizzaDealTile';
 import { HalfAndHalfTile, PIZZA_GRID_CLASS, PizzaCategoryBlocks, PizzaTile } from './PizzaHome';
 import PizzaSheet from './PizzaSheet';
 import { useSentLineOpen } from './SentPizzaLine';
@@ -32,7 +33,9 @@ export interface PizzaPos extends SmallItemsPos {
   /** Takes the place of the product grid's category row. */
   Categories: typeof PizzaCategoryBlocks;
   gridClassName: string;
-  /** The tile of a pizza product; null for any other product, which keeps upstream's tile. */
+  /** The products in the order their tiles are shown: the half and half first. */
+  sorted: (products: Product[]) => Product[];
+  /** The tile of a pizza or deal product; null for any other product, which keeps upstream's tile. */
   tile: (
     product: Product,
     inCart: number,
@@ -172,7 +175,24 @@ export function usePizzaPos(
     Categories: SmallItemBlocks,
     ...small,
     gridClassName: PIZZA_GRID_CLASS,
+    sorted: (list) => {
+      const half = list.find((product) => product.id === HALF_AND_HALF);
+      return half ? [half, ...list.filter((product) => product !== half)] : list;
+    },
     tile: (product, inCart, disabled, fmt) => {
+      const menuDeal = deal.of(product);
+      if (menuDeal)
+        return (
+          <PizzaDealTile
+            key={product.id}
+            product={product}
+            description={menuDeal.description}
+            inCart={inCart}
+            disabled={disabled}
+            fmt={fmt}
+            onOpen={() => deal.open(product, 1)}
+          />
+        );
       if (product.id === HALF_AND_HALF)
         return (
           <HalfAndHalfTile

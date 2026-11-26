@@ -89,26 +89,36 @@ detail:   1) LARGE GARDEN
              2ND: PLAIN CHEESE
           3) LARGE CLASSIC PEPPERONI
           WINGS: SWEET CHILI
+          INCLUDES: ANY 3 LARGE PIZZAS & 12 WINGS
 
 heading:  PARTY PACK                      (the customer chose cans)
 detail:   1) LARGE GARDEN
           ... 2) to 6) ...
           POP: 2 COLA, 1 GINGER ALE, 1 LEMON LIME
+          INCLUDES: ANY 6 LARGE PIZZAS & 4 CAN
+          POPS OR A 2L BOTTLE
 
 heading:  PARTY PACK                      (the customer chose the bottle)
 detail:   1) LARGE GARDEN
           ... 2) to 6) ...
           2L: COLA
+          INCLUDES: ANY 6 LARGE PIZZAS & 4 CAN
+          POPS OR A 2L BOTTLE
 
 heading:  PASTA NIGHT                     (a deal with no pizzas)
 detail:   POP: 3 COLA
+          INCLUDES: 3 PASTA,
+          3 GARLIC TOASTS & 3 POPS
 ```
+
+The deals are drawn at 42 columns. At 48 the party pack's last two lines are
+`INCLUDES: ANY 6 LARGE PIZZAS & 4 CAN POPS OR` and `A 2L BOTTLE`, and Pasta Night's are one line.
 
 Layout rules behind the examples:
 
 - A whole pizza: removals on one line (`NO A, NO B`), then cook and cut on one line (`WELL DONE, SQUARE CUT`). Either line is left out when empty.
 - A half and half: `1ST: NAME`, that half's removals indented by 2, `2ND: NAME`, its removals indented by 2, then cook and cut.
-- A deal: each pizza as `n) SIZE NAME` (or `n) SIZE HALF & HALF`), followed by that pizza's own detail lines indented by 3. Then, in this order and only when the deal has them: `POP: n NAME, ...`, `2L: NAME`, `WINGS: FLAVOUR`. The labels `POP`, `2L` and `WINGS` are fixed words, not taken from the menu.
+- A deal: each pizza as `n) SIZE NAME` (or `n) SIZE HALF & HALF`), followed by that pizza's own detail lines indented by 3. Then, in this order and only when the deal has them: `POP: n NAME, ...`, `2L: NAME`, `WINGS: FLAVOUR`. The labels `POP`, `2L` and `WINGS` are fixed words, not taken from the menu. Last comes `INCLUDES: ` and the deal's `description` from the stored menu, with runs of white space made one space: what comes with the deal whatever is chosen, such as a pasta or garlic toast, which no pick names. It wraps as any line does, its continuation lines at no indent. A deal whose description is empty, and a deal in a catalogue stored without descriptions, has no such line; nor has a deal the menu no longer has.
 
 Quantity (`2x`) is added by the print layer, not by `ticketLines`.
 

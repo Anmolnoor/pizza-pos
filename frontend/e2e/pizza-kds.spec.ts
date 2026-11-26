@@ -61,6 +61,7 @@ const DEAL_LINES = [
   '   2ND: PLAIN CHEESE',
   '3) LARGE CLASSIC PEPPERONI',
   'WINGS: SWEET CHILI',
+  'INCLUDES: ANY 3 LARGE PIZZAS & 12 WINGS',
 ];
 
 const headers = () => ({ Authorization: `Bearer ${getE2eToken()}` });

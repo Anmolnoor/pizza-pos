@@ -262,7 +262,9 @@ recipe, sets `detailLines` to `ticketLines(catalog, recipe, columns).detailLines
 returns after [text size](#text-size) is applied, so an extra large printer gets lines wrapped for
 half the paper's characters. `ticketLines` keeps every line within that width less the three-space
 indent, so `detailLineRows()` prints each one as given and the nesting of halves and deal pizzas
-survives. The item heading stays the product name and variant. An item with no recipe keeps the
+survives. A deal's lines end with what comes with it whatever is chosen: the deal's description
+in the stored menu, upper-cased, after `INCLUDES:` and a space, wrapped as the other lines are. A deal with no
+description has no such line. The item heading stays the product name and variant. An item with no recipe keeps the
 `detailLines` it carried.
 
 The recipe is not checked against the menu at print time, so an order sold before a menu change
