@@ -14,7 +14,7 @@ const {
 } = require('./helpers/pizza-print-harness');
 const { createHash } = require('node:crypto');
 const { parseMenuFile } = require('../shared/pizza/menu');
-const { ticketLines } = require('../shared/pizza/ticket');
+const { RECIPE_NOT_PRINTED, ticketLines } = require('../shared/pizza/ticket');
 const { isKotDocument, isPrintDocument } = require('../shared/print');
 const sample = require('./fixtures/pizza-sample-menu.json');
 
@@ -252,6 +252,38 @@ function htmlCarries(html: string, columns: number, label: string) {
   });
 }
 
+/** Asserts that every browser path prints the one warning line under each item of `order`. */
+function warnsUnderEachItem(order: any, label: string) {
+  const count = order.items.length;
+  const warned = (printed: string[], path: string) =>
+    assertEqualOrThrow(
+      printed.filter((row) => row === INDENT + RECIPE_NOT_PRINTED).length,
+      count,
+      `${label}: ${path} prints the warning under each item`,
+    );
+  for (const columns of COLUMNS) {
+    warned(rows(browserKot(order, columns)), `browser ESC/POS ${columns}`);
+    for (const [name, render] of Object.entries(receipts)) {
+      warned(rows(render(order, columns)), `${name} ${columns}`);
+    }
+    const document = rasterKotDocument(order, columns);
+    assertEqualOrThrow(
+      JSON.stringify(
+        document.blocks[1].rows.map((row: any) =>
+          (row.detailLines ?? []).map((line: { text: string }) => line.text),
+        ),
+      ),
+      JSON.stringify(order.items.map(() => [RECIPE_NOT_PRINTED])),
+      `${label}: raster ${columns} carries the warning on each row`,
+    );
+  }
+  assertEqualOrThrow(
+    htmlKot(order).split(`>${RECIPE_NOT_PRINTED}<`).length - 1,
+    count,
+    `${label}: the HTML ticket carries the warning under each item`,
+  );
+}
+
 const escapeHtml = (text: string) =>
   text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -284,11 +316,21 @@ runCases('pizza-kot-browser', {
     );
   },
 
-  'Case 2: with no catalogue loaded, every item prints byte for byte as before': () => {
-    assertEqualOrThrow(pizzaCatalog().getPizzaCatalog(), null, 'no catalogue is loaded yet');
-    unchanged(plainOrder, 'no catalogue, no recipe');
-    unchanged(recipeOrder, 'no catalogue, a recipe on each item');
-  },
+  'Case 2: with no catalogue loaded, a recipe prints the warning line and nothing else changes':
+    () => {
+      assertEqualOrThrow(pizzaCatalog().getPizzaCatalog(), null, 'no catalogue is loaded yet');
+      unchanged(plainOrder, 'no catalogue, no recipe');
+      warnsUnderEachItem(recipeOrder, 'no catalogue');
+      const readyMade = orderWith(
+        recipeOrder.items.map((entry: object) => ({ ...entry, detailLines: ['FROM THE SERVER'] })),
+      );
+      const printed = rows(browserKot(readyMade, 42));
+      assertOrThrow(
+        printed.includes(INDENT + 'FROM THE SERVER') &&
+          !printed.includes(INDENT + RECIPE_NOT_PRINTED),
+        'no catalogue: the lines the item carries print, with no warning',
+      );
+    },
 
   'Case 3: the catalogue loads from the API': async () => {
     const originalGet = frontend.api.get;
@@ -306,7 +348,7 @@ runCases('pizza-kot-browser', {
 
   'Case 4: an item without a recipe prints byte for byte as before': () => {
     unchanged(plainOrder, 'a catalogue, no recipe');
-    for (const modifier_selection of [null, 'not json', { kind: 'pizza' }, { size: 'large' }, 7]) {
+    for (const modifier_selection of [null, 'not json', { kind: 'side' }, { size: 'large' }, 7]) {
       const order = orderWith(
         plainOrder.items.map((entry: object) => ({ ...entry, modifier_selection })),
       );
@@ -315,6 +357,22 @@ runCases('pizza-kot-browser', {
         `modifier_selection = ${JSON.stringify(modifier_selection)} is not a recipe`,
       );
     }
+  },
+
+  'Case 4b: a recipe ticketLines cannot write out prints the warning line': () => {
+    for (const modifier_selection of [{ kind: 'pizza' }, '{"kind":"deal"}']) {
+      warnsUnderEachItem(
+        orderWith(plainOrder.items.map((entry: object) => ({ ...entry, modifier_selection }))),
+        `modifier_selection = ${JSON.stringify(modifier_selection)}`,
+      );
+    }
+    const plainPizza = { kind: 'pizza', v: 1, sizeId: 'large', whole: part('garden') };
+    unchanged(
+      orderWith(
+        plainOrder.items.map((entry: object) => ({ ...entry, modifier_selection: plainPizza })),
+      ),
+      'a whole pizza with nothing removed has no lines and no warning',
+    );
   },
 
   'Case 5: the browser ESC/POS ticket prints the lines ticketLines gives': () => {
