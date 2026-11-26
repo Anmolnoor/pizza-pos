@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import toast from 'react-hot-toast';
 import { useTranslations } from 'use-intl';
 import { customizeOne, replaceCartLine, sheetAddons } from '@/lib/pizza/cart-lines';
+import { holdPizzaCatalog } from '@/lib/pizza/catalog';
 import { PIZZA_PRODUCT_PREFIX } from '@/lib/pizza/line-recipe';
 import { newSheet, sheetReducer, type SheetLine, type SheetState } from '@/lib/pizza/sheet-state';
 import type { CartItem, Category, Product } from '@/lib/types';
@@ -117,6 +118,8 @@ export function usePizzaPos(
     (item.product.id.startsWith(PIZZA_PRODUCT_PREFIX) && item.recipe?.kind !== 'deal');
   const openSheet = (initial: SheetState, lineId: string | null = null) => {
     written.current = null;
+    // Before the sheet renders, so no answer on its way changes the menu it opens on.
+    holdPizzaCatalog(true);
     setSession({ initial, lineId });
   };
   const openLine = (line: CartItem) =>

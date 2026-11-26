@@ -33,14 +33,15 @@ export function usePizzaCatalog(): PizzaCatalog | null {
     // A failed fetch keeps what is held; the next mount asks again.
     if (token) loadPizzaCatalog().catch(() => {});
   }, [token, tenantId]);
-  return useSyncExternalStore(onPizzaCatalogChange, pizzaMenu, () => null);
+  return useSyncExternalStore(onPizzaCatalogChange, pizzaMenu, pizzaMenu);
 }
 
 /**
  * Keeps the POS page on the menu the server holds. The catalogue is refreshed
  * when the page mounts, when its window takes the focus or shows again, and
  * when `busy` ends. While `busy` a changed menu is held back, whatever fetched
- * it, so an open sheet keeps the menu it opened on. When a menu the page knew
+ * it, so an open sheet keeps the menu it opened on; the handler that opens one
+ * calls `holdPizzaCatalog(true)` itself, so no answer slips in before this runs. When a menu the page knew
  * is replaced, the products and categories are fetched again, so the tiles,
  * the prices and the sheet agree; a list that did not arrive is asked for
  * again at the next of those moments.
@@ -73,9 +74,15 @@ export function usePizzaMenuRefresh(
       }),
     [lists],
   );
+  // Whatever opens a sheet holds the menu in its own handler, before anything renders; this
+  // keeps the hold while `busy` and lets go when it ends. It never lets go at any other moment.
   useEffect(() => {
-    holdPizzaCatalog(busy);
-    if (busy) return () => holdPizzaCatalog(false);
+    if (!busy) return;
+    holdPizzaCatalog(true);
+    return () => holdPizzaCatalog(false);
+  }, [busy]);
+  useEffect(() => {
+    if (busy) return;
     const refresh = () => {
       if (document.visibilityState !== 'visible') return;
       void refreshPizzaCatalog();

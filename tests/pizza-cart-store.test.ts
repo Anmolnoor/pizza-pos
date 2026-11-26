@@ -945,10 +945,117 @@ runCases('pizza-cart-store', {
         await sync.run();
         assertEqualOrThrow(got.products.length, 2, 'the lists are asked again for the session now');
         assertEqualOrThrow(got.categories.length, 2, 'both of them');
+
+        // The menu changes a second time while the lists of the first change are on their way.
+        const first = deferred();
+        const second = deferred();
+        const answers: Record<string, Promise<unknown>[]> = {};
+        answer = (url) => {
+          answers[url] ??= [first.promise as Promise<unknown>, second.promise as Promise<unknown>];
+          return answers[url].shift() ?? Promise.resolve({ data: { from: 'a third request' } });
+        };
+        calls.length = 0;
+        sync.markAll();
+        const older = sync.run();
+        sync.markAll();
+        first.resolve({ data: { from: 'the first change' } });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        assertEqualOrThrow(
+          got.products.length,
+          2,
+          'an answer older than the last change is dropped',
+        );
+        assertEqualOrThrow(calls.length, 4, 'and each list is asked for again when it settles');
+        second.resolve({ data: { from: 'the second change' } });
+        await older;
+        same(
+          [got.products.at(-1), got.categories.at(-1)],
+          [{ from: 'the second change' }, { from: 'the second change' }],
+          'the lists shown are those of the last change',
+        );
+        calls.length = 0;
+        await sync.run();
+        same(calls, [], 'and nothing is left pending');
       } finally {
         frontend.api.get = originalGet;
         tenant(null);
         notifySessionBoundary('logout');
+      }
+    },
+
+  'Case 10i: opening a sheet, a configurator, a dialog or a sent line holds the menu at once':
+    async () => {
+      const { getPizzaCatalog, holdPizzaCatalog, reloadPizzaCatalog } = pizzaCatalog();
+      const React = require('../frontend/node_modules/react');
+      const { renderToString } = require('../frontend/node_modules/react-dom/server');
+      const { IntlProvider } = require('../frontend/node_modules/use-intl');
+      const { usePizzaPos } = require('../frontend/src/components/pos/pizza/usePizzaPos');
+      const {
+        useQuickButtonStore,
+      } = require('../frontend/src/components/pos/pizza/useQuickButtons');
+      const { openSentLine } = require('../frontend/src/components/pos/pizza/SentPizzaLine');
+      const messages = { pizza: require('../frontend/src/lib/i18n/messages-pizza/en.json') };
+      const edited = { ...catalog, deals: [] };
+      const products = [
+        { id: 'pz-garden', name: 'Garden', price: 0, variants: [] },
+        { id: 'dl-party', name: 'Party Pack', price: 118.4 },
+      ];
+      const nothing = () => {};
+
+      /** Renders the POS hook on the server, where no effect runs, and calls `open` during it. */
+      const duringRender = (open: (pos: any) => void) => () => {
+        let called = false;
+        const Probe = () => {
+          const pos = usePizzaPos(products, [], nothing, nothing, nothing);
+          assertOrThrow(pos !== null, 'the pizza screens are on');
+          if (!called) {
+            called = true;
+            open(pos);
+          }
+          return null;
+        };
+        renderToString(
+          React.createElement(IntlProvider, { locale: 'en', messages }, React.createElement(Probe)),
+        );
+        assertOrThrow(called, 'the opener was called');
+      };
+      const openers: Record<string, () => void> = {
+        'the pizza sheet': duringRender((pos) => pos.open(products[0])),
+        'the deal configurator': duringRender((pos) => pos.open(products[1])),
+        'a quick button dialog': () =>
+          useQuickButtonStore.getState().open({ type: 'save', line: null, forCustomer: false }),
+        'a sent line': () => openSentLine(41),
+      };
+
+      let answer: () => Promise<unknown> = async () => ({ data: catalog });
+      const route = stubCatalogRoute(() => answer());
+      try {
+        for (const [name, open] of Object.entries(openers)) {
+          answer = async () => ({ data: catalog });
+          await reloadPizzaCatalog();
+          assertOrThrow(getPizzaCatalog() === catalog, `${name}: the menu held before it opens`);
+          const slow = deferred();
+          answer = () => slow.promise as Promise<unknown>;
+          const inFlight = reloadPizzaCatalog();
+          open();
+          // No effect has run: the answer arrives in the same turn the opener was called in.
+          slow.resolve({ data: edited });
+          await inFlight;
+          assertOrThrow(
+            getPizzaCatalog() === catalog,
+            `${name}: an answer arriving right after it opens does not change the menu it reads`,
+          );
+          holdPizzaCatalog(false);
+          assertOrThrow(
+            getPizzaCatalog() === edited,
+            `${name}: the new menu applies once it closes`,
+          );
+        }
+      } finally {
+        holdPizzaCatalog(false);
+        useQuickButtonStore.setState({ dialog: null });
+        route.restore();
+        require('../frontend/src/store/session-events').notifySessionBoundary('logout');
       }
     },
 

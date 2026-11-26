@@ -270,6 +270,7 @@ export default function PizzaSheet({
   priceOverride,
   online: onlineOrder,
   soldPrices,
+  refusal,
   initial,
   editing,
   onSave,
@@ -289,6 +290,8 @@ export default function PizzaSheet({
    * it stands keeps those prices, and null once saving prices it again.
    */
   soldPrices?: (line: SheetLine, state: SheetState) => SoldPrices | null;
+  /** Something to say beside Save about the sheet as it stands; `blocks` also switches Save off. */
+  refusal?: (line: SheetLine, state: SheetState) => { message: string; blocks: boolean } | null;
   initial: SheetState;
   /** True when the sheet changes a line already in the cart. */
   editing: boolean;
@@ -319,7 +322,9 @@ export default function PizzaSheet({
     priceOverride,
     soldPrices?.(line, state),
   );
-  const total = quote.unit === null ? '—' : fmt(quote.unit * state.quantity);
+  const refused = refusal?.(line, state) ?? null;
+  // A sheet that cannot be saved as it stands has no price to promise.
+  const total = quote.unit === null || refused?.blocks ? '—' : fmt(quote.unit * state.quantity);
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -430,7 +435,7 @@ export default function PizzaSheet({
             </div>
           </div>
           <dl className="grid grid-cols-[auto_auto] gap-x-4 text-sm text-foreground">
-            {size && quote.pizza !== null && (
+            {size && quote.pizza !== null && !refused?.blocks && (
               <>
                 <dt>{t('pizzaLine', { size: size.label })}</dt>
                 <dd className="text-end tabular-nums">{fmt(quote.pizza)}</dd>
@@ -460,11 +465,11 @@ export default function PizzaSheet({
               data-testid="pizza-sheet-message"
               className="max-w-56 text-end text-sm font-semibold text-red-700 dark:text-red-300"
             >
-              {line.message}
+              {line.message ?? refused?.message}
             </p>
             <Button
               aria-describedby={messageId}
-              disabled={!line.canAdd}
+              disabled={!line.canAdd || refused?.blocks}
               onClick={() => onSave(line, state)}
               className="h-12 min-w-48 bg-brand px-6 text-base font-bold text-white hover:bg-brand-hover"
             >

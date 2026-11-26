@@ -19,6 +19,7 @@ const {
   sentLineEdit,
   sentLineRepriced,
   sentLineReprices,
+  sentPriceGate,
   sheetSentLine,
   soldPrices,
   sheetSource,
@@ -332,6 +333,35 @@ runCases('pizza-sent-line', {
         sentLineReprices(sentLine(GARDEN), { ...sentLine(GARDEN), productId: 'pz-island' }),
         true,
         'another product',
+      );
+    },
+
+  'Case 14: until the product prices are held, only a change that keeps the sold price is saved':
+    () => {
+      same(
+        sentPriceGate({ reprices: false, held: false, failed: false }),
+        { blocked: false, notice: false },
+        'prices on their way, recipe or note changed: saved, and nothing to say yet',
+      );
+      same(
+        sentPriceGate({ reprices: false, held: false, failed: true }),
+        { blocked: false, notice: true },
+        'the request failed: still saved, and the sheet says prices could not be loaded',
+      );
+      same(
+        sentPriceGate({ reprices: true, held: false, failed: true }),
+        { blocked: true, notice: true },
+        'a change of size, quantity or dips is not offered without prices',
+      );
+      same(
+        sentPriceGate({ reprices: true, held: false, failed: false }),
+        { blocked: true, notice: true },
+        'nor while the first request has not answered',
+      );
+      same(
+        sentPriceGate({ reprices: true, held: true, failed: true }),
+        { blocked: false, notice: false },
+        'once a request succeeded everything is offered again',
       );
     },
 });

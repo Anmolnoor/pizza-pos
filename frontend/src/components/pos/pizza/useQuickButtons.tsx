@@ -7,6 +7,7 @@ import { useTranslations } from 'use-intl';
 import { create } from 'zustand';
 import { getCategoryColorClasses } from '@/components/pos/ProductGrid';
 import { tenantCan } from '@/lib/permissions';
+import { holdPizzaCatalog } from '@/lib/pizza/catalog';
 import {
   buttonContents,
   fetchQuickButtons,
@@ -49,7 +50,11 @@ export const useQuickButtonStore = create<QuickButtonState>((set, get) => ({
   buttons: [],
   dialog: null,
   customerId: null,
-  open: (dialog) => set({ dialog }),
+  open: (dialog) => {
+    // Before the dialog renders, so no answer on its way changes the menu under it.
+    if (dialog) holdPizzaCatalog(true);
+    set({ dialog });
+  },
   load: async (customerId = get().customerId) => {
     set({ customerId });
     const request = fetchQuickButtons(customerId);

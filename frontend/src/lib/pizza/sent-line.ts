@@ -159,6 +159,21 @@ export function sentLineReprices(was: SentLine, now: SentLine): boolean {
   return priced(was) !== priced(now);
 }
 
+/**
+ * What the sheet on a sent line does until the product prices are held. A
+ * change that prices the line again cannot be quoted without them, so it is
+ * `blocked`; a change of recipe or note keeps the sold price and is saved.
+ * `notice` is true when the sheet says that prices could not be loaded: after
+ * a failed request, and beside a blocked change.
+ */
+export function sentPriceGate(now: { reprices: boolean; held: boolean; failed: boolean }): {
+  blocked: boolean;
+  notice: boolean;
+} {
+  if (now.held) return { blocked: false, notice: false };
+  return { blocked: now.reprices, notice: now.reprices || now.failed };
+}
+
 /** The line the sheet's `load` action reads; it looks at ids, counts, the note and the recipe only. */
 export function sheetSource(line: SentLine): SheetSourceLine {
   return {

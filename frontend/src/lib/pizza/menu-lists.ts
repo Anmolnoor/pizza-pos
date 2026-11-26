@@ -21,31 +21,42 @@ const asker = () =>
  * `markAll()` says every list is out of date. `run()` fetches each list that
  * still is and has no request on its way. A list whose fetch fails, or whose
  * answer arrives after the tenant or the session changed, stays out of date,
- * so the next `run()` asks for it again.
+ * so the next `run()` asks for it again. An answer asked for before the last
+ * `markAll()` is older than the menu and is dropped, and the list is fetched
+ * again as soon as that request settles.
  */
 export function menuListSync(lists: MenuList[]) {
-  const stale = new Set<MenuList>();
+  /** How many times each list was marked, and the mark its applied answer was asked under. */
+  const marked = new Map<MenuList, number>();
+  const applied = new Map<MenuList, number>();
   const asking = new Set<MenuList>();
+
+  const fetchList = async (list: MenuList): Promise<void> => {
+    const askedBy = asker();
+    const mark = marked.get(list);
+    asking.add(list);
+    try {
+      const { data } = await api.get(list.url);
+      if (askedBy === asker() && mark === marked.get(list)) {
+        applied.set(list, mark as number);
+        list.apply(data as never);
+      }
+    } catch {
+      // Still out of date; the next run asks again.
+    } finally {
+      asking.delete(list);
+    }
+    // The menu changed again while this request was on its way.
+    if (askedBy === asker() && mark !== marked.get(list)) await fetchList(list);
+  };
+
   return {
-    markAll: () => lists.forEach((list) => stale.add(list)),
+    markAll: () => lists.forEach((list) => marked.set(list, (marked.get(list) ?? 0) + 1)),
     run: async (): Promise<void> => {
       await Promise.all(
         lists
-          .filter((list) => stale.has(list) && !asking.has(list))
-          .map(async (list) => {
-            const askedBy = asker();
-            asking.add(list);
-            try {
-              const { data } = await api.get(list.url);
-              if (askedBy !== asker()) return;
-              stale.delete(list);
-              list.apply(data as never);
-            } catch {
-              // Still out of date; the next run asks again.
-            } finally {
-              asking.delete(list);
-            }
-          }),
+          .filter((list) => marked.get(list) !== applied.get(list) && !asking.has(list))
+          .map(fetchList),
       );
     },
   };
