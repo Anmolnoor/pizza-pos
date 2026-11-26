@@ -10,6 +10,9 @@ import { QuickButtonsBlock } from './useQuickButtons';
 
 const FOCUS =
   'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground';
+/** The outline drawn inside, for a control whose tile clips what leaves it. */
+const FOCUS_INSET =
+  'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-foreground';
 
 /**
  * The grid the pizza home lays its tiles on: as many columns as fit three size buttons each,
@@ -82,11 +85,9 @@ function InOrder({ count }: { count: number }) {
   const t = useTranslations('pizza');
   if (count <= 0) return null;
   return (
-    <span
-      title={t('inOrder', { count })}
-      className="flex h-4 shrink-0 items-center rounded-full bg-brand px-1.5 text-[11px] font-bold tabular-nums text-white"
-    >
-      {count}
+    <span className="flex h-4 shrink-0 items-center rounded-full bg-brand px-1.5 text-[11px] font-bold tabular-nums text-white">
+      <span aria-hidden>{count}</span>
+      <span className="sr-only">{t('inOrder', { count })}</span>
     </span>
   );
 }
@@ -120,8 +121,7 @@ function SizeButtons({
           })}
           className={cn(
             'flex min-h-12 min-w-12 flex-1 flex-col items-center justify-center border-s border-border px-1 text-[13px] font-bold leading-tight text-foreground transition-colors first:border-s-0 hover:bg-muted active:bg-muted disabled:cursor-not-allowed disabled:opacity-50',
-            // The outline is drawn inside, because the tile clips what leaves it.
-            FOCUS.replace('outline-offset-2', '-outline-offset-2'),
+            FOCUS_INSET,
           )}
         >
           {variant.name}
@@ -163,7 +163,7 @@ export function PizzaTile({
     >
       <div className="relative flex min-h-12 flex-1 items-center px-1.5 py-1">
         {/* The number and the icon float, no taller than a line, so the name's second line has the whole width. */}
-        <div className="min-w-0 flex-1">
+        <div className={cn('min-w-0 flex-1', disabled && 'opacity-50')}>
           {number != null && (
             <span className="float-start me-1.5 flex h-4 min-w-5 items-center justify-center rounded bg-red-50 px-0.5 text-[11px] font-bold tabular-nums text-red-700 dark:bg-red-950/40 dark:text-red-300">
               {number}
@@ -183,8 +183,8 @@ export function PizzaTile({
           onClick={onCustomize}
           aria-label={t('customizeNamed', { name: product.name })}
           className={cn(
-            'absolute inset-0 rounded-t-xl hover:bg-foreground/5 disabled:cursor-not-allowed',
-            FOCUS.replace('outline-offset-2', '-outline-offset-2'),
+            'absolute inset-0 rounded-t-xl hover:bg-foreground/5 disabled:cursor-not-allowed disabled:hover:bg-transparent',
+            FOCUS_INSET,
           )}
         />
       </div>

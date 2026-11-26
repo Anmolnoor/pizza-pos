@@ -198,6 +198,10 @@ test('twelve pizzas fit a screen, Half & Half first, every control 48 px', async
   for (const size of ['Small', 'Medium', 'Large'])
     await expect(first.getByRole('button', { name: new RegExp(`^Garden, ${size}`) })).toBeVisible();
   await shot(page, 'full-menu-home.png');
+
+  // The count on a tile is a bare number to the eye and a phrase to a screen reader.
+  await first.getByRole('button', { name: /^Garden, Large/ }).click();
+  await expect(first.getByText('1 in order', { exact: true })).toHaveCount(1);
 });
 
 test('the pizza list is at most about two screens', async ({ page }) => {

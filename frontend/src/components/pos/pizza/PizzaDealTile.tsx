@@ -38,11 +38,9 @@ export function PizzaDealTile({
           {product.name}
         </span>
         {inCart > 0 && (
-          <span
-            title={t('inOrder', { count: inCart })}
-            className="shrink-0 rounded-full bg-brand px-2 py-0.5 text-xs font-bold tabular-nums text-white"
-          >
-            {inCart}
+          <span className="shrink-0 rounded-full bg-brand px-2 py-0.5 text-xs font-bold tabular-nums text-white">
+            <span aria-hidden>{inCart}</span>
+            <span className="sr-only">{t('inOrder', { count: inCart })}</span>
           </span>
         )}
       </span>
