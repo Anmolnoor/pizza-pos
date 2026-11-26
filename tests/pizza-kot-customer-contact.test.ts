@@ -80,17 +80,24 @@ const kotOptions = (columns: number) => ({
 
 /** The four kitchen ticket paths, each rendered to comparable text. */
 type Show = boolean | 'delivery';
-const paths: Record<string, (order: any, show: Show, columns: number) => string> = {
-  'server ESC/POS': (order, show, columns) =>
+const paths: Record<
+  string,
+  (order: any, show: Show, columns: number, scheduled?: boolean) => string
+> = {
+  'server ESC/POS': (order, show, columns, scheduled = true) =>
     rows(
       renderKotViaDocument(
-        show ? { ...order, show_customer_contact: show } : order,
+        {
+          ...order,
+          ...(show ? { show_customer_contact: show } : {}),
+          show_scheduled_time: scheduled,
+        },
         order.items,
         'Kitchen',
         kotOptions(columns),
       ).data,
     ).join('\n'),
-  'browser ESC/POS': (order, show, columns) =>
+  'browser ESC/POS': (order, show, columns, scheduled = true) =>
     rows(
       frontend.kotEncoder.buildKotBytes(
         order,
@@ -101,17 +108,19 @@ const paths: Record<string, (order: any, show: Show, columns: number) => string>
           language: 'en',
           timezone: 'UTC',
           showCustomerContact: show,
+          showScheduledTime: scheduled,
         } as any,
         [],
       ),
     ).join('\n'),
-  'raster document': (order, show, columns) => {
+  'raster document': (order, show, columns, scheduled = true) => {
     const document = frontend.printDocument.buildFrontendKotDocument(order, {
       stationName: 'Kitchen',
       columns,
       language: 'en',
       timezone: 'UTC',
       showCustomerContact: show,
+      showScheduledTime: scheduled,
     } as any);
     assertOrThrow(isKotDocument(document), `raster ${columns}: the document is valid`);
     return rows(
@@ -122,7 +131,7 @@ const paths: Record<string, (order: any, show: Show, columns: number) => string>
       }),
     ).join('\n');
   },
-  'browser HTML': (order, show) =>
+  'browser HTML': (order, show, _columns, scheduled = true) =>
     frontend.kotWebPrint
       .generateKotHtml(order, {
         paperWidth: 80,
@@ -130,6 +139,7 @@ const paths: Record<string, (order: any, show: Show, columns: number) => string>
         stationName: 'Kitchen',
         timezone: 'UTC',
         showCustomerContact: show,
+        showScheduledTime: scheduled,
       } as any)
       .replace(/<[^>]+>/g, '\n'),
 };
@@ -137,10 +147,14 @@ const paths: Record<string, (order: any, show: Show, columns: number) => string>
 /** Ticket text with wrapped rows rejoined, so a wrapped address still reads whole. */
 const flat = (text: string): string => text.replace(/\s+/g, ' ');
 
-function forEveryPath(run: (name: string, render: (order: any, show: Show) => string) => void) {
+function forEveryPath(
+  run: (name: string, render: (order: any, show: Show, scheduled?: boolean) => string) => void,
+) {
   for (const [name, render] of Object.entries(paths)) {
     for (const columns of name === 'browser HTML' ? [COLUMNS[0]] : COLUMNS) {
-      run(`${name} ${columns}`, (order, show) => render(order, show, columns));
+      run(`${name} ${columns}`, (order, show, scheduled) =>
+        render(order, show, columns, scheduled),
+      );
     }
   }
 }
@@ -378,6 +392,12 @@ runCases('pizza-kot-customer-contact', {
         another.includes('SCHEDULED 1/1/2026 6:30 PM'),
         `${name}: a time on another day carries the date`,
       );
+      // With scheduled orders switched off, a reprint of an order that has a time is as before.
+      assertEqualOrThrow(
+        render({ ...pickupOrder, ...at }, false, false),
+        render(pickupOrder, false, false),
+        `${name}: with the setting off, a scheduled order prints the ticket it always did`,
+      );
       for (const [label, order] of [
         ['an order that is not scheduled', pickupOrder],
         ['an unreadable time', { ...pickupOrder, scheduled_for: 'soon' }],
@@ -397,7 +417,7 @@ runCases('pizza-kot-customer-contact', {
     const order = { ...pickupOrder, scheduled_for: '2026-01-02T02:05:00.000Z' };
     // 2 January 02:05 UTC is 1 January 18:05 in Vancouver and 2 January 03:05 in Berlin.
     const line = (locale: string, timezone: string, now: string, stored = order.scheduled_for) =>
-      kotScheduleLine({ ...order, scheduled_for: stored }, locale, timezone, new Date(now));
+      kotScheduleLine({ ...order, scheduled_for: stored }, true, locale, timezone, new Date(now));
     // A store with no time zone set passes an empty string, which Intl refuses as a zone.
     assertOrThrow(
       /^SCHEDULED /.test(line('en-CA', '', '2026-01-02T01:00:00Z') ?? ''),
@@ -428,9 +448,16 @@ runCases('pizza-kot-customer-contact', {
       'SCHEDULED 6:05 p.m.',
       'an instant stored without its zone is read as UTC',
     );
+    for (const off of [false, undefined, 'true']) {
+      assertEqualOrThrow(
+        kotScheduleLine(order, off, 'en-CA', 'America/Vancouver'),
+        null,
+        `nothing prints unless the setting is on (${String(off)})`,
+      );
+    }
     const server = flat(
       rows(
-        renderKotViaDocument(order, order.items, 'Kitchen', {
+        renderKotViaDocument({ ...order, show_scheduled_time: true }, order.items, 'Kitchen', {
           ...kotOptions(42),
           timezone: 'America/Vancouver',
           locale: 'en-CA',
@@ -451,6 +478,7 @@ runCases('pizza-kot-customer-contact', {
             stationName: 'Kitchen',
             language: 'en',
             timezone: 'America/Vancouver',
+            showScheduledTime: true,
           } as any,
           [],
         ),
@@ -480,6 +508,46 @@ runCases('pizza-kot-customer-contact', {
       assertOrThrow(offJob.includes('Asha Kumar'), 'server, setting off: the ticket prints');
       assertOrThrow(!offJob.includes('6045550100'), 'server, setting off: no phone number');
       assertOrThrow(!offJob.includes('West Broadway'), 'server, setting off: no address');
+
+      // The time of a scheduled order prints only while scheduled orders are switched on.
+      const today = new Date().toISOString().slice(0, 10);
+      const timed = { scheduled_for: `${today}T18:30:00.000Z` };
+      const setScheduled = (value: string) =>
+        api(baseUrl, '/api/settings/scheduled_orders_enabled', {
+          method: 'PUT',
+          headers: owner.authHeader,
+          body: { value },
+        });
+      assertEqualOrThrow(before.data.scheduled_orders_enabled, false, 'scheduling starts off');
+      await printKOTDetailed({ ...routeOrder, ...timed }, items, 'Kitchen', false, capture.printer);
+      assertOrThrow(
+        !flat(await capture.lastJob()).includes('SCHEDULED'),
+        'server, scheduling off: a reprint has no SCHEDULED line',
+      );
+      assertEqualOrThrow((await setScheduled('true')).status, 200, 'scheduling is switched on');
+      await printKOTDetailed({ ...routeOrder, ...timed }, items, 'Kitchen', false, capture.printer);
+      assertOrThrow(
+        flat(await capture.lastJob()).includes('SCHEDULED'),
+        'server, scheduling on: the line prints',
+      );
+      const scheduling = await api(baseUrl, '/api/settings/business', {
+        headers: owner.authHeader,
+      });
+      assertEqualOrThrow(
+        scheduling.data.scheduled_orders_enabled,
+        true,
+        'the POS is told it is on',
+      );
+      const settingsStore = frontend.posSettings.usePosSettingsStore;
+      assertEqualOrThrow(
+        settingsStore.getState().kotShowScheduledTime,
+        false,
+        'the store starts off',
+      );
+      settingsStore.getState().hydrateReceiptSettings(scheduling.data);
+      assertEqualOrThrow(settingsStore.getState().kotShowScheduledTime, true, 'and takes it');
+      settingsStore.setState({ kotShowScheduledTime: false, kotShowCustomerContact: false });
+      await setScheduled('false');
 
       const saved = await api(baseUrl, `/api/settings/${SETTING}`, {
         method: 'PUT',
@@ -548,6 +616,17 @@ runCases('pizza-kot-customer-contact', {
       for (const line of [PHONE_LINE, ADDRESS_LINE, NOTE_LINE]) {
         assertOrThrow(browserJob.includes(line), `browser hook, setting on: prints "${line}"`);
       }
+
+      for (const on of [false, true]) {
+        frontend.posSettings.usePosSettingsStore.setState({ kotShowScheduledTime: on });
+        await usePrinterStore.getState().printKot({ ...deliveryOrder, ...timed });
+        assertEqualOrThrow(
+          html.includes('SCHEDULED'),
+          on,
+          `browser hook, scheduling ${on ? 'on' : 'off'}: the line ${on ? 'prints' : 'does not print'}`,
+        );
+      }
+      frontend.posSettings.usePosSettingsStore.setState({ kotShowScheduledTime: false });
 
       // The same hook with a WebUSB printer connected sends ESC/POS bytes instead.
       let bytes = new Uint8Array();

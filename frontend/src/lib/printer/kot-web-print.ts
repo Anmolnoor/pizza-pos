@@ -40,6 +40,8 @@ export interface KotWebPrintOptions {
   showLargeOrderNumber?: boolean;
   /** Print the customer's phone, delivery address and delivery note. Default: false */
   showCustomerContact?: boolean | 'delivery';
+  /** Print a scheduled order's time: the store has scheduled orders on. Default: false */
+  showScheduledTime?: boolean;
 }
 
 /** Resolve the KOT ticket language: fixed policy language or the UI language. */
@@ -237,7 +239,7 @@ export function generateKotHtml(order: Order, opts: KotWebPrintOptions = {}): st
         : null,
     }));
 
-  const schedule = kotScheduleLine(order, locale, timezone);
+  const schedule = kotScheduleLine(order, opts.showScheduledTime, locale, timezone);
   const contactRows = kotContactLines(order, opts.showCustomerContact)
     .map(
       (line) =>

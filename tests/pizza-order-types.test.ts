@@ -13,14 +13,25 @@ const {
 } = require('./helpers/pizza-print-harness');
 const { isDeepStrictEqual } = require('node:util');
 
-const frontend = loadFrontend();
+// What the browser would keep between visits, so the test can read it.
+const kept = new Map<string, string>();
+const localStorage = {
+  getItem: (key: string) => kept.get(key) ?? null,
+  setItem: (key: string, value: string) => void kept.set(key, value),
+  removeItem: (key: string) => void kept.delete(key),
+};
+// The store picks its storage when it is made; nothing else here may think it is in a browser.
+(globalThis as any).window = { localStorage };
+const { usePosSettingsStore } = require('../frontend/src/store/pos-settings');
+delete (globalThis as any).window;
+loadFrontend();
 const { offeredOrderTypes, orderTypeToStartOn } = require('../frontend/src/lib/pizza/order-types');
 
 const ALL = ['dine_in', 'takeaway', 'delivery', 'online'];
 const COUNTER = ['takeaway', 'delivery'];
 const same = (actual: unknown, expected: unknown, message: string) =>
   assertOrThrow(isDeepStrictEqual(actual, expected), `${message} (got ${JSON.stringify(actual)})`);
-const store = () => frontend.posSettings.usePosSettingsStore.getState();
+const store = () => usePosSettingsStore.getState();
 
 runCases('pizza-order-types', {
   'Case 1: with no setting every type is offered, as upstream does': () => {
@@ -71,5 +82,13 @@ runCases('pizza-order-types', {
     same(store().posOrderTypes, COUNTER, 'a response without the key leaves it');
     store().hydrateReceiptSettings({ pos_order_types: [] });
     assertEqualOrThrow(store().posOrderTypes.length, 0, 'an empty list offers every type again');
+  },
+
+  'Case 5: the setting is never kept in the browser, so a new cart waits for the store': () => {
+    store().hydrateReceiptSettings({ pos_order_types: COUNTER });
+    const saved = JSON.parse(kept.get('pos-settings') ?? '{}').state ?? {};
+    assertOrThrow(!('posOrderTypes' in saved), 'the list is left out of what the browser keeps');
+    assertOrThrow('tablesRequired' in saved, 'while other settings are still kept');
+    store().hydrateReceiptSettings({ pos_order_types: [] });
   },
 });

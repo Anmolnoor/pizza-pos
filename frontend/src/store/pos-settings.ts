@@ -56,6 +56,8 @@ export interface PosSettingsState {
   billShowLargeOrderNumber: boolean;
   /** Kitchen tickets print the customer's phone, delivery address and delivery note. */
   kotShowCustomerContact: boolean | 'delivery';
+  /** Kitchen tickets print a scheduled order's time: the store has scheduled orders on. */
+  kotShowScheduledTime: boolean;
   /** The order types the POS offers; empty offers them all. */
   posOrderTypes: string[];
   // Thermal printer unicode support
@@ -144,6 +146,7 @@ export interface ReceiptSettingsHydrationData {
   billShowLargeOrderNumber?: boolean | string | null;
   kot_show_customer_contact?: boolean | string | null;
   pos_order_types?: string[] | null;
+  scheduled_orders_enabled?: boolean | null;
   receipt_logo?: string | null;
   receiptLogo?: string | null;
   receipt_logo_raster?: string | null;
@@ -202,6 +205,7 @@ export const usePosSettingsStore = create<PosSettingsState>()(
       billShowTableNumber: true,
       billShowLargeOrderNumber: true,
       kotShowCustomerContact: false,
+      kotShowScheduledTime: false,
       posOrderTypes: [],
       printerUseUnicode: false,
       printerArabicShaping: false,
@@ -318,6 +322,8 @@ export const usePosSettingsStore = create<PosSettingsState>()(
                 : d.kot_show_customer_contact === true || d.kot_show_customer_contact === 'true';
           }
           if (Array.isArray(d.pos_order_types)) updates.posOrderTypes = d.pos_order_types;
+          if (typeof d.scheduled_orders_enabled === 'boolean')
+            updates.kotShowScheduledTime = d.scheduled_orders_enabled;
           const logo = d.receipt_logo ?? d.receiptLogo;
           if (logo !== undefined) {
             updates.receiptLogo = logo || '';
@@ -388,7 +394,9 @@ export const usePosSettingsStore = create<PosSettingsState>()(
               k !== 'whatsappEnabled' &&
               k !== 'billLanguagePolicy' &&
               k !== 'kotLanguagePolicy' &&
-              k !== 'autoLockMinutes',
+              k !== 'autoLockMinutes' &&
+              // A list kept from an earlier visit would move a new cart before the store answers.
+              k !== 'posOrderTypes',
           ),
         ) as PosSettingsState,
       // Migrates legacy store keys (GSTIN rename, removed A4/A5 paper sizes).

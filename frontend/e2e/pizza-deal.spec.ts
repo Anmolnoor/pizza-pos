@@ -146,6 +146,21 @@ test.describe('the deal configurator', () => {
     await page.getByTestId('pizza-category-blocks').getByRole('button', { name: 'Deals' }).click();
   });
 
+  test('a deal tile after a quantity search adds that many of the deal', async ({ page }) => {
+    await page.getByTestId('pos-product-grid').getByRole('textbox').first().fill(`3*${COMBO.name}`);
+    await expect(dealTile(page, COMBO.name)).toHaveCount(1);
+    const dialog = await openDeal(page, COMBO.name);
+    await wholePizza(dialog, 'Island').click();
+    await dialog.getByRole('button', { name: 'Next: Pops' }).click();
+    const cola = panel(dialog).getByRole('button', { name: 'One more Cola' });
+    await cola.click();
+    await cola.click();
+    await addButton(dialog).click();
+    await expect(dialog).toBeHidden();
+    await expect(cartLines(page)).toHaveCount(1);
+    await expect(cartLines(page).first().getByTestId('pizza-line-quantity')).toHaveText('3');
+  });
+
   test('a deal tile opens the configurator with a tab for each choice', async ({ page }) => {
     const three = await openDeal(page, THREE.name);
     await expect(three).toContainText(THREE.description);

@@ -107,7 +107,8 @@ function SizeButtons({
 }) {
   const t = useTranslations('pizza');
   return (
-    <div className={cn('flex', className)}>
+    // More sizes than a tile is wide wrap to a second row; each button keeps its 48 px.
+    <div className={cn('flex flex-wrap', className)}>
       {activeVariants(product.variants).map((variant) => (
         <button
           key={variant.id}

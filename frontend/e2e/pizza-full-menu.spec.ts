@@ -227,6 +227,50 @@ test('twelve pizzas fit a screen, Half & Half first, every control 48 px', async
   await expect(first.getByText('1 in order', { exact: true })).toHaveCount(1);
 });
 
+test('a menu with four sizes keeps every size button inside its tile', async ({ page }) => {
+  const fourSizes = structuredClone(menu);
+  (fourSizes.sizes as { pizza: object[] }).pizza.push({
+    id: 'extra-large',
+    label: 'Extra Large',
+    price: 27,
+  });
+  const api = await playwrightRequest.newContext();
+  try {
+    await loadSampleMenu(api, fourSizes);
+    const tiles = page.getByTestId('pizza-tile');
+    // From the widest tiles of this screen down to the narrowest the grid makes.
+    for (const width of [VIEW.width, 1100, 1024, 980]) {
+      await page.setViewportSize({ ...VIEW, width });
+      await page.reload();
+      await expect(tiles).toHaveCount(PIZZAS);
+      await expect(tiles.first().getByRole('button', { name: /^Garden, / })).toHaveCount(4);
+      const outside = await tiles.evaluateAll((all) =>
+        all.flatMap((tile) => {
+          const box = tile.getBoundingClientRect();
+          return [...tile.querySelectorAll('button')]
+            .map((button) => button.getBoundingClientRect())
+            .filter((button) => button.left < box.left - 0.5 || button.right > box.right + 0.5)
+            .map(
+              (button) => `${Math.round(button.right - box.right)} px past a ${box.width} px tile`,
+            );
+        }),
+      );
+      expect(outside, `at ${width} px wide no button leaves its tile`).toEqual([]);
+      expect(await tooSmall(tiles), `at ${width} px wide every control is 48 px`).toEqual([]);
+      expect(
+        await tiles.evaluateAll(
+          (all) => all.filter((one) => one.scrollWidth > one.clientWidth).length,
+        ),
+        `at ${width} px wide no tile hides part of a row`,
+      ).toBe(0);
+    }
+    await shot(page, 'full-menu-four-sizes.png');
+  } finally {
+    await loadSampleMenu(api, menu);
+    await api.dispose();
+  }
+});
+
 test('the pizza list is at most about two screens', async ({ page }) => {
   const { content, room } = await page
     .getByTestId('pos-catalog-scroll')

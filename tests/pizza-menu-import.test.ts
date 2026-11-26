@@ -799,7 +799,12 @@ async function main() {
           JSON.parse(owned).filter((entry: string) => entry !== 'categories:cat-deals'),
         ),
       );
-      await refused(sampleMenu(), notOurs('A category', 'cat-deals'), 'a category stops it too');
+      // Every menu uses this id, so no change to the file can get around the row.
+      await refused(
+        sampleMenu(),
+        'A category with the id cat-deals already exists and was not made by a menu load. Every menu file uses that id, so the menu cannot be loaded until support renames or removes that category.',
+        'a category stops it too, and the owner is not told to change the file',
+      );
       db.prepare('UPDATE pizza_menu SET owned_rows = ?').run(owned);
 
       // What a load made stays the file's: switched off or removed by hand, the next load restores it.

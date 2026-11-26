@@ -71,7 +71,9 @@ export function buildKotPrintData(order: any, items: any[], stationName: string)
           .find((val: unknown) => typeof val === 'string' && val.trim().length > 0)
           ?.trim() ?? '',
       contactLines: kotContactLines(order, order?.show_customer_contact),
-      ...(order?.scheduled_for ? { scheduledFor: String(order.scheduled_for) } : {}),
+      ...(order?.show_scheduled_time === true && order?.scheduled_for
+        ? { scheduledFor: String(order.scheduled_for) }
+        : {}),
     },
     items: ticketItems.map((item: any) => ({
       productName: formatVariantItemHeading(
@@ -423,11 +425,11 @@ function kotHeaderLines(
     sourceControlLines?.push(...wrapped);
   }
   const scheduled = { scheduled_for: header.scheduledFor };
-  const schedule = kotScheduleLine(scheduled, options.locale ?? 'en-US', options.timezone);
+  const schedule = kotScheduleLine(scheduled, true, options.locale ?? 'en-US', options.timezone);
   if (schedule) {
     const printable = thermalSafeText(
       schedule,
-      kotScheduleLine(scheduled, 'en-US', options.timezone) ?? schedule,
+      kotScheduleLine(scheduled, true, 'en-US', options.timezone) ?? schedule,
       options.language,
       options.arabicShaping,
       options.capabilities,

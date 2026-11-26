@@ -41,6 +41,8 @@ export interface PizzaPos extends SmallItemsPos {
     inCart: number,
     disabled: boolean,
     fmt: (amount: number) => string,
+    /** The product grid's own click: it checks the quantity typed in the search and opens the product. */
+    onClick: () => void,
   ) => ReactNode;
   /** Opens the sheet for a pizza product, or the deal configurator for a deal; false for any other product. */
   open: (product: Product, quantity?: number) => boolean;
@@ -179,7 +181,7 @@ export function usePizzaPos(
       const half = list.find((product) => product.id === HALF_AND_HALF);
       return half ? [half, ...list.filter((product) => product !== half)] : list;
     },
-    tile: (product, inCart, disabled, fmt) => {
+    tile: (product, inCart, disabled, fmt, onClick) => {
       const menuDeal = deal.of(product);
       if (menuDeal)
         return (
@@ -190,7 +192,7 @@ export function usePizzaPos(
             inCart={inCart}
             disabled={disabled}
             fmt={fmt}
-            onOpen={() => deal.open(product, 1)}
+            onOpen={onClick}
           />
         );
       if (product.id === HALF_AND_HALF)

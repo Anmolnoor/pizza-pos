@@ -891,6 +891,7 @@ export const usePrinterStore = create<PrinterState>()(
           throwIfTenantChanged();
           const hydratedLargeOrderNumber = usePosSettingsStore.getState().billShowLargeOrderNumber;
           const showCustomerContact = usePosSettingsStore.getState().kotShowCustomerContact;
+          const showScheduledTime = usePosSettingsStore.getState().kotShowScheduledTime;
 
           const orderForPrint = opts?.items ? { ...order, items: opts.items } : order;
           const activeTextSize = resolveActivePrinterTextSize(get(), opts?.capabilities?.textSize);
@@ -949,6 +950,7 @@ export const usePrinterStore = create<PrinterState>()(
                 timezone: tenantTimezone ?? opts?.timezone,
                 showLargeOrderNumber: opts?.showLargeOrderNumber ?? hydratedLargeOrderNumber,
                 showCustomerContact,
+                showScheduledTime,
                 capabilities: useRaster
                   ? nativeFallbackCapabilities(webusbCapabilities)
                   : webusbCapabilities,
@@ -972,6 +974,7 @@ export const usePrinterStore = create<PrinterState>()(
                     language: kotLanguage,
                     showLargeOrderNumber: opts?.showLargeOrderNumber ?? hydratedLargeOrderNumber,
                     showCustomerContact,
+                    showScheduledTime,
                     ...((tenantTimezone ?? opts?.timezone)
                       ? { timezone: tenantTimezone ?? opts?.timezone }
                       : {}),
@@ -1059,6 +1062,7 @@ export const usePrinterStore = create<PrinterState>()(
             timezone: tenantTimezone ?? opts?.timezone,
             showLargeOrderNumber: opts?.showLargeOrderNumber ?? hydratedLargeOrderNumber,
             showCustomerContact,
+            showScheduledTime,
           });
           await printerService.printViaBrowser(html, paperWidth);
           throwIfTenantChanged();

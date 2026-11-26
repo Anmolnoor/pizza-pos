@@ -40,12 +40,14 @@ export function kotContactLines(order: unknown, show: unknown): KotContactLine[]
 }
 
 /**
- * `SCHEDULED 6:30 PM` for an order with a `scheduled_for`, the time it goes to the kitchen, in
+ * `SCHEDULED 6:30 PM` for an order with a `scheduled_for`, the time it goes to the kitchen, while
+ * `show` is true, which is the store having scheduled orders on. The time is in
  * the store's time zone and the locale's clock format; null for any other order. A time on
  * another day than `now`, the day the ticket prints, carries its date: `SCHEDULED 1/2/2026 6:30 PM`.
  */
 export function kotScheduleLine(
   order: unknown,
+  show: unknown,
   locale: string,
   timeZone?: string,
   now = new Date(),
@@ -53,7 +55,7 @@ export function kotScheduleLine(
   // A stored instant is UTC, with or without the zone written out.
   const stored = text((order as { scheduled_for?: unknown } | null)?.scheduled_for);
   const at = new Date(stored.replace(/^(\S+) (\S+)$/, '$1T$2Z'));
-  if (!stored || Number.isNaN(at.getTime())) return null;
+  if (show !== true || !stored || Number.isNaN(at.getTime())) return null;
   const format = (options: Intl.DateTimeFormatOptions, instant: Date): string =>
     new Intl.DateTimeFormat(`${locale}-u-nu-latn`, {
       ...options,

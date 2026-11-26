@@ -50,6 +50,8 @@ export interface KotOptions {
   showLargeOrderNumber?: boolean;
   /** Print the customer's phone, delivery address and delivery note. Default: false */
   showCustomerContact?: boolean | 'delivery';
+  /** Print a scheduled order's time: the store has scheduled orders on. Default: false */
+  showScheduledTime?: boolean;
   /** Selected thermal text capabilities; defaults to generic ESC/POS safety. */
   capabilities?: ThermalPrinterCapabilities;
 }
@@ -258,9 +260,9 @@ export function buildKotBytes(
     );
     for (const row of wrapPrinterText(contactText, cols)) writeKotHeaderText(row, row);
   }
-  const schedule = kotScheduleLine(order, locale, opts.timezone);
+  const schedule = kotScheduleLine(order, opts.showScheduledTime, locale, opts.timezone);
   if (schedule)
-    writeKotHeaderText(schedule, kotScheduleLine(order, 'en-US', opts.timezone) ?? schedule);
+    writeKotHeaderText(schedule, kotScheduleLine(order, true, 'en-US', opts.timezone) ?? schedule);
 
   enc.bold(false);
   const time = formatTime(

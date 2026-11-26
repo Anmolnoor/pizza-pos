@@ -352,14 +352,19 @@ says which of the two the order is. When the scheduled day is not the day the ti
 a ticket printed by an early manual release or a reprint, the date comes first in the locale's
 numeric form, the one receipts print (`SCHEDULED 1/2/2026 6:30 PM`).
 
-Every order with a `scheduled_for` prints the line, whatever any setting holds, so a store that
-schedules orders prints it on those tickets. An order with no `scheduled_for` prints no such line:
-a store with `scheduled_orders_enabled` off prints the tickets it always did.
+The line prints only while `scheduled_orders_enabled` is on, so a store that schedules orders
+prints it on those tickets as soon as it runs this version. With the setting off no ticket has the
+line, a reprint of an order that still has a `scheduled_for` included, and tickets are as they
+always were.
 
-`kotScheduleLine()` in `shared/print/kot-contact.ts` builds the line for all four paths. The two
-browser paths that read the raw order call it with the order. The document paths carry the instant
-as `KotOrderSnapshot.scheduledFor` and `KotHeaderBlock.scheduledFor`, and `renderKotDocumentToLines`
-calls it with that. The word is English on every ticket. Kitchen display payloads do not carry
+`kotScheduleLine()` in `shared/print/kot-contact.ts` builds the line for all four paths, and
+returns none unless it is told the setting is on. The setting travels the way the contact setting
+does: `kotCustomerContactFields()` adds `show_scheduled_time` to the order the backend prints, and
+`GET /api/settings/business` returns `scheduled_orders_enabled`, which `hydrateReceiptSettings()`
+stores as `kotShowScheduledTime` and `printKot` passes as `showScheduledTime`. The two browser paths
+that read the raw order call `kotScheduleLine()` with the order. The document paths carry the
+instant as `KotOrderSnapshot.scheduledFor` and `KotHeaderBlock.scheduledFor` only while the setting
+is on, and `renderKotDocumentToLines` prints what the document carries. The word is English on every ticket. Kitchen display payloads do not carry
 `scheduled_for`, so the display shows no such line.
 
 ## Transports
