@@ -7,21 +7,31 @@ type Priced = Pick<Product, 'price' | 'variants'>;
 /**
  * The price most pizzas share at each size, by size name in menu order, as the cart charges it.
  * A size has none unless more than half the pizzas on sale at that size, and at least two, have it.
+ * A pizza counts once per size, and votes only when all its variants of that name share one price.
  */
 export function standardPrices(pizzas: Priced[], online: boolean): Map<string, number> {
-  const counts = new Map<string, Map<number, number>>();
-  for (const product of pizzas)
+  const counts = new Map<string, { total: number; votes: Map<number, number> }>();
+  for (const product of pizzas) {
+    const perPizza = new Map<string, Set<number>>();
     for (const variant of activeVariants(product.variants)) {
-      const prices = counts.get(variant.name) ?? new Map<number, number>();
-      const price = cartVariantUnitPrice({ product, variant }, online);
-      prices.set(price, (prices.get(price) ?? 0) + 1);
-      counts.set(variant.name, prices);
+      const prices = perPizza.get(variant.name) ?? new Set<number>();
+      prices.add(cartVariantUnitPrice({ product, variant }, online));
+      perPizza.set(variant.name, prices);
     }
+    for (const [size, pizzaPrices] of perPizza) {
+      const count = counts.get(size) ?? { total: 0, votes: new Map<number, number>() };
+      count.total += 1;
+      if (pizzaPrices.size === 1) {
+        const [price] = pizzaPrices;
+        count.votes.set(price, (count.votes.get(price) ?? 0) + 1);
+      }
+      counts.set(size, count);
+    }
+  }
   const standard = new Map<string, number>();
-  for (const [size, prices] of counts) {
-    const [first] = [...prices].sort((a, b) => b[1] - a[1]);
-    const total = [...prices.values()].reduce((sum, count) => sum + count, 0);
-    if (first[1] >= 2 && first[1] * 2 > total) standard.set(size, first[0]);
+  for (const [size, { total, votes }] of counts) {
+    const [first] = [...votes].sort((a, b) => b[1] - a[1]);
+    if (first && first[1] >= 2 && first[1] * 2 > total) standard.set(size, first[0]);
   }
   return standard;
 }

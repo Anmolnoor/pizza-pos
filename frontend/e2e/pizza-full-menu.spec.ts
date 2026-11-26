@@ -424,11 +424,14 @@ test('the price legend stays on screen at the end of the list', async ({ page })
   await shot(page, 'full-menu-scrolled.png');
 });
 
-test('a tile control reached by the keyboard is never under the Half & Half row', async ({
-  page,
-}) => {
+/**
+ * Shift+Tab from the last control of the list up to the first Customize, then Tab back down:
+ * every control the focus reaches scrolls below the sticky Half & Half row, uncovered.
+ */
+async function keyboardClearsHalfRow(page: Page, sizes: number): Promise<void> {
   const tiles = page.getByTestId('pizza-tile');
-  const steps = PIZZAS * 4 - 1;
+  // Customize and one button per size on every tile, less the one the focus starts on.
+  const steps = PIZZAS * (sizes + 1) - 1;
   await page.getByTestId('pos-catalog-scroll').evaluate((element) => {
     element.scrollTop = element.scrollHeight;
   });
@@ -466,7 +469,45 @@ test('a tile control reached by the keyboard is never under the Half & Half row'
   expect(up.at(-1)).toBe('Customize Garden');
   const down = await check('Tab');
   expect(down.at(-1)).toMatch(new RegExp(`^${nameOf(PIZZAS)}, `));
+}
+
+test('a tile control reached by the keyboard is never under the Half & Half row', async ({
+  page,
+}) => {
+  await keyboardClearsHalfRow(page, SIZES.length);
   await shot(page, 'full-menu-keyboard-focus.png');
+});
+
+test('the keyboard also clears a Half & Half row that wraps', async ({ page }) => {
+  const manySizes = structuredClone(menu);
+  (manySizes.sizes as { pizza: object[] }).pizza.push(
+    { id: 'extra-large', label: 'Extra Large', price: 27 },
+    { id: 'family', label: 'Family Feast', price: 31 },
+    { id: 'party', label: 'Party Platter', price: 35 },
+  );
+  const sizes = SIZES.length + 3;
+  const api = await playwrightRequest.newContext();
+  try {
+    await loadSampleMenu(api, manySizes);
+    await page.setViewportSize({ ...VIEW, width: 980 });
+    await page.reload();
+    await expect(page.getByTestId('pizza-tile')).toHaveCount(PIZZAS);
+    await expect(halfTile(page).getByRole('button')).toHaveCount(sizes);
+    const { height, clearance } = await halfTile(page).evaluate((row) => ({
+      height: Math.ceil(row.getBoundingClientRect().height),
+      clearance: getComputedStyle(
+        row.closest('[data-testid="pos-catalog-scroll"]')!,
+      ).getPropertyValue('--pizza-half-h'),
+    }));
+    measured('wrapped Half & Half height', height);
+    expect(height, 'the row is taller than a fixed 7rem clearance').toBeGreaterThan(112);
+    expect(clearance, 'the list knows the height of the row').toBe(`${height}px`);
+    await keyboardClearsHalfRow(page, sizes);
+    await shot(page, 'full-menu-keyboard-focus-wrapped.png');
+  } finally {
+    await loadSampleMenu(api, menu);
+    await api.dispose();
+  }
 });
 
 test("a Half & Half priced apart shows its own prices beside the pizzas' legend", async ({

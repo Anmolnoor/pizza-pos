@@ -1,6 +1,7 @@
 'use client';
 
 import { SlidersHorizontal } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 import { useTranslations } from 'use-intl';
 import { cartVariantUnitPrice } from '@/lib/cart-price';
 import { tilePrice } from '@/lib/pizza/pizza-home';
@@ -15,6 +16,8 @@ const FOCUS =
 /** The tile draws the focus of its Customize band, so the ring frames the whole pizza. */
 const CUSTOMIZE_FOCUS =
   'has-[[data-customize]:focus-visible]:outline-2 has-[[data-customize]:focus-visible]:outline-offset-2 has-[[data-customize]:focus-visible]:outline-foreground';
+/** A control the keyboard reaches scrolls clear of the sticky Half & Half row, at its measured height. */
+const BELOW_HALF_ROW = 'scroll-mt-[calc(var(--pizza-half-h,7rem)+0.5rem)]';
 
 /**
  * The grid the pizza home lays its tiles on: as many columns as fit three size buttons each,
@@ -124,8 +127,9 @@ function SizeButtons({
               price: fmt(cartVariantUnitPrice({ product, variant }, online)),
             })}
             className={cn(
-              'group/size flex min-h-12 min-w-12 scroll-mt-28 flex-1 flex-col items-center justify-center rounded-lg border border-border bg-muted/60 px-1 text-sm font-bold leading-tight text-foreground transition-colors hover:border-brand hover:bg-brand hover:text-white active:border-brand active:bg-brand active:text-white disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-muted/60 disabled:hover:text-foreground',
+              'group/size flex min-h-12 min-w-12 flex-1 flex-col items-center justify-center rounded-lg border border-border bg-muted/60 px-1 text-sm font-bold leading-tight text-foreground transition-colors hover:border-brand hover:bg-brand hover:text-white active:border-brand active:bg-brand active:text-white disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-muted/60 disabled:hover:text-foreground',
               soldOut && 'line-through',
+              BELOW_HALF_ROW,
               FOCUS,
             )}
           >
@@ -186,7 +190,10 @@ export function PizzaTile({
           disabled={disabled}
           onClick={onCustomize}
           aria-label={t('customizeNamed', { name: product.name })}
-          className="absolute inset-0 scroll-mt-28 outline-hidden disabled:cursor-not-allowed"
+          className={cn(
+            'absolute inset-0 outline-hidden disabled:cursor-not-allowed',
+            BELOW_HALF_ROW,
+          )}
         />
         {/* The number and the icon float, no taller than a line, so the name's second line has the whole width. */}
         <div className={cn('pointer-events-none relative min-w-0', disabled && 'opacity-50')}>
@@ -243,8 +250,27 @@ export function HalfAndHalfTile({
   onSize: (variant: ProductVariant) => void;
 }) {
   const t = useTranslations('pizza');
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const row = ref.current;
+    const scroller =
+      row?.closest<HTMLElement>('[data-testid="pos-catalog-scroll"]') ?? row?.parentElement;
+    if (!row || !scroller) return;
+    const observer = new ResizeObserver(() =>
+      scroller.style.setProperty(
+        '--pizza-half-h',
+        `${Math.ceil(row.getBoundingClientRect().height)}px`,
+      ),
+    );
+    observer.observe(row);
+    return () => {
+      observer.disconnect();
+      scroller.style.removeProperty('--pizza-half-h');
+    };
+  }, []);
   return (
     <div
+      ref={ref}
       data-testid="pizza-half-tile"
       className="sticky top-0 z-10 col-span-full flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-border bg-muted p-1 ps-2 shadow-sm"
     >

@@ -201,4 +201,25 @@ runCases('pizza-home', {
       'a size on sale nowhere takes no label',
     );
   },
+
+  'Case 11: a pizza counts once at a size, however many variants share its name': () => {
+    const twoLarge = (price: number, second: number) => {
+      const product = pizza([15, 19, price]);
+      product.variants.push(variant('Large', second));
+      return product;
+    };
+    const large = (menu: ReturnType<typeof pizza>[]) =>
+      entries(standardPrices(menu, false)).find(([name]) => name === 'Large');
+    same(large([twoLarge(23, 23)]), undefined, 'one pizza is not two, even with two Larges');
+    same(
+      large([pizza([15, 19, 23]), pizza([15, 19, 23]), twoLarge(23, 25)]),
+      ['Large', 23],
+      'a pizza with two Large prices is one pizza with no vote',
+    );
+    same(
+      large([pizza([15, 19, 23]), twoLarge(23, 25)]),
+      undefined,
+      'one vote of two pizzas is no standard',
+    );
+  },
 });
