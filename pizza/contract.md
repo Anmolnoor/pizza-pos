@@ -190,14 +190,19 @@ CREATE TABLE IF NOT EXISTS pizza_quick_buttons (
 ## Order lines (lane E, after A and B)
 
 - A recipe travels as `modifier_selection` on the order line. The server validates and normalises it with `validateRecipe` against the catalogue stored in `pizza_menu`, at order create, add items and replacement edit.
-- A recipe is optional on a pizza product: a plain pizza is just the product, its size variant and its dips. A half-and-half product and a deal product require one.
+- A recipe is optional on a pizza product: a plain pizza is just the product, its size variant and its dips. A half-and-half product and a deal product require one. A pizza and a half-and-half line need a size variant; without one the line is refused with "Pick a size for this pizza".
+- A product that is switched off or deleted, as a menu load leaves an item that left the file, cannot be sold: order create, add items, a quantity increase and a replacement answer 400 with "<name> is not on the menu. Pick another item". A reduction, a void and a refund of a line already sold still work.
 - The line's product and variant must agree with the recipe, checked through `pizza_products` and the derived ids: `sizeId` matches the variant; `whole.pizzaId` is the product's menu id and `whole` is never on the half-and-half product; `halves` only on the half-and-half product; `dealId` is the deal product's menu id.
 - A replacement edit keeps the stored recipe only when the `modifier_selection` field is absent and the product is unchanged. A kept pizza recipe takes its `sizeId` from the replacement's variant (the variant id with the `<product id>-` prefix removed) and is then validated as usual. An explicit `modifier_selection: null` means no recipe: it clears the recipe of a plain pizza and is refused, as any missing recipe is, on the half-and-half product and on deals.
+- A replacement that names the line's own product, variant, quantity and add-ons, and sends no `price_override`, changes only the recipe or the note (`changesRecipeOnly` in `main/pizza/sold-line.ts`). The new line keeps the sold unit price, add-on prices, item discount, price override and tax. Any other replacement, a new size included, is priced from the current catalogue.
+- In an edit's idempotency hash, a replacement that leaves `modifier_selection` out and one that sends `null` are different requests: reusing the key with the other answers 409.
+- A line amount is unit price plus add-ons, times quantity, less the item discount, in decimal arithmetic, rounded half-up to the cent (`lineSubtotal` in `main/services/tax.ts`). Three at 10.70 are 32.10, and 5% GST on them is 1.61.
 - When the `pizza_menu` row is missing or unreadable, a line with a recipe answers 503 with "The pizza menu is not loaded. Load the menu file again."; lines without a recipe are unaffected.
 - A recipe is not validated against the menu at print time: an order sold before a menu change still prints, with an id the menu no longer has printed as the id. A recipe that cannot be printed (the stored menu cannot be read, `ticketLines` throws, or a pizza lacks one whole or two halves each with a `removed` list) prints the one detail line `RECIPE NOT PRINTED - CHECK ORDER`, never nothing.
 - A restricted kitchen display station gets `modifier_selection` only when it is a recipe, and `null` otherwise.
 - Every kitchen display item whose `modifier_selection` is a recipe carries `recipe_lines`: the `detailLines` of `ticketLines` at 48 columns, or the one warning line in the cases above. An item with no recipe has no such field. The display draws the lines as given and needs no menu in the browser.
-- Print data gets `detailLines` from `ticketLines`, called with the printer's layout column count. The item heading stays FloCafe's own product and variant name.
+- Print data gets `detailLines` from `ticketLines`, called with the printer's layout column count. The item heading stays FloCafe's own product and variant name. The kitchen ticket and the classic, compact, merchant and tax-pack receipts all print them.
+- `POST /api/printers/print-kot` prints the order's saved lines. The `items` in the request only choose lines by `id`; name, quantity, recipe, note and add-ons come from the database.
 
 ## Quick buttons (lane G, `main/pizza/quick-buttons.ts`)
 

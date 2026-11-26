@@ -50,6 +50,16 @@ Everything monetary is resolved server-side inside one transaction:
 
 - The unit price comes from the catalog: `products.price`, or the variant price for an order with an
   `online_platform`. A client-sent price is never read.
+- A product that is switched off or deleted is refused with `400` (`assertProductOnMenu()` in
+  [`main/routes/orders-validation.ts`](../../main/routes/orders-validation.ts)). Adding items, a
+  quantity increase, and a replacement apply the same check; a quantity reduction, a void, and a
+  refund of a line already sold do not.
+- A line's amount is its unit price plus its add-ons, times the quantity, less its item discount,
+  worked out in decimal arithmetic and rounded half-up to the currency's decimal places
+  (`lineSubtotal()` in [`main/services/tax.ts`](../../main/services/tax.ts)). Order creation, added
+  items, item edits, item discounts, price overrides, and the tax preview all use it, so the tax
+  engine is given the same whole-cent amount on every path. The order subtotal is the rounded sum
+  of its lines.
 - Quantity rules are checked per sale unit, including fractional and weight-precision products.
 - Stock deduction and recipe depletion are written in the same transaction for immediate orders
   (scheduled orders defer stock and recipe depletion until kitchen release), so the order and its
@@ -80,6 +90,8 @@ incoming line of `POST /api/orders`, `POST /api/orders/:id/items`, and
 - `pizza_products` says whether the line's product is a pizza, the half-and-half product, or a
   deal. A product with no row there keeps whatever `modifier_selection` it sends, except that an
   object whose `kind` is `pizza` or `deal` is refused.
+- A pizza product and the half-and-half product need a size variant on the line; a line without
+  one is refused with "Pick a size for this pizza".
 - A pizza product may arrive with no recipe. The half-and-half product and every deal product
   require one.
 - `validateRecipe()` in [`shared/pizza/recipe.ts`](../../shared/pizza/recipe.ts) checks the recipe
@@ -105,6 +117,13 @@ Later changes to the line keep the recipe:
   kept recipe is then checked like any other.
 - A replacement that sends `modifier_selection: null` sends no recipe: it clears the recipe of a
   pizza product, and is refused on the half-and-half product and on a deal.
+- A replacement that names the line's own product, variant, quantity, and add-ons, and sends no
+  `price_override`, changes only the recipe or the note (`changesRecipeOnly()` in
+  [`main/pizza/sold-line.ts`](../../main/pizza/sold-line.ts)). The new line keeps the sold unit
+  price, add-on prices, item discount, and price override, as a quantity edit does, and
+  `carrySoldTax()` copies the sold line's tax, so a menu load or a tax change between the sale and
+  the edit does not re-price it. Any other replacement, a new size included, is priced and taxed
+  from the current catalog.
 - A replacement by another product does not carry the recipe over, and a line whose
   `modifier_selection` is not a recipe is replaced by exactly what the request sends.
 - The adjustment rows a void and an item refund write copy the line's `modifier_selection`.
