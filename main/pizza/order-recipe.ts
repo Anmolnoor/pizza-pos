@@ -27,7 +27,11 @@ function recipeOf(line: Line): OrderLineRecipe | undefined {
 function readCatalog(db: Database.Database): PizzaCatalog {
   try {
     const row = db.prepare('SELECT catalog FROM pizza_menu WHERE id = 1').get();
-    return JSON.parse((row as { catalog: string }).catalog);
+    const catalog = JSON.parse((row as { catalog: string }).catalog);
+    for (const list of ['pizzas', 'sizes', 'deals', 'drinks']) {
+      if (!Array.isArray(catalog[list])) throw new Error(list);
+    }
+    return catalog;
   } catch {
     throw Object.assign(new Error('The pizza menu is not loaded. Load the menu file again.'), {
       statusCode: 503,

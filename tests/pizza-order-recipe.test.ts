@@ -606,6 +606,8 @@ async function main() {
         const states: Record<string, () => void> = {
           'row missing': () => db.prepare('DELETE FROM pizza_menu').run(),
           'unreadable JSON': () => db.prepare("UPDATE pizza_menu SET catalog = '{not json'").run(),
+          'JSON that is not a menu': () =>
+            db.prepare("UPDATE pizza_menu SET catalog = 'null'").run(),
         };
         for (const [state, apply] of Object.entries(states)) {
           apply();
