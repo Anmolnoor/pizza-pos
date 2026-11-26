@@ -17,6 +17,7 @@ import {
 } from '../db';
 import { getJWTSecret } from '../security/jwt-secret';
 import { seedSetupProfile } from '../setup/seed-data';
+import { pizzaProfileRefusal } from '../pizza/setup-profile';
 import { authorizeMasterPin, isMasterPinAvailable, setMasterPin } from '../services/master-pin';
 import {
   authRateLimit,
@@ -1781,6 +1782,8 @@ router.post('/setup/initialize', (req: Request, res: Response) => {
     if (!VALID_SETUP_PROFILES.has(normalizedSetupProfile)) {
       return res.status(400).json({ error: 'Invalid setup profile' });
     }
+    const refusal = pizzaProfileRefusal(normalizedSetupProfile, resolvedCountry.code, state_code);
+    if (refusal) return res.status(400).json({ error: refusal });
 
     if (!VALID_SERVICE_MODELS.has(normalizedServiceModel)) {
       return res.status(400).json({ error: 'Invalid service model' });

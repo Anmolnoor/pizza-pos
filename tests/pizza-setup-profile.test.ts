@@ -37,6 +37,21 @@ ws.WebSocket = Object.setPrototypeOf(function (url: unknown) {
   outbound.push(`ws ${String(url)}`);
   throw new Error('outbound socket refused by the test');
 }, ws.WebSocket);
+// Every TCP connection starts here, whichever of http.request, https.request or net.connect opens it.
+const net = require('net');
+const realConnect = net.Socket.prototype.connect;
+net.Socket.prototype.connect = function (...args: any[]) {
+  const first = Array.isArray(args[0]) ? args[0][0] : args[0];
+  const target =
+    typeof first === 'object'
+      ? first
+      : typeof first === 'number'
+        ? { host: args[1] }
+        : { path: first };
+  if (target.path || target.host === '127.0.0.1') return realConnect.apply(this, args);
+  outbound.push(`socket ${target.host ?? 'localhost'}:${target.port ?? first}`);
+  return this.destroy(new Error('outbound connection refused by the test'));
+};
 
 const {
   createApp,
@@ -61,6 +76,27 @@ cloudSync.register = ((...args: unknown[]) => {
 }) as any;
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 200));
+
+// 192.0.2.1 is a documentation address: nothing answers there, and the guard must stop the attempt first.
+const attempt = (open: () => any) =>
+  new Promise<void>((resolve) => open().once('error', resolve).once('close', resolve));
+
+const setupBody = {
+  name: 'Pizza Owner',
+  email: 'owner@example.com',
+  password: 'TestPass123',
+  business_type: 'restaurant',
+  business_name: 'Sample Pizza Shop',
+  setup_profile: 'pizza',
+  // The profile decides counter service, whatever the request asks for.
+  service_model: 'finedine',
+  terms_accepted: true,
+  owner_approval_pin: '5678',
+  owner_approval_pin_confirmation: '5678',
+  country: 'CA',
+  currency: 'CAD',
+  timezone: 'America/Vancouver',
+};
 
 const MENU_TABLES = ['categories', 'products', 'addon_groups', 'addons'];
 const UNSEEDED_TABLES = ['printers', 'kitchen_stations', 'role_permission_overrides', 'tables'];
@@ -90,27 +126,60 @@ async function main() {
   let ownerAuth: Record<string, string> = {};
 
   try {
+    await testCase('0. The outbound guard stops http, https and raw sockets', async () => {
+      const http = require('http');
+      const https = require('https');
+      await attempt(() => http.request('http://192.0.2.1/').end());
+      await attempt(() => https.request('https://192.0.2.1/').end());
+      await attempt(() => net.connect(9, '192.0.2.1'));
+      assertEqualOrThrow(
+        outbound.join(', '),
+        'socket 192.0.2.1:80, socket 192.0.2.1:443, socket 192.0.2.1:9',
+        'each attempt is recorded and refused',
+      );
+      outbound.length = 0;
+    });
+
+    const refused = async (name: string, region: Record<string, string>) => {
+      const setup = await api(baseUrl, '/api/auth/setup/initialize', {
+        method: 'POST',
+        body: { ...setupBody, ...region },
+      });
+      assertEqualOrThrow(setup.status, 400, `setup for ${name} is refused`);
+      assertEqualOrThrow(
+        setup.data.error,
+        'The pizza shop profile sets up British Columbia tax. Choose Canada and British Columbia, or pick another profile.',
+        'the owner is told what to change',
+      );
+      assertEqualOrThrow(count('users'), 0, 'no owner is created');
+      assertEqualOrThrow(
+        count("country_packs WHERE country != '*'"),
+        0,
+        'no tax configuration is installed',
+      );
+      assertEqualOrThrow(getSettingValue('taxes_enabled'), 'false', 'no setting is written');
+      const status = await api(baseUrl, '/api/auth/setup/status');
+      assertEqualOrThrow(status.data.needsSetup, true, 'setup is still to be done');
+    };
+
+    await testCase('1a. The pizza profile is refused outside Canada', () =>
+      refused('the United States', {
+        country: 'US',
+        currency: 'USD',
+        timezone: 'America/Los_Angeles',
+      }),
+    );
+
+    await testCase('1b. The pizza profile is refused in another province', () =>
+      refused('Ontario', { state_code: 'ON' }),
+    );
+
     await testCase('1. Setup with the pizza profile succeeds', async () => {
       cloudSync.start();
       telemetry.start();
       const setup = await api(baseUrl, '/api/auth/setup/initialize', {
         method: 'POST',
-        body: {
-          name: 'Pizza Owner',
-          email: 'owner@example.com',
-          password: 'TestPass123',
-          business_type: 'restaurant',
-          business_name: 'Sample Pizza Shop',
-          setup_profile: 'pizza',
-          // The profile decides counter service, whatever the request asks for.
-          service_model: 'finedine',
-          terms_accepted: true,
-          owner_approval_pin: '5678',
-          owner_approval_pin_confirmation: '5678',
-          country: 'CA',
-          currency: 'CAD',
-          timezone: 'America/Vancouver',
-        },
+        body: { ...setupBody, state_code: 'BC' },
       });
       assertEqualOrThrow(setup.status, 200, 'the setup route accepts the pizza profile');
       ownerAuth = { Authorization: `Bearer ${setup.data.access_token}` };
@@ -122,6 +191,7 @@ async function main() {
       const expected: Record<string, string> = {
         service_model: 'qsr',
         tables_required: 'false',
+        billing_type: 'prepaid',
         kds_enabled: 'false',
         server_app_enabled: 'false',
         auto_print_kot: 'true',
@@ -144,6 +214,22 @@ async function main() {
         'the drawer opens for cash only',
       );
       assertEqualOrThrow(printing.data.kds_enabled, false, 'the kitchen display is off');
+    });
+
+    await testCase('2b. The manual Canada tax pack is the active one', () => {
+      const packs = getDatabase()
+        .prepare(
+          `SELECT id, publisher, country, status, active_version_id IS NOT NULL AS has_version
+           FROM country_packs WHERE country != '*'`,
+        )
+        .all();
+      assertEqualOrThrow(
+        JSON.stringify(packs),
+        JSON.stringify([
+          { id: 'manual-ca', publisher: 'local', country: 'CA', status: 'active', has_version: 1 },
+        ]),
+        'the store has one pack of its own: manual-ca, local, active',
+      );
     });
 
     await testCase('3. The region is what the request carried', () => {

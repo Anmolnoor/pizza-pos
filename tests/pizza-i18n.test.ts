@@ -72,7 +72,17 @@ async function run(): Promise<void> {
   }
   console.log(`  ✓ ${strings.length} pizza strings: valid ICU syntax, no duplicate keys`);
 
-  // 3. A pizza key resolves under non-English languages, next to translated core strings.
+  // 3. No language file has its own `pizza` namespace: the loader's merge would replace it unseen.
+  const messagesDir = path.join(path.dirname(PIZZA_FILE), '../messages');
+  const languageFiles = fs.readdirSync(messagesDir).filter((file) => file.endsWith('.json'));
+  assert.ok(languageFiles.length >= 32, 'the language files are found');
+  for (const file of languageFiles) {
+    const messages = JSON.parse(fs.readFileSync(path.join(messagesDir, file), 'utf8'));
+    assert.ok(!('pizza' in messages), `${file} has no top-level pizza key`);
+  }
+  console.log(`  ✓ none of the ${languageFiles.length} language files has a pizza namespace`);
+
+  // 4. A pizza key resolves under non-English languages, next to translated core strings.
   const english = (await loadLocaleMessages('en')) as any;
   assert.deepEqual(english.pizza, pizza, 'English carries the pizza namespace');
   for (const lang of ['de', 'ar'] as const) {

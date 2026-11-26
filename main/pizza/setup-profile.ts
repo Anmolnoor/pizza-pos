@@ -1,11 +1,11 @@
 /** The `pizza` setup profile: counter-service shop settings and British Columbia tax. It seeds no menu. */
-import { createHash } from 'crypto';
-import { getDatabase, getSettingValue, now, upsertSettings } from '../db';
-import { activateInstalledPack, buildManualPack, persistPackArtifacts } from '../routes/tax-packs';
+import { getDatabase, getSettingValue, upsertSettings } from '../db';
+import { saveManualConfig } from '../routes/tax-packs';
 
 const SHOP_SETTINGS = {
   service_model: 'qsr',
   tables_required: 'false',
+  billing_type: 'prepaid',
   kds_enabled: 'false',
   server_app_enabled: 'false',
   auto_print_kot: 'true',
@@ -39,49 +39,30 @@ const BC_TAX = {
   serviceChargeCategoryTempId: 'food',
 };
 
+/** Why setup cannot use this profile for the given region, or null when it can. */
+export function pizzaProfileRefusal(
+  profile: string,
+  country: string,
+  stateCode: unknown,
+): string | null {
+  if (profile !== 'pizza') return null;
+  const province = String(stateCode ?? '')
+    .trim()
+    .toUpperCase();
+  return country === 'CA' && (province === '' || province === 'BC')
+    ? null
+    : 'The pizza shop profile sets up British Columbia tax. Choose Canada and British Columbia, or pick another profile.';
+}
+
 /** Runs inside the setup transaction, after the owner and the store's country and currency are written. */
 export function seedPizzaShop(db: ReturnType<typeof getDatabase>): void {
   upsertSettings(SHOP_SETTINGS);
-
-  const country = String(getSettingValue('country'));
-  const pack = buildManualPack(BC_TAX, country, String(getSettingValue('currency')));
-  const packJson = JSON.stringify(pack);
-  const installedAt = now();
-  const version = {
-    id: `${pack.id}@${pack.version}`,
-    pack_id: pack.id,
-    version: pack.version,
-    schema_version: 1,
-    manifest_json: JSON.stringify({
-      id: pack.id,
-      publisher: 'local',
-      country,
-      jurisdiction: '*',
-      version: pack.version,
-      publishedAt: pack.publishedAt,
-    }),
-    pack_json: packJson,
-    digest: createHash('sha256').update(packJson, 'utf8').digest('hex'),
-    signature: null,
-    effective_from: pack.effectiveFrom,
-    effective_to: null,
-    min_flo_version: pack.minFloVersion,
-    published_at: pack.publishedAt,
-    status: 'installed',
-    created_at: installedAt,
-  };
-  db.prepare(`
-    INSERT INTO country_packs (id, publisher, country, jurisdiction, active_version_id, status, created_at, updated_at)
-    VALUES (?, 'local', ?, '*', NULL, 'installed', ?, ?)
-  `).run(pack.id, country, installedAt, installedAt);
-  persistPackArtifacts(version, pack, installedAt);
-
   const owner = db.prepare("SELECT id FROM users WHERE role = 'owner'").get() as { id: string };
-  activateInstalledPack(
-    db.prepare('SELECT * FROM country_packs WHERE id = ?').get(pack.id) as Parameters<
-      typeof activateInstalledPack
-    >[0],
-    version,
+  const { validation } = saveManualConfig(
+    BC_TAX,
+    String(getSettingValue('country')),
+    String(getSettingValue('currency')),
     owner.id,
   );
+  if (!validation.valid) throw new Error('The pizza profile tax configuration failed validation');
 }

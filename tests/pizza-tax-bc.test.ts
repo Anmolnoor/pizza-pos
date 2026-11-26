@@ -216,6 +216,73 @@ async function main() {
       assertEqualOrThrow(taxLines(untaxed.tax_breakdown), '', 'no tax lines');
       assertEqualOrThrow(untaxed.total, 10, 'total is the price');
     });
+    await testCase('7. Rounding is per order line', async () => {
+      // Each tax is rounded on each order line, so two lines of one soda and one line of two
+      // sodas differ by a cent: 2 x round(1.75 x 0.07) = 0.24, but round(3.50 x 0.07) = 0.25.
+      const twoLines = await order('Sample can of soda', 'Sample can of soda');
+      assertEqualOrThrow(twoLines.items.length, 2, 'the two sodas stay on two lines');
+      assertEqualOrThrow(twoLines.subtotal, 3.5, 'subtotal is $3.50');
+      assertEqualOrThrow(
+        taxLines(twoLines.tax_breakdown),
+        'GST 5% 0.18, PST 7% 0.24',
+        'two lines: GST 0.09 + 0.09 and PST 0.12 + 0.12',
+      );
+      assertEqualOrThrow(twoLines.total, 3.92, 'two lines come to $3.92');
+
+      const oneLine = await api(baseUrl, '/api/orders', {
+        method: 'POST',
+        headers,
+        body: {
+          type: 'takeaway',
+          items: [{ product_id: productIds['Sample can of soda'], quantity: 2 }],
+        },
+      });
+      assertEqualOrThrow(oneLine.status, 201, 'an order of two sodas on one line is created');
+      assertEqualOrThrow(
+        taxLines(oneLine.data.order.tax_breakdown),
+        'GST 5% 0.18, PST 7% 0.25',
+        'one line: GST on 3.50 is 0.175 -> 0.18 and PST is 0.245 -> 0.25',
+      );
+      assertEqualOrThrow(oneLine.data.order.total, 3.93, 'one line comes to $3.93');
+    });
+
+    await testCase('8. A charge is untaxed until the owner gives it a tax category', async () => {
+      const charged = await api(baseUrl, '/api/orders', {
+        method: 'POST',
+        headers,
+        body: {
+          type: 'takeaway',
+          packaging_charge: 1,
+          items: [{ product_id: productIds['Sample large pizza'], quantity: 1 }],
+        },
+      });
+      assertEqualOrThrow(charged.status, 201, 'an order with a packaging charge is created');
+      assertEqualOrThrow(charged.data.order.packaging_charge, 1, 'the charge is on the order');
+      assertEqualOrThrow(
+        taxLines(charged.data.order.tax_breakdown),
+        'GST 5% 1.15',
+        'only the pizza is taxed',
+      );
+      assertEqualOrThrow(charged.data.order.total, 25.15, 'total is 23.00 + 1.15 + 1.00');
+    });
+
+    await testCase('9. The tax configuration is recorded as the owner saving it', () => {
+      const audit = getDatabase()
+        .prepare(
+          `SELECT audit.action, audit.pack_id, user.role
+           FROM tax_config_audit AS audit LEFT JOIN users AS user ON user.id = audit.actor_user_id
+           WHERE audit.pack_id = 'manual-ca' ORDER BY audit.id`,
+        )
+        .all();
+      assertEqualOrThrow(
+        JSON.stringify(audit),
+        JSON.stringify([
+          { action: 'activate_pack', pack_id: 'manual-ca', role: 'owner' },
+          { action: 'save_manual_config', pack_id: 'manual-ca', role: 'owner' },
+        ]),
+        'the audit table has the activation and the save_manual_config entry, by the owner',
+      );
+    });
   } finally {
     server.close();
     closeDatabase();

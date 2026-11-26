@@ -311,6 +311,11 @@ The synthesized pack id is `manual-<country>`, its jurisdiction is `*`, it adds 
 `0.01` payable increment. `POST /manual-config` is owner-only and requires a store country to be
 configured first.
 
+`saveManualConfig()` in the same file is the whole save: it builds the pack, validates it, installs
+and activates it in one transaction, moves products, add-ons, and overrides off categories that no
+longer exist, and writes the `save_manual_config` audit entry. It saves nothing when validation
+fails. The route and the pizza setup profile both call it.
+
 A category's id is its label in lower case, with each run of characters other than letters and
 digits replaced by `_` (`slugifyTaxId()`), so a category labelled `Food` has the id `food`. The same id is the
 `category_id` of its `tax_categories` row for the active pack version, the `id` of its entry in
@@ -318,23 +323,38 @@ digits replaced by `_` (`slugifyTaxId()`), so a category labelled `Food` has the
 
 ### The pizza setup profile
 
-The `pizza` setup profile configures British Columbia tax through the same builder, with no tax
-pack file. `seedPizzaShop()` in `main/pizza/setup-profile.ts` runs inside the setup transaction,
-hands `buildManualPack()` the configuration below with `inclusive: false`, installs the pack as
-`manual-<country>`, activates it, and sets `taxes_enabled`.
+The `pizza` setup profile configures British Columbia tax with no tax pack file. `seedPizzaShop()`
+in `main/pizza/setup-profile.ts` runs inside the setup transaction and passes the configuration
+below, with `inclusive: false`, to `saveManualConfig()` as the new owner. The pack is `manual-ca`.
+The profile also sets `taxes_enabled`.
 
 | Category id | Label | Components |
 | --- | --- | --- |
 | `food` | `Food` | `GST` 5% |
 | `soda` | `Soda` | `GST` 5%, `PST` 7% |
 
-`food` is the default category for products, packaging, delivery, and service charges. Prices are
-tax-exclusive: the tax is added on top of the price. Each component is rounded half up to the cent
-on each order line. Both GST rules carry the label `GST`, and bills and reports merge components by
+The rates are British Columbia's, so `POST /api/auth/setup/initialize` refuses the profile with a
+`400` unless the country is `CA` and `state_code` is absent or `BC` (`pizzaProfileRefusal()`).
+Nothing is written for a refused request.
+
+Prices are tax-exclusive: the tax is added on top of the price. Each component is rounded half up
+to the cent on each order line, so two lines of one $1.75 soda carry $0.24 of PST and one line of
+two carries $0.25. Both GST rules carry the label `GST`, and bills and reports merge components by
 label and rate, so an order with food and soda shows one GST line and one PST line.
 
-The profile assigns no category to any product. A product with neither a `tax_category_id` nor a
-merchant override is not sent to the engine and stays untaxed, as under every other pack.
+What a product is charged depends on how it gets its tax category:
+
+- The product screen pre-selects the pack's default product category, `food`, for a new product. A
+  soda added there is charged GST only unless its tax category is changed to `soda`.
+- A product created through `POST /api/products` or a CSV import with no tax category has none. It
+  is not sent to the engine and stays untaxed, as under every other pack, unless it has a merchant
+  override.
+- The profile assigns no category to any product.
+
+The pack names `food` as the default category for packaging, delivery, and service charges, but a
+charge reaches the engine only when a store-wide override gives it a tax category
+(`getConfiguredChargeTaxCategories()`). The profile creates no override, so those charges are
+untaxed until the owner picks a tax category for them in Settings.
 
 ## Out of scope
 

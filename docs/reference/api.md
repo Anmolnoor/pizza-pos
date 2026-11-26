@@ -187,14 +187,14 @@ Router: `main/routes/auth.ts`. Full path: `/api/auth`.
 
 | Setting | Value |
 | --- | --- |
-| `service_model`, `tables_required` | `qsr`, `false`, whatever `service_model` the request carries |
+| `service_model`, `tables_required`, `billing_type` | `qsr`, `false`, `prepaid`, whatever `service_model` and `billing_type` the request carries |
 | `kds_enabled`, `server_app_enabled` | `false` |
 | `auto_print_kot` | `true` |
 | `cash_drawer_pulse_enabled`, `cash_drawer_pulse_methods` | `true`, `["cash"]` |
 | `kot_show_customer_contact` | `true` |
 | `taxes_enabled` | `true` |
 
-It seeds no products, printers, kitchen stations, or permission overrides, and it does not write `offline_mode`. Country, currency, and timezone come from the request for every profile.
+It seeds no products, printers, kitchen stations, or permission overrides, and it does not write `offline_mode`. Country, currency, and timezone come from the request for every profile. The `pizza` profile is refused with a `400`, and nothing is written, unless `country` is `CA` and `state_code` is absent or `BC`.
 
 ### Categories
 

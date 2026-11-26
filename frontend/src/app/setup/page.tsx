@@ -110,6 +110,7 @@ export default function SetupPage() {
   const [showConfirmApprovalPin, setShowConfirmApprovalPin] = useState(false);
   const [profile, setProfile] = useState<SetupProfile>('express');
   const [serviceModel, setServiceModel] = useState<ServiceModel>('qsr');
+  const [currencyResetPending, setCurrencyResetPending] = useState(false);
   // Wizard language follows shared store to update translations immediately.
   const language = usePosSettingsStore((s) => s.language);
   const setStoreLanguage = usePosSettingsStore((s) => s.setLanguage);
@@ -191,6 +192,7 @@ export default function SetupPage() {
             setCurrency(String(data.currencyReset.currency || ''));
             setTimezone(String(data.currencyReset.timezone || ''));
             setProfile('empty');
+            setCurrencyResetPending(true);
           }
           // Redirect to login if setup was already completed.
           if (!data.needsSetup) {
@@ -224,6 +226,10 @@ export default function SetupPage() {
   // The pizza profile is counter service, so it is the only service model offered with it.
   const serviceModels = SERVICE_MODELS.filter(
     (item) => profile !== 'pizza' || item.value === 'qsr',
+  );
+  // After a currency reset the server seeds nothing, so the pizza profile is not offered.
+  const setupProfiles = SETUP_PROFILES.filter(
+    (item) => item.value !== 'pizza' || !currencyResetPending,
   );
   const chooseProfile = (next: SetupProfile) => {
     if (next === 'pizza' && profile !== 'pizza') {
@@ -344,6 +350,11 @@ export default function SetupPage() {
     if (!country) {
       toast.error(t('chooseCountryRequired'));
       setStep(1);
+      return;
+    }
+    if (profile === 'pizza' && country !== PIZZA_SHOP_REGION.country) {
+      toast.error(tPizza('setupProfileNeedsCanada'));
+      setStep(4);
       return;
     }
     if (!validateOwner()) {
@@ -1079,7 +1090,7 @@ export default function SetupPage() {
                 </div>
 
                 <div className="grid gap-4">
-                  {SETUP_PROFILES.map((item) => {
+                  {setupProfiles.map((item) => {
                     const selected = profile === item.value;
                     const keys = item.value === 'pizza' ? null : SETUP_PROFILE_KEYS[item.value];
                     const Icon =
