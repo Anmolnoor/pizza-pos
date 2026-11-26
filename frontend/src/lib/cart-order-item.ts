@@ -8,7 +8,7 @@
 
 import type { CartItem } from './types';
 import { normalizeOverridePrice } from './cart-price';
-import { lineRecipe } from './pizza/line-recipe';
+import { sentRecipe } from './pizza/line-recipe';
 import type { OrderLineRecipe } from '../../../shared/pizza/types';
 
 export interface OrderItemAddonPayload {
@@ -25,7 +25,7 @@ export interface OrderItemPayload {
   addons: OrderItemAddonPayload[] | null;
   special_instructions: string | null;
   price_override?: { price: number; reason: string };
-  modifier_selection?: OrderLineRecipe;
+  modifier_selection?: OrderLineRecipe | null;
 }
 
 /** The cart-item fields a payload is built from; callers holding a staged or
@@ -42,7 +42,6 @@ export type OrderItemSource = Pick<
 >;
 
 export function cartItemToOrderItem(item: OrderItemSource): OrderItemPayload {
-  const recipe = lineRecipe(item.recipe);
   return {
     product_id: item.product.id,
     variant_id: item.variant?.id ?? null,
@@ -65,6 +64,6 @@ export function cartItemToOrderItem(item: OrderItemSource): OrderItemPayload {
           },
         }
       : {}),
-    ...(recipe ? { modifier_selection: recipe } : {}),
+    ...sentRecipe(item.product.id, item.recipe),
   };
 }

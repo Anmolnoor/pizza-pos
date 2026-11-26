@@ -494,8 +494,10 @@ names its size too, so the store rewrites the recipe's `sizeId` from the new var
 `normalizeCartItems` gives restored lines their ids again and merges the ones that match; a held
 order resumed into the cart keeps two different pizzas apart because it reads each line's recipe.
 `cartItemToOrderItem` in [`cart-order-item.ts`](../../frontend/src/lib/cart-order-item.ts) is the
-only cart-to-request projection, and it sends the recipe as `modifier_selection`; a plain pizza
-goes out without one. The retry
+only cart-to-request projection, and it sends the recipe as `modifier_selection`. A pizza line
+with no recipe, which is a product whose id starts with `pz-`, sends `modifier_selection: null`,
+so that saving an edited pizza as plain clears a recipe the order already stores; a line for any
+other product sends no such field. The retry
 fingerprint in `order-attempt.ts` is built from that projection, so two carts that differ only in
 a recipe are two different attempts. The displayed unit price is the variant price plus the
 add-ons; a recipe never changes it.
@@ -507,7 +509,7 @@ on, with no React in it:
 
 | Module | Contents |
 | --- | --- |
-| `catalog.ts` | `loadPizzaCatalog()` requests `GET /api/pizza/catalog` once and keeps the answer; `getPizzaCatalog()` reads it synchronously; `reloadPizzaCatalog()` fetches it again. A 404 means the shop has no pizza menu, and the catalogue is then `null`. A failed fetch keeps the catalogue already held, and only the latest fetch changes it, whatever order the answers arrive in. A login or a logout clears the catalogue and any fetch in flight, so the next `loadPizzaCatalog()` asks again; locking the screen and unlocking it with a PIN keep the catalogue, because the store and its menu are the same. The screen that loads a new menu calls `reloadPizzaCatalog()`. |
+| `catalog.ts` | `loadPizzaCatalog()` requests `GET /api/pizza/catalog` once and keeps the answer; `getPizzaCatalog()` reads it synchronously; `reloadPizzaCatalog()` fetches it again. A 404 means the shop has no pizza menu, and the catalogue is then `null`. A failed fetch keeps the catalogue already held, and only the latest fetch changes it, whatever order the answers arrive in. A login or a logout clears the catalogue and any fetch in flight, so the next `loadPizzaCatalog()` asks again; locking the screen and unlocking it with a PIN keep the catalogue, because the store and its menu are the same. A screen that needs the catalogue calls `loadPizzaCatalog()` when it mounts and again after a sign-in, because the login cleared what was held. The screen that loads a new menu calls `reloadPizzaCatalog()`. |
 | `sheet-state.ts` | `newSheet`, `sheetReducer`, and `sheetLine`: the state of the pizza sheet, one action per control, and the cart line that state describes. `sheetLine` runs the state through `validateRecipe` in `shared/pizza/recipe.ts`, so Add is off, with that function's message, until the recipe is valid against the catalogue. A plain pizza has no recipe. The `load` action opens a cart line whose product id starts with `pz-`; any other line leaves the state as it is. |
 | `cart-lines.ts` | `customizeOne` takes one off a line of several and gives it a line of its own; `replaceCartLine` saves an edited line where it stood, and merges it into a line it has become identical to. Both return a new item list and change nothing. "Customize 1" gives the split line a temporary id, because it holds the same pizza as the line it came from. When the sheet is closed without saving, the screen calls `replaceCartLine(items, temporaryId, line)` to merge it back. |
 | `line-recipe.ts` | `lineRecipe` and `recipeForVariant`: the recipe a line is identified and sent by, and a pizza recipe at the size of the line's variant. |

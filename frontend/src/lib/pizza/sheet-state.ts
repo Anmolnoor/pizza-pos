@@ -9,7 +9,7 @@ import type {
   TicketLines,
 } from '../../../../shared/pizza/types';
 import type { CartItem } from '@/lib/types';
-import { lineRecipe } from './line-recipe';
+import { lineRecipe, PIZZA_PRODUCT_PREFIX as PRODUCT_PREFIX } from './line-recipe';
 
 /** One side of the sheet: the pizza picked there and the ingredients taken off it. */
 export interface SheetHalf {
@@ -65,7 +65,6 @@ export interface SheetLine {
   message: string | null;
 }
 
-const PRODUCT_PREFIX = 'pz-';
 const DIP_PREFIX = 'ad-dips-';
 
 const wholeCount = (value: number, least: number) => Math.max(least, Math.floor(value) || 0);

@@ -411,15 +411,17 @@ runCases('pizza-cart-store', {
       'a pizza line goes out with its recipe as modifier_selection',
     );
     same(
-      cartItemToOrderItem(lineOf(undefined, { quantity: 2 })),
+      cartItemToOrderItem(
+        lineOf(undefined, { product: product('prod-1', 'Americano'), variant: null, quantity: 2 }),
+      ),
       {
-        product_id: 'pz-half-and-half',
-        variant_id: 'pz-half-and-half-large',
+        product_id: 'prod-1',
+        variant_id: null,
         quantity: 2,
         addons: null,
         special_instructions: null,
       },
-      'a line without a recipe goes out as before, with no modifier_selection',
+      'a line that is not a pizza goes out as before, with no modifier_selection',
     );
 
     assertEqualOrThrow(
@@ -732,8 +734,9 @@ runCases('pizza-cart-store', {
         quantity: 1,
         addons: null,
         special_instructions: null,
+        modifier_selection: null,
       },
-      'a plain pizza goes out with no modifier_selection',
+      'a plain pizza goes out saying it has no recipe',
     );
   },
 
@@ -769,4 +772,63 @@ runCases('pizza-cart-store', {
       );
     }
   },
+
+  'Case 15: the order request says a plain pizza has no recipe, and says nothing for other products':
+    () => {
+      const garden = (recipe?: object) =>
+        lineOf(recipe, { product: GARDEN, variant: LARGE_GARDEN });
+      for (const [label, line] of [
+        ['with no recipe on the line', garden()],
+        ['with a plain whole recipe on the line', garden(PLAIN_GARDEN)],
+        ['with a null recipe on the line', { ...garden(), recipe: null }],
+      ] as const) {
+        const payload = cartItemToOrderItem(line);
+        assertOrThrow('modifier_selection' in payload, `a plain pizza ${label}: the key is sent`);
+        assertEqualOrThrow(payload.modifier_selection, null, `a plain pizza ${label}: as null`);
+      }
+      same(
+        cartItemToOrderItem(garden(NO_OLIVES)).modifier_selection,
+        NO_OLIVES,
+        'a pizza with a removal sends its recipe',
+      );
+      same(
+        cartItemToOrderItem(lineOf(ISLAND_CLASSIC)).modifier_selection,
+        ISLAND_CLASSIC,
+        'a half and half sends its recipe',
+      );
+      assertEqualOrThrow(
+        cartItemToOrderItem(lineOf(undefined)).modifier_selection,
+        null,
+        'a half-and-half product with no recipe says so, and the server refuses it',
+      );
+
+      for (const [productId, variantId] of [
+        ['sd-wings', null],
+        ['dr-cola', 'dr-cola-can'],
+        ['dl-party', null],
+        ['prod-1', 'var-large'],
+        ['pizza-oven-mitt', null],
+      ]) {
+        const payload = cartItemToOrderItem(
+          lineOf(undefined, {
+            product: product(productId as string, 'Other'),
+            variant: variantId ? variant(productId as string, 'x', 2) : null,
+          }),
+        );
+        assertOrThrow(
+          !('modifier_selection' in payload),
+          `${productId}: no modifier_selection key at all`,
+        );
+      }
+
+      assertEqualOrThrow(
+        fingerprint([garden()]),
+        fingerprint([garden(PLAIN_GARDEN)]),
+        'a plain pizza has one retry fingerprint, with or without a plain recipe on its line',
+      );
+      assertOrThrow(
+        fingerprint([garden()]) !== fingerprint([garden(NO_OLIVES)]),
+        'and a different one once something is removed',
+      );
+    },
 });
