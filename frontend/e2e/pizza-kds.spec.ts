@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { E2E_BASE_URL, E2E_KDS_BASE_URL } from './helpers/urls';
 import { E2E_PASSWORD, getE2eToken } from './helpers/test-auth';
+import { clearPizzaMenu, loadSampleMenu } from './helpers/pizza-menu';
 
 /**
  * The kitchen display shows a pizza's or a deal's recipe as the kitchen ticket's lines, under the
@@ -12,7 +13,6 @@ import { E2E_PASSWORD, getE2eToken } from './helpers/test-auth';
  * Set PIZZA_KDS_SCREENSHOT_DIR to keep a 1280 x 800 picture of each view.
  */
 const SHOTS = process.env.PIZZA_KDS_SCREENSHOT_DIR;
-const MENU = path.resolve(__dirname, '../../tests/fixtures/pizza-sample-menu.json');
 const WARNING = 'RECIPE NOT PRINTED - CHECK ORDER';
 
 const whole = (pizzaId: string, removed: string[] = []) => ({
@@ -65,13 +65,8 @@ const DEAL_LINES = [
 
 const headers = () => ({ Authorization: `Bearer ${getE2eToken()}` });
 
-async function loadMenu(request: APIRequestContext) {
-  const loaded = await request.post(`${E2E_BASE_URL}/api/pizza/menu/import`, {
-    headers: headers(),
-    data: JSON.parse(fs.readFileSync(MENU, 'utf8')),
-  });
-  expect(loaded.ok(), `the sample menu loads (got ${loaded.status()})`).toBeTruthy();
-}
+/** Ids of the orders this spec placed; `afterAll` cancels them. */
+const placedOrderIds: number[] = [];
 
 async function placeOrder(request: APIRequestContext, items: object[]): Promise<string> {
   const placed = await request.post(`${E2E_BASE_URL}/api/orders`, {
@@ -79,7 +74,9 @@ async function placeOrder(request: APIRequestContext, items: object[]): Promise<
     data: { type: 'takeaway', items },
   });
   expect(placed.ok(), `the order is accepted (got ${placed.status()})`).toBeTruthy();
-  return (await placed.json()).order.order_number;
+  const { order } = await placed.json();
+  placedOrderIds.push(order.id);
+  return order.order_number;
 }
 
 async function openKds(page: Page, view: 'Tabs' | 'Kanban') {
@@ -159,7 +156,7 @@ test.describe('pizza recipe lines on the kitchen display', () => {
   let plainOrder = '';
 
   test.beforeAll(async ({ request }) => {
-    await loadMenu(request);
+    await loadSampleMenu(request);
     const dips = await request.get(`${E2E_BASE_URL}/api/addon-groups/ag-dips`, {
       headers: headers(),
     });
@@ -183,6 +180,23 @@ test.describe('pizza recipe lines on the kitchen display', () => {
       { product_id: 'pz-garden', variant_id: 'pz-garden-large', quantity: 1 },
       { product_id: 'e2e-product', quantity: 1 },
     ]);
+  });
+
+  // Every spec shares one database: the orders leave the kitchen display, then the menu goes.
+  test.afterAll(async ({ request }) => {
+    const failures: string[] = [];
+    for (const id of placedOrderIds) {
+      const cancelled = await request
+        .patch(`${E2E_BASE_URL}/api/orders/${id}/status`, {
+          headers: headers(),
+          data: { status: 'cancelled', reason: 'E2E cleanup' },
+        })
+        .then(async (res) => (res.ok() ? '' : `HTTP ${res.status()} ${await res.text()}`))
+        .catch(String);
+      if (cancelled) failures.push(`cancel order ${id}: ${cancelled}`);
+    }
+    await clearPizzaMenu(request).catch((error) => failures.push(String(error)));
+    expect(failures, 'cleaning up after the kitchen display spec').toEqual([]);
   });
 
   for (const view of ['Tabs', 'Kanban'] as const) {
@@ -237,13 +251,21 @@ test.describe('pizza recipe lines on the kitchen display', () => {
     page,
     request,
   }) => {
-    // The test server keeps its database beside the folder it reports for local backups.
+    // No route removes the stored menu, so the row is deleted in the server's database file.
+    // tests/e2e-server.cjs answers every Electron path with one temporary folder: getDbPath() in
+    // main/db.ts puts flo.db in it, and getLocalBackupDir() reports <folder>/FloCafe/Backups.
     const backups = await request.get(`${E2E_BASE_URL}/api/db-tools/local-backup`, {
       headers: headers(),
     });
-    expect(backups.ok()).toBeTruthy();
-    const database = path.resolve((await backups.json()).directory, '../../flo.db');
-    expect(fs.existsSync(database), `the test database is at ${database}`).toBeTruthy();
+    expect(backups.ok(), `the local backup folder is reported (got ${backups.status()})`).toBe(
+      true,
+    );
+    const { directory } = await backups.json();
+    const database = path.resolve(directory, '../../flo.db');
+    expect(
+      fs.existsSync(database),
+      `looked for the test server's database at ${database}, two folders above the local backup folder it reports (${directory}); no file is there`,
+    ).toBe(true);
     const db = new DatabaseSync(database);
     try {
       db.exec('PRAGMA busy_timeout = 5000; DELETE FROM pizza_menu');
@@ -276,7 +298,7 @@ test.describe('pizza recipe lines on the kitchen display', () => {
       await expect(dialog.getByTestId('kds-recipe-warning').locator('svg')).toBeVisible();
       await shoot(page, 'warning-item-window');
     } finally {
-      await loadMenu(request);
+      await loadSampleMenu(request);
     }
   });
 });

@@ -32,6 +32,7 @@ const { orderItemRoutes } = require('../main/routes/order-items');
 const { startKdsServer, stopKdsServer, getKdsPort } = require('../main/kds-server');
 const { buildActiveOrdersSnapshot } = require('../main/services/kds');
 const { ticketLines } = require('../shared/pizza/ticket');
+const { withRecipeDetailLines } = require('../main/pizza/order-recipe');
 
 const COLUMNS = 48;
 const NOT_PRINTED = ['RECIPE NOT PRINTED - CHECK ORDER'];
@@ -358,6 +359,14 @@ async function main() {
         // A display refreshes all day; the log names each item once, not once a refresh.
         assertEqualOrThrow(warned.length, 3, 'each recipe item is logged once across every path');
         assertOrThrow(warned[0].includes('menu is not loaded'), 'the log says why');
+        const logged = new Set<unknown>(Array.from({ length: 1001 }, (_, index) => `old-${index}`));
+        withRecipeDetailLines(
+          [{ id: 1, modifier_selection: half }],
+          COLUMNS,
+          'recipe_lines',
+          logged,
+        );
+        assertEqualOrThrow(logged.size, 1, 'the set of logged items is emptied past 1000 entries');
       } finally {
         console.warn = originalWarn;
         writePizzaMenu(db, JSON.stringify(catalog));

@@ -183,6 +183,7 @@ export function withRecipeDetailLines<T>(
     } catch (error) {
       if (!logged?.has(item.id))
         console.warn(`[Pizza] Recipe not printed for order item ${item.id}:`, error);
+      if (logged && logged.size > 1000) logged.clear();
       logged?.add(item.id);
     }
     return { ...item, [field]: detailLines };

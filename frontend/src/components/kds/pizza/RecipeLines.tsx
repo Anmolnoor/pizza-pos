@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 
 /**
  * The recipe of a pizza or deal line on the kitchen display: the kitchen ticket's lines as the
- * server wrote them. A line too wide for its card wraps two cells inside its own indent.
+ * server wrote them. A line too wide for its card wraps one cell inside its own indent.
  */
 export function RecipeLines({ lines, className }: { lines?: string[] | null; className?: string }) {
   if (!lines?.length) return null;
@@ -26,7 +26,7 @@ export function RecipeLines({ lines, className }: { lines?: string[] | null; cla
               {line}
             </span>
           );
-        const indent = `${line.length - line.trimStart().length + 2}ch`;
+        const indent = `${line.length - line.trimStart().length + 1}ch`;
         return (
           <span
             key={index}

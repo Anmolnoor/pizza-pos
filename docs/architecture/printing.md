@@ -288,7 +288,7 @@ prepared for the display: `GET /api/kitchen/orders`, `GET /api/kds/orders`, `GET
 display refreshes all day, so a recipe that cannot be written out is logged once per order item.
 `RecipeLines` in `frontend/src/components/kds/pizza/RecipeLines.tsx` draws the lines under the item
 name, before the add-ons and the note, in the tabs view, the kanban view, and the item window: in a
-monospace face, leading spaces kept, a line wider than its card wrapped two cells inside its own
+monospace face, leading spaces kept, a line wider than its card wrapped one cell inside its own
 indent, and the warning line on a red band with a warning symbol. The display holds no catalogue.
 
 The detailed receipt (`buildDetailedReceiptBytes`), the tax bill, compliance line templates, the
