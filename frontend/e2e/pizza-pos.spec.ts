@@ -218,6 +218,11 @@ test.describe('with the sample menu loaded', () => {
       await page.getByTestId('pos-online-platform-input').fill('Example Eats');
       await page.getByTestId('pos-order-details-done-btn').click();
 
+      // The size button of the tile quotes the same price, to the eye and to a screen reader.
+      const tileLarge = tile(page, 'Garden').getByRole('button', { name: /Large/ });
+      await expect(tileLarge).toContainText(money(ONLINE));
+      await expect(tileLarge).toHaveAccessibleName(money(ONLINE));
+
       await tile(page, 'Garden').getByRole('button', { name: 'Customize Garden' }).click();
       const sheet = sheetOf(page);
       const size = sheet

@@ -438,18 +438,28 @@ runCases('pizza-kot-browser', {
     }
   },
 
-  'Case 9: a recipe replaces ready-made lines on the item, and never adds to them': () => {
+  'Case 9: ready-made lines on the item print as given, and a recipe never adds to them': () => {
     const order = orderWith(
       recipeOrder.items.map((entry: object) => ({ ...entry, detailLines: ['FROM THE SERVER'] })),
     );
     for (const columns of COLUMNS) {
       const printed = rows(browserKot(order, columns));
-      printsUnderEachItem(printed, columns, 'browser ESC/POS');
-      assertOrThrow(
-        !printed.includes(INDENT + 'FROM THE SERVER'),
-        `${columns}: the lines are built once, at this printer's width`,
+      assertEqualOrThrow(
+        printed.filter((row) => row === INDENT + 'FROM THE SERVER').length,
+        order.items.length,
+        `${columns}: the lines the server supplied print under each item`,
       );
+      for (const lines of expected(columns)) {
+        assertOrThrow(
+          !printed.includes(INDENT + lines[0]),
+          `${columns}: the catalogue held now does not write the recipe out again`,
+        );
+      }
     }
+    const blank = orderWith(
+      recipeOrder.items.map((entry: object) => ({ ...entry, detailLines: ['', '  '] })),
+    );
+    printsUnderEachItem(rows(browserKot(blank, 42)), 42, 'blank ready-made lines, browser ESC/POS');
   },
 
   'Case 10: an id the menu no longer has still prints, as the id': () => {

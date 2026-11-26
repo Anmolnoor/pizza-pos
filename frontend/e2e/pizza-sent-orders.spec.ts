@@ -307,6 +307,46 @@ test.describe('a sent pizza and a sent deal', () => {
     expect(stored.total).toBe(order.total);
   });
 
+  test('the sheet on a sent pizza quotes the sold price until its size changes', async ({
+    page,
+  }) => {
+    const sizes = (from: typeof menu) =>
+      (from.sizes as { pizza: { id: string; price: number }[] }).pizza;
+    const MEDIUM = sizes(menu).find((size) => size.id === 'medium')!.price;
+    const money = (amount: number) => new RegExp(amount.toFixed(2).replace('.', '\\.'));
+    const order = await placeOrder();
+    // The menu's Large costs more now than when the order was placed.
+    const edited = sampleMenu();
+    sizes(edited).find((size) => size.id === 'large')!.price = LARGE + 2;
+    try {
+      await loadSampleMenu(api, edited);
+      await signIn(page);
+      const cart = await reopenInPos(page, order);
+      await sentLines(cart).first().getByRole('button', { name: 'Change pizza' }).click();
+      const sheet = page.getByRole('dialog', { name: 'Pizza' });
+      const save = sheet.getByRole('button', { name: /^Save/ });
+      const size = sheet.getByRole('group', { name: 'Size' });
+      await expect(save).toContainText(money(LARGE));
+      await sheet
+        .getByRole('group', { name: '1st half' })
+        .getByRole('button', { name: 'Onions', exact: true })
+        .click();
+      await expect(save, 'a change of recipe keeps the sold price').toContainText(money(LARGE));
+      await size.getByRole('button', { name: /Medium/ }).click();
+      await expect(save, 'another size is charged at the price of today').toContainText(
+        money(MEDIUM),
+      );
+      await size.getByRole('button', { name: /Large/ }).click();
+      await expect(save, 'the size it was sold in: the sold price again').toContainText(
+        money(LARGE),
+      );
+      await page.keyboard.press('Escape');
+      await expect(sheet).toBeHidden();
+    } finally {
+      await loadSampleMenu(api);
+    }
+  });
+
   test('a sent deal is changed from the POS at the same price', async ({ page }) => {
     const order = await placeOrder();
     await signIn(page);

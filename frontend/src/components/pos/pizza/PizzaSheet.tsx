@@ -15,6 +15,7 @@ import {
   type SheetHalf,
   type SheetLine,
   type SheetState,
+  type SoldPrices,
 } from '@/lib/pizza/sheet-state';
 import type { Product } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -267,6 +268,8 @@ export default function PizzaSheet({
   catalog,
   products,
   priceOverride,
+  online: onlineOrder,
+  soldPrices,
   initial,
   editing,
   onSave,
@@ -279,6 +282,13 @@ export default function PizzaSheet({
   products?: Product[];
   /** The price set by hand on the cart line the sheet changes, which that line keeps. */
   priceOverride?: { price: number } | null;
+  /** Whether the order is for an online platform; by default as the cart has it. */
+  online?: boolean;
+  /**
+   * For a line of an order already placed: what the line was sold at while saving the sheet as
+   * it stands keeps those prices, and null once saving prices it again.
+   */
+  soldPrices?: (line: SheetLine, state: SheetState) => SoldPrices | null;
   initial: SheetState;
   /** True when the sheet changes a line already in the cart. */
   editing: boolean;
@@ -292,7 +302,8 @@ export default function PizzaSheet({
   const t = useTranslations('pizza');
   const tCommon = useTranslations('common');
   const fmt = useFormatCurrency();
-  const online = useOnlineOrder();
+  const cartOnline = useOnlineOrder();
+  const online = onlineOrder ?? cartOnline;
   const [state, dispatch] = useReducer(sheetReducer, initial);
   // The dialog has no trigger of its own, so it hands the focus back to whatever opened it.
   const [opener] = useState(() => document.activeElement as HTMLElement | null);
@@ -300,7 +311,14 @@ export default function PizzaSheet({
   const line = sheetLine(catalog, state);
   const size = catalog.sizes.find((entry) => entry.id === state.sizeId);
   // What the cart charges, so the sheet and the order agree.
-  const quote = sheetQuote(catalog, state, products, online, priceOverride);
+  const quote = sheetQuote(
+    catalog,
+    state,
+    products,
+    online,
+    priceOverride,
+    soldPrices?.(line, state),
+  );
   const total = quote.unit === null ? '—' : fmt(quote.unit * state.quantity);
 
   return (

@@ -53,20 +53,26 @@ function recipeLines(raw: unknown, columns: number): string[] | null {
 }
 
 /**
- * The detail lines of an order item at this paper width: from the recipe in
- * its `modifier_selection` when a catalogue is loaded, else the ready-made
- * `detailLines` the item carries. A recipe with neither prints the one warning
- * line the server prints, never nothing.
+ * The detail lines of an order item at this paper width. The ready-made
+ * `detailLines` the item carries come first: they are what the server wrote
+ * for the order, and the catalogue held now does not replace them. An item
+ * with none gets its recipe written out from the catalogue held, and a recipe
+ * that cannot be written out prints the one warning line the server prints,
+ * never nothing.
  */
 export function orderItemDetailLines(item: unknown, columns: number): string[] {
-  const raw = (item as { modifier_selection?: unknown } | null | undefined)?.modifier_selection;
-  const written = recipeLines(raw, columns)?.map(stripControlBytes);
-  if (written) return written;
   const readyMade = readDetailLines(item);
-  return readyMade.length === 0 && recipeOf(raw) ? [RECIPE_NOT_PRINTED] : readyMade;
+  if (readyMade.length > 0) return readyMade;
+  const raw = (item as { modifier_selection?: unknown } | null | undefined)?.modifier_selection;
+  if (!recipeOf(raw)) return [];
+  return recipeLines(raw, columns)?.map(stripControlBytes) ?? [RECIPE_NOT_PRINTED];
 }
 
-/** The lines the cart panel shows under a pizza or deal line. */
+/**
+ * The lines the cart panel shows under a pizza or deal line: the warning
+ * words, as a sent line shows them, for a recipe that cannot be written out.
+ */
 export function cartLineDetailLines(line: Pick<CartItem, 'recipe'>): string[] {
-  return recipeLines(line.recipe, CART_DETAIL_COLUMNS) ?? [];
+  if (!recipeOf(line.recipe)) return [];
+  return recipeLines(line.recipe, CART_DETAIL_COLUMNS) ?? [RECIPE_NOT_PRINTED];
 }

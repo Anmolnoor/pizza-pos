@@ -221,6 +221,12 @@ export function sheetLine(catalog: PizzaCatalog, state: SheetState, columns = 42
   };
 }
 
+/** What a line of an order already placed was sold at: one pizza without add-ons, and each dip by its menu id. */
+export interface SoldPrices {
+  price: number;
+  dips: Record<string, number>;
+}
+
 /** What the sheet shows as money, in the currency's own units. */
 export interface SheetQuote {
   /** What one pizza costs in each size, by the size's menu id. */
@@ -241,7 +247,9 @@ export interface SheetQuote {
  * product's dips, and a line's price override in place of the size price.
  * Until a pizza is chosen the half-and-half product stands in, because every
  * pizza costs its size price. Anything the product list does not sell, and a
- * sheet given no list, is quoted from the menu.
+ * sheet given no list, is quoted from the menu. `sold` is given for a line of
+ * an order already placed while saving keeps its prices: the pizza and the
+ * dips it has are then quoted at what they were sold for.
  */
 export function sheetQuote(
   catalog: PizzaCatalog,
@@ -249,6 +257,7 @@ export function sheetQuote(
   products: Product[] | undefined,
   online: boolean,
   override?: { price: number } | null,
+  sold?: SoldPrices | null,
 ): SheetQuote {
   const pizzaId = state.split ? null : state.halves[0].pizzaId;
   const product =
@@ -269,10 +278,11 @@ export function sheetQuote(
   const dips = Object.fromEntries(
     catalog.dips.map((dip) => {
       const addon = onSale.find((entry) => entry.id === DIP_PREFIX + dip.id);
-      return [dip.id, addon ? Number(addon.price) : dip.priceCents / 100];
+      return [dip.id, sold?.dips[dip.id] ?? (addon ? Number(addon.price) : dip.priceCents / 100)];
     }),
   );
-  const pizza = state.sizeId === null ? null : (override?.price ?? sizes[state.sizeId] ?? null);
+  const pizza =
+    state.sizeId === null ? null : (sold?.price ?? override?.price ?? sizes[state.sizeId] ?? null);
   const dipTotal = Object.entries(state.dips).reduce(
     (sum, [dipId, count]) => sum + (dips[dipId] ?? 0) * count,
     0,

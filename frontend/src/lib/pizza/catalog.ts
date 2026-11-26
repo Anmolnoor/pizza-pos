@@ -18,6 +18,9 @@ export const REFRESH_MS = 30_000;
 let held: { scope: Scope; catalog: PizzaCatalog | null } | null = null;
 let request: { scope: Scope; fetching: Promise<PizzaCatalog | null> } | null = null;
 let fetchedAt = -Infinity;
+/** True while a sheet or configurator is open: a changed menu waits in `waiting`. */
+let holding = false;
+let waiting: { scope: Scope; catalog: PizzaCatalog | null } | null = null;
 const listeners = new Set<Listener>();
 
 /** Whose menu this is: the tenant of the session, as the POS page scopes its own data. */
@@ -48,6 +51,28 @@ export function onPizzaCatalogChange(listener: Listener): () => void {
   };
 }
 
+/** Makes `answer` the catalogue held for `tenant` and tells every screen. */
+function publish(tenant: Scope, answer: PizzaCatalog | null): void {
+  const known = held?.scope === tenant;
+  held = { scope: tenant, catalog: answer };
+  for (const listener of listeners) listener(known);
+}
+
+/**
+ * While held back, a changed menu is not published, whatever fetched it: a
+ * refresh, a fetch already in flight, or the reload after a refused order. The
+ * POS holds back while a sheet or configurator is open, so the menu does not
+ * change under the cashier; letting go publishes the menu that waited, unless
+ * the tenant changed meanwhile.
+ */
+export function holdPizzaCatalog(hold: boolean): void {
+  holding = hold;
+  const waited = waiting;
+  if (hold || !waited) return;
+  waiting = null;
+  if (waited.scope === scope()) publish(waited.scope, waited.catalog);
+}
+
 /**
  * Fetches the catalogue again. A 404 means no pizza menu is loaded, and answers
  * null. Only the latest fetch changes what is held, whatever order answers
@@ -71,9 +96,12 @@ export function reloadPizzaCatalog(now = Date.now()): Promise<PizzaCatalog | nul
     .then((answer) => {
       if (request?.fetching !== fetching) return answer;
       const known = held?.scope === tenant ? held : null;
-      if (known && JSON.stringify(known.catalog) === JSON.stringify(answer)) return known.catalog;
-      held = { scope: tenant, catalog: answer };
-      for (const listener of listeners) listener(known !== null);
+      if (known && JSON.stringify(known.catalog) === JSON.stringify(answer)) {
+        waiting = null;
+        return known.catalog;
+      }
+      if (holding) waiting = { scope: tenant, catalog: answer };
+      else publish(tenant, answer);
       return answer;
     });
   request = { scope: tenant, fetching };
@@ -86,13 +114,14 @@ export function loadPizzaCatalog(): Promise<PizzaCatalog | null> {
 }
 
 /**
- * Fetches the menu again when this tenant holds one and the last fetch is at
- * least `REFRESH_MS` old. True when the menu changed. A shop with no pizza menu
- * is not asked, and a failed fetch keeps what is held.
+ * Fetches the menu again when this tenant holds a pizza menu and the last
+ * fetch is at least `REFRESH_MS` old. True when the menu changed. A shop with
+ * no pizza menu, or with a stored menu that has no pizzas, is not asked, and a
+ * failed fetch keeps what is held.
  */
 export async function refreshPizzaCatalog(now = Date.now()): Promise<boolean> {
   const before = getPizzaCatalog();
-  if (!before || now - fetchedAt < REFRESH_MS) return false;
+  if (!hasPizzaMenu(before) || now - fetchedAt < REFRESH_MS) return false;
   try {
     return (await reloadPizzaCatalog(now)) !== before;
   } catch {
@@ -126,6 +155,7 @@ onSessionBoundary((event) => {
   if (event !== 'login' && event !== 'logout') return;
   held = null;
   request = null;
+  waiting = null;
   fetchedAt = -Infinity;
   for (const listener of listeners) listener(false);
 });

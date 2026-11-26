@@ -13,7 +13,7 @@ const {
 } = require('./helpers/pizza-print-harness');
 const { isDeepStrictEqual } = require('node:util');
 const { parseMenuFile } = require('../shared/pizza/menu');
-const { ticketLines } = require('../shared/pizza/ticket');
+const { RECIPE_NOT_PRINTED, ticketLines } = require('../shared/pizza/ticket');
 const sample = require('./fixtures/pizza-sample-menu.json');
 
 const frontend = loadFrontend();
@@ -716,6 +716,12 @@ runCases('pizza-cart-store', {
         assertEqualOrThrow(await refreshPizzaCatalog(200_000), false, 'a failed refresh');
         assertOrThrow(getPizzaCatalog() === edited, 'keeps the catalogue held');
 
+        answer = async () => ({ data: { ...catalog, pizzas: [] } });
+        await reloadPizzaCatalog(250_000);
+        const emptied = route.calls.length;
+        assertEqualOrThrow(await refreshPizzaCatalog(290_000), false, 'a menu with no pizzas');
+        assertEqualOrThrow(route.calls.length, emptied, 'is not asked again by a refresh either');
+
         answer = () => Promise.reject({ response: { status: 404 } });
         await reloadPizzaCatalog(300_000);
         const calls = route.calls.length;
@@ -797,6 +803,155 @@ runCases('pizza-cart-store', {
     }
   },
 
+  'Case 10g: a changed menu is held back while a sheet is open, whatever fetched it': async () => {
+    const { getPizzaCatalog, holdPizzaCatalog, onPizzaCatalogChange, reloadPizzaCatalog } =
+      pizzaCatalog();
+    const { useAuthStore } = frontend.auth;
+    const edited = { ...catalog, deals: [] };
+    let answer: () => Promise<unknown> = async () => ({ data: catalog });
+    const route = stubCatalogRoute(() => answer());
+    const told: boolean[] = [];
+    const stop = onPizzaCatalogChange((replaced: boolean) => told.push(replaced));
+    try {
+      await reloadPizzaCatalog();
+      told.length = 0;
+
+      const slow = deferred();
+      answer = () => slow.promise as Promise<unknown>;
+      const inFlight = reloadPizzaCatalog();
+      holdPizzaCatalog(true);
+      slow.resolve({ data: edited });
+      await inFlight;
+      assertOrThrow(
+        getPizzaCatalog() === catalog,
+        'a fetch already in flight does not swap the menu',
+      );
+      same(told, [], 'and no screen is told');
+      holdPizzaCatalog(false);
+      assertOrThrow(getPizzaCatalog() === edited, 'the new menu applies when the sheet closes');
+      same(told, [true], 'and the screens are told then, once');
+
+      holdPizzaCatalog(true);
+      answer = async () => ({ data: catalog });
+      await frontend.api
+        .post(
+          '/orders',
+          {},
+          {
+            adapter: (config: unknown) =>
+              Promise.reject(
+                Object.assign(new Error('refused'), {
+                  config,
+                  response: {
+                    status: 400,
+                    data: { error: 'That deal is not on the menu. Pick another deal' },
+                  },
+                }),
+              ),
+          },
+        )
+        .catch(() => {});
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      assertOrThrow(getPizzaCatalog() === edited, 'nor does the reload after a refused order');
+      answer = async () => ({ data: JSON.parse(JSON.stringify(edited)) });
+      await reloadPizzaCatalog();
+      holdPizzaCatalog(false);
+      assertOrThrow(
+        getPizzaCatalog() === edited,
+        'a menu that went back to the one held changes nothing',
+      );
+      same(told, [true], 'and tells nobody');
+
+      holdPizzaCatalog(true);
+      answer = async () => ({ data: catalog });
+      await reloadPizzaCatalog();
+      useAuthStore.setState({ currentTenant: { id: 9 } as any });
+      holdPizzaCatalog(false);
+      assertEqualOrThrow(
+        getPizzaCatalog(),
+        null,
+        "a menu held back for the tenant left is not the next tenant's",
+      );
+    } finally {
+      holdPizzaCatalog(false);
+      stop();
+      route.restore();
+      useAuthStore.setState({ currentTenant: null });
+      require('../frontend/src/store/session-events').notifySessionBoundary('logout');
+    }
+  },
+
+  'Case 10h: the lists that follow a menu change are scoped, and a failed one is asked again':
+    async () => {
+      const { menuListSync } = require('../frontend/src/lib/pizza/menu-lists');
+      const { notifySessionBoundary } = require('../frontend/src/store/session-events');
+      const { useAuthStore } = frontend.auth;
+      const tenant = (id: number | null) =>
+        useAuthStore.setState({ currentTenant: id === null ? null : ({ id } as any) });
+      const originalGet = frontend.api.get;
+      const calls: string[] = [];
+      let answer: (url: string) => Promise<unknown> = async (url) => ({ data: { from: url } });
+      frontend.api.get = (url: string) => {
+        calls.push(url);
+        return answer(url);
+      };
+      const got: Record<string, unknown[]> = { products: [], categories: [] };
+      const sync = menuListSync([
+        { url: '/products?active=1', apply: (data: unknown) => got.products.push(data) },
+        { url: '/categories?active=1', apply: (data: unknown) => got.categories.push(data) },
+      ]);
+      try {
+        tenant(1);
+        await sync.run();
+        same(calls, [], 'with no menu change nothing is fetched');
+
+        answer = (url) =>
+          url.startsWith('/products')
+            ? Promise.reject({ response: { status: 500 } })
+            : Promise.resolve({ data: { from: url } });
+        sync.markAll();
+        await sync.run();
+        assertEqualOrThrow(got.categories.length, 1, 'the list that answered is applied');
+        assertEqualOrThrow(got.products.length, 0, 'the one that failed is not');
+
+        answer = async (url) => ({ data: { from: url } });
+        calls.length = 0;
+        await sync.run();
+        same(calls, ['/products?active=1'], 'the next trigger asks for the failed list alone');
+        assertEqualOrThrow(got.products.length, 1, 'and applies it');
+        calls.length = 0;
+        await sync.run();
+        same(calls, [], 'after which nothing is pending');
+
+        const slow = deferred();
+        answer = () => slow.promise as Promise<unknown>;
+        sync.markAll();
+        const running = sync.run();
+        tenant(2);
+        slow.resolve({ data: { from: 'tenant 1' } });
+        await running;
+        assertEqualOrThrow(got.products.length, 1, 'an answer for the tenant left is dropped');
+        assertEqualOrThrow(got.categories.length, 1, 'for each list');
+
+        const late = deferred();
+        answer = () => late.promise as Promise<unknown>;
+        const again = sync.run();
+        notifySessionBoundary('login');
+        late.resolve({ data: { from: 'the session before' } });
+        await again;
+        assertEqualOrThrow(got.products.length, 1, 'and so is one from before a sign-in');
+
+        answer = async (url) => ({ data: { from: url } });
+        await sync.run();
+        assertEqualOrThrow(got.products.length, 2, 'the lists are asked again for the session now');
+        assertEqualOrThrow(got.categories.length, 2, 'both of them');
+      } finally {
+        frontend.api.get = originalGet;
+        tenant(null);
+        notifySessionBoundary('logout');
+      }
+    },
+
   'Case 11: a cart line gives its detail lines at the cart panel width': async () => {
     const { cartLineDetailLines, CART_DETAIL_COLUMNS } = detailLines();
     const { reloadPizzaCatalog } = pizzaCatalog();
@@ -805,7 +960,12 @@ runCases('pizza-cart-store', {
       part('smokehouse', ['Red onions']),
       { cook: 'well-done', cut: 'square-cut' },
     );
-    same(cartLineDetailLines(lineOf(long)), [], 'with no catalogue a line shows nothing extra');
+    same(
+      cartLineDetailLines(lineOf(long)),
+      [RECIPE_NOT_PRINTED],
+      'with no catalogue a recipe shows the warning words',
+    );
+    same(cartLineDetailLines(lineOf(undefined)), [], 'and a line without a recipe nothing');
 
     const route = stubCatalogRoute(async () => ({ data: catalog }));
     try {
@@ -832,6 +992,11 @@ runCases('pizza-cart-store', {
       'no line is wider than ticketLines allows at that width',
     );
     same(cartLineDetailLines(lineOf(undefined)), [], 'a line without a recipe shows nothing extra');
+    same(
+      cartLineDetailLines(lineOf({ kind: 'deal' })),
+      [RECIPE_NOT_PRINTED],
+      'a recipe that cannot be written out shows the warning words',
+    );
   },
 
   'Case 12: a pizza moved to another size takes its recipe with it': () => {

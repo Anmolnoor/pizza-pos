@@ -81,7 +81,7 @@ export default function PizzaDeal({
   catalog: PizzaCatalog;
   deal: CatalogDeal;
   /** The POS product the deal is sold as, which the price is quoted from; without it the menu's price shows. */
-  product?: Product;
+  product?: Pick<Product, 'price'>;
   /** The price set by hand on the cart line the configurator changes, which that line keeps. */
   priceOverride?: { price: number } | null;
   initial: DealState;

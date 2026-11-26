@@ -568,6 +568,16 @@ runCases('pizza-sheet-state', {
       23,
       'a pizza the POS does not sell: the menu price',
     );
+    const sold = sheetQuote(catalog, withDips, products, true, null, {
+      price: 20,
+      dips: { garlic: 1 },
+    });
+    assertEqualOrThrow(sold.pizza, 20, 'a sent line unchanged in size: the price it was sold at');
+    assertEqualOrThrow(sold.dips.garlic, 1, 'and its dips at the price they were sold at');
+    assertEqualOrThrow(sold.unit, 20 + 2, 'which is what saving charges');
+    assertEqualOrThrow(sold.kept, false, 'with no word about a price set by hand');
+    assertEqualOrThrow(sold.sizes.large, 30, 'another size still shows what choosing it charges');
+
     const unsized = sheetQuote(catalog, newSheet({ pizzaId: 'garden' }), products, false);
     assertEqualOrThrow(unsized.pizza, null, 'no size chosen: no pizza price');
     assertEqualOrThrow(unsized.unit, null, 'and no total');

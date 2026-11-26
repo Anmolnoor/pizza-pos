@@ -20,7 +20,12 @@ import {
 } from '@/lib/order-item-edit-attempt';
 import { isOrderItemEditLocked } from '@/lib/order-payment-state';
 import { tenantCan } from '@/lib/permissions';
-import { getPizzaCatalog, hasPizzaMenu, loadPizzaCatalog } from '@/lib/pizza/catalog';
+import {
+  getPizzaCatalog,
+  hasPizzaMenu,
+  holdPizzaCatalog,
+  loadPizzaCatalog,
+} from '@/lib/pizza/catalog';
 import { newDeal } from '@/lib/pizza/deal-state';
 import { CART_DETAIL_COLUMNS } from '@/lib/pizza/detail-lines';
 import { PIZZA_PRODUCT_PREFIX } from '@/lib/pizza/line-recipe';
@@ -31,14 +36,16 @@ import {
   sentLineChangeable,
   sentLineEdit,
   sentLineRepriced,
+  sentLineReprices,
   sheetSentLine,
   sheetSource,
+  soldPrices,
   type SentItem,
   type SentLine,
   type SentLineEdit,
 } from '@/lib/pizza/sent-line';
 import { newSheet, sheetReducer } from '@/lib/pizza/sheet-state';
-import type { Order, OrderItem } from '@/lib/types';
+import type { Order, OrderItem, Product } from '@/lib/types';
 import { useAuthStore } from '@/store/auth';
 import { RECIPE_NOT_PRINTED } from '@shared/pizza/ticket';
 import type { CatalogDeal, PizzaCatalog } from '@shared/pizza/types';
@@ -191,6 +198,25 @@ function SentLineEditor({
   const tOrders = useTranslations('orders');
   const sending = useRef(false);
   const [was] = useState(() => sentLine(item));
+  // The menu does not change under the open sheet, here and on the Orders page alike.
+  useEffect(() => {
+    holdPizzaCatalog(true);
+    return () => holdPizzaCatalog(false);
+  }, []);
+  // What a changed size or dip is charged at; until the list arrives the menu's prices show.
+  const [products, setProducts] = useState<Product[]>();
+  useEffect(() => {
+    let current = true;
+    api.get('/products?active=1').then(
+      (response) => {
+        if (current) setProducts(response.data.products || []);
+      },
+      () => {},
+    );
+    return () => {
+      current = false;
+    };
+  }, []);
   const close = () => useSentEdit.setState({ open: null });
 
   /** Hands the order as it now stands to the screen, and the focus to the line that took this one's place. */
@@ -239,6 +265,8 @@ function SentLineEditor({
     <PizzaDeal
       catalog={catalog}
       deal={deal}
+      // The configurator changes the deal's choices only, which keeps the price it was sold at.
+      product={{ price: soldPrices(item).price }}
       initial={newDeal(deal, was.recipe?.kind === 'deal' ? was.recipe : null)}
       editing
       quantity={was.quantity}
@@ -249,6 +277,11 @@ function SentLineEditor({
   ) : (
     <PizzaSheet
       catalog={catalog}
+      products={products}
+      online={order.type === 'online' && Boolean(order.online_platform?.trim())}
+      soldPrices={(line, state) =>
+        sentLineReprices(was, sheetSentLine(was, line, state)) ? null : soldPrices(item)
+      }
       initial={sheetReducer(newSheet(), { type: 'load', line: sheetSource(was) })}
       editing
       onSave={(line, state) => void save(sheetSentLine(was, line, state))}
