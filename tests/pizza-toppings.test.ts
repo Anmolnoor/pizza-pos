@@ -8,6 +8,7 @@ const { assertOrThrow, assertEqualOrThrow, runCases } = require('./helpers/pizza
 const { MenuError, parseMenuFile } = require('../shared/pizza/menu');
 const { RecipeError, validateRecipe, recipeKey } = require('../shared/pizza/recipe');
 const { toppingCounts } = require('../shared/pizza/toppings');
+const { ticketLines } = require('../shared/pizza/ticket');
 const sample = require('./fixtures/pizza-sample-menu.json');
 
 const same = (actual: unknown, expected: unknown, message: string) =>
@@ -297,6 +298,126 @@ runCases('Pizza toppings', {
       }),
       { whole: 2, half: 3 },
       "a deal adds up its pizzas'",
+    );
+  },
+
+  'Case 9: the ticket says EXTRA and ADD under the pizza, after the NO line': () => {
+    const recipe = pizza({
+      whole: part('garden', { removed: ['Olives'], extra: ['Cheese'], added: ['bacon', 'feta'] }),
+      cook: 'well-done',
+    });
+    for (const columns of [42, 48]) {
+      const lines = ticketLines(catalog(), recipe, columns);
+      assertEqualOrThrow(lines.heading, 'LARGE GARDEN', `${columns}: the heading is unchanged`);
+      same(
+        lines.detailLines,
+        ['NO OLIVES', 'EXTRA CHEESE', 'ADD BACON, ADD FETA', 'WELL DONE'],
+        `${columns}: a whole pizza`,
+      );
+    }
+    same(
+      ticketLines(catalog(), whole('garden', { removed: ['Olives'] }), 42).detailLines,
+      ['NO OLIVES'],
+      'a recipe without extras or toppings prints as before',
+    );
+  },
+
+  'Case 10: each half prints its own extras and toppings': () => {
+    const recipe = halves(
+      part('island', { extra: ['Ham'], added: ['bacon'] }),
+      part('classic', { removed: ['Cheese'], extra: ['Pepperoni'] }),
+    );
+    for (const columns of [42, 48])
+      same(
+        ticketLines(catalog(), recipe, columns).detailLines,
+        [
+          '1ST: ISLAND',
+          '  EXTRA HAM',
+          '  ADD BACON',
+          '2ND: CLASSIC PEPPERONI',
+          '  NO CHEESE',
+          '  EXTRA PEPPERONI',
+        ],
+        `${columns}: a half and half`,
+      );
+  },
+
+  'Case 11: a pizza inside a deal prints them under its own number': () => {
+    const recipe = {
+      kind: 'deal',
+      v: 1,
+      dealId: 'three-large-wings',
+      pizzas: [
+        whole('garden', { extra: ['Cheese'], added: ['bacon'] }),
+        halves(part('island', { added: ['feta'] }), part('plain')),
+        whole('classic'),
+      ],
+      wingFlavour: 'hot',
+    };
+    for (const columns of [42, 48])
+      same(
+        ticketLines(catalog(), recipe, columns).detailLines,
+        [
+          '1) LARGE GARDEN',
+          '   EXTRA CHEESE',
+          '   ADD BACON',
+          '2) LARGE HALF & HALF',
+          '   1ST: ISLAND',
+          '     ADD FETA',
+          '   2ND: PLAIN CHEESE',
+          '3) LARGE CLASSIC PEPPERONI',
+          'WINGS: HOT',
+          'INCLUDES: ANY 3 LARGE PIZZAS & 12 WINGS',
+        ],
+        `${columns}: a deal`,
+      );
+  },
+
+  'Case 12: a long list wraps at commas and no line ends in a lone EXTRA or ADD': () => {
+    const five = whole('island', {
+      added: ['bacon', 'banana-peppers', 'feta', 'spinach', 'tomatoes'],
+    });
+    same(
+      ticketLines(catalog(), five, 42).detailLines,
+      ['ADD BACON, ADD BANANA PEPPERS,', 'ADD FETA, ADD SPINACH, ADD TOMATOES'],
+      '42: five toppings',
+    );
+    same(
+      ticketLines(catalog(), five, 48).detailLines,
+      ['ADD BACON, ADD BANANA PEPPERS, ADD FETA,', 'ADD SPINACH, ADD TOMATOES'],
+      '48: five toppings',
+    );
+    const narrow = ticketLines(
+      catalog(),
+      whole('garden', { extra: ['Green peppers', 'Tomato sauce'], added: ['banana-peppers'] }),
+      16,
+    ).detailLines;
+    same(
+      narrow,
+      ['EXTRA GREEN', 'PEPPERS,', 'EXTRA TOMATO', 'SAUCE', 'ADD BANANA', 'PEPPERS'],
+      'at 13 cells a name wraps on spaces, the word staying with its first word',
+    );
+    for (const columns of [16, 20, 42, 48])
+      for (const line of ticketLines(
+        catalog(),
+        halves(
+          part('garden', { extra: ['Green peppers', 'Mushrooms'], added: ['banana-peppers'] }),
+          part('smokehouse', { extra: ['Roasted chicken'], added: ['artichokes', 'anchovies'] }),
+        ),
+        columns,
+      ).detailLines) {
+        assertOrThrow(!/(^|\s)(EXTRA|ADD)$/.test(line), `${columns}: "${line}" has no lone word`);
+        assertOrThrow(line.length <= Math.max(1, columns - 3), `${columns}: "${line}" fits`);
+      }
+  },
+
+  'Case 13: a topping the menu no longer lists prints as its id': () => {
+    const without = structuredClone(sample);
+    delete without.toppings;
+    same(
+      ticketLines(parseMenuFile(without), whole('island', { added: ['bacon'] }), 42).detailLines,
+      ['ADD BACON'],
+      'the id, upper-cased',
     );
   },
 });
