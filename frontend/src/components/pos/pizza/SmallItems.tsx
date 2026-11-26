@@ -151,15 +151,24 @@ function Tile({ tile, fmt }: { tile: SmallItemTile; fmt: (amount: number) => str
   const count = tileCount(items, tile);
   const soldOut = tileSoldOut(tile, count);
 
-  const add = () => {
+  /**
+   * After a tap with a pointer the focus goes back to the sheet, so the Enter that
+   * ends a barcode scan presses no tile. A key press reports no click count, and
+   * leaves the focus where the keyboard user put it.
+   */
+  const toSheet = (event: MouseEvent<HTMLButtonElement>) =>
+    event.detail > 0 && event.currentTarget.closest<HTMLElement>('[role="dialog"]')?.focus();
+  const add = (event: MouseEvent<HTMLButtonElement>) => {
+    toSheet(event);
     useCartStore.getState().addItem(...tileAdd(tile));
     useSmallItemsStore.setState({ added: tile.lineId });
   };
   const takeOne = (event: MouseEvent<HTMLButtonElement>) => {
     const line = tileLines(items, tile).at(-1);
     if (!line) return;
-    // The minus goes with the last one, so the focus moves to the tile's own button.
+    // The minus goes with the last one, so a keyboard's focus moves to the tile's own button.
     if (count === 1) (event.currentTarget.nextElementSibling as HTMLElement | null)?.focus();
+    toSheet(event);
     useCartStore.getState().updateQuantity(line.id, line.quantity - 1);
   };
 
@@ -337,6 +346,12 @@ export function SmallItemBlocks(props: Parameters<typeof PizzaCategoryBlocks>[0]
   const rows = useSmallItemsStore((state) => state.rows);
   const [opener, setOpener] = useState<string | null>(null);
   const close = useCallback(() => setOpener(null), []);
+  // A category chosen while the popup is open, such as the Quick Buttons page, closes it.
+  const [chosen, setChosen] = useState(props.selectedCategory);
+  if (chosen !== props.selectedCategory) {
+    setChosen(props.selectedCategory);
+    setOpener(null);
+  }
   const dips = rows.find((row) => row.kind === 'dips');
   const opens = useSmallItemsStore((state) => state.opens);
   // Rows that went away take the popup with them for good, not until they come back.

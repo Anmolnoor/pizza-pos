@@ -338,7 +338,7 @@ test('Escape closes a window opened from the order first, and the popup only aft
   await block(page, 'Drinks').click();
   await add(page, 'Can', 'Cola').click();
   await lineOf(page, 'Cola (Can)').getByRole('button', { name: 'Edit' }).click();
-  const save = page.getByRole('button', { name: /^Save/ });
+  const save = page.getByRole('button', { name: /^Save(?! as)/ });
   await expect(save).toBeVisible();
 
   await page.keyboard.press('Escape');
@@ -364,6 +364,127 @@ test('a scan that ends in Enter adds nothing when the popup has just opened', as
   await expect(popup.getByRole('button', { name: 'Done' })).toBeFocused();
   await page.keyboard.press('Tab');
   await expect(add(page, 'Dips', 'Ranch')).toBeFocused();
+});
+
+test('a tap with a pointer leaves the focus on the sheet, so a scan presses no tile', async ({
+  page,
+}) => {
+  const popup = popupOf(page);
+  await block(page, 'Dips').click();
+  await add(page, 'Dips', 'Ranch').click();
+  await expect(popup).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(countOn(page, 'Dips', 'Ranch')).toHaveText('1');
+  await add(page, 'Dips', 'Ranch').click();
+  await minus(page, 'Dips', 'Ranch').click();
+  await expect(popup).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(countOn(page, 'Dips', 'Ranch')).toHaveText('1');
+
+  // A code the scanner types, ending in Enter, adds nothing through the popup.
+  await page.keyboard.type('4006381333931', { delay: 5 });
+  await page.keyboard.press('Enter');
+  await expect(cartLines(page)).toHaveCount(1);
+  await expect(countOn(page, 'Dips', 'Ranch')).toHaveText('1');
+  await expect(popup).toBeVisible();
+});
+
+test('a dialog opened from the order over the popup takes Escape first', async ({ page }) => {
+  const popup = popupOf(page);
+  await addLargePizza(page, 'Garden');
+  await block(page, 'Drinks').click();
+  await add(page, 'Can', 'Cola').click();
+
+  // The quick-button dialog, from the row under an ordinary line.
+  await lineOf(page, 'Cola (Can)').getByRole('button', { name: 'Save as quick button' }).click();
+  const saveButton = page.getByRole('dialog', { name: 'Save as quick button' });
+  await expect(saveButton).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(saveButton).toBeHidden();
+  await expect(popup).toBeVisible();
+
+  // The pizza sheet, from a pizza line.
+  await lineOf(page, 'Garden').getByRole('button', { name: 'Edit' }).click();
+  const sheet = page.getByRole('dialog', { name: 'Pizza', exact: true });
+  await expect(sheet).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(sheet).toBeHidden();
+  await expect(popup).toBeVisible();
+
+  await page.keyboard.press('Escape');
+  await expect(popup).toBeHidden();
+  await expect(cartLines(page)).toHaveCount(2);
+});
+
+test('a deal line folds like a pizza line, and the quick-button row stays in reach on every line', async ({
+  page,
+}) => {
+  await block(page, 'Deals').click();
+  await page.getByTestId('pos-product-card').filter({ hasText: 'Pasta Night' }).click();
+  const deal = page.getByRole('dialog', { name: 'Pasta Night' });
+  for (let can = 0; can < 3; can += 1)
+    await deal.getByRole('button', { name: 'One more Cola' }).click();
+  await deal.getByTestId('deal-add').click();
+  await expect(deal).toBeHidden();
+  await block(page, 'Pizzas').click();
+  for (const name of ['Garden', 'Island']) await addLargePizza(page, name);
+  await block(page, 'Dips').click();
+  await add(page, 'Dips', 'Ranch').click();
+  await popupOf(page).getByRole('button', { name: 'Done' }).click();
+  await expect(cartLines(page)).toHaveCount(4);
+
+  // The dip was touched last: the deal and both pizzas are folded.
+  await expect(page.getByTestId('pizza-line-actions')).toHaveCount(0);
+  await expect(lineOf(page, 'Pasta Night').getByTestId('pizza-line-unfold')).toHaveText('1x');
+  await expect(lineOf(page, 'Pasta Night').getByTestId('pizza-line-detail').first()).toBeVisible();
+
+  // On a folded deal, a folded pizza and an ordinary line the row opens its dialog.
+  const saveButton = page.getByRole('dialog', { name: 'Save as quick button' });
+  for (const name of ['Pasta Night', 'Garden', 'Ranch']) {
+    const row = lineOf(page, name).getByRole('button', { name: 'Save as quick button' });
+    expect((await row.boundingBox())!.height).toBeGreaterThanOrEqual(48);
+    await row.click();
+    await expect(saveButton).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(saveButton).toBeHidden();
+  }
+  await expect(page.getByTestId('pizza-line-actions')).toHaveCount(0);
+
+  // The folded deal unfolds on a tap, and its row is still in reach unfolded.
+  await lineOf(page, 'Pasta Night').click({ position: { x: 90, y: 12 } });
+  await expect(lineOf(page, 'Pasta Night').getByTestId('pizza-line-actions')).toBeVisible();
+  await lineOf(page, 'Pasta Night').getByRole('button', { name: 'Save as quick button' }).click();
+  await expect(saveButton).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(saveButton).toBeHidden();
+});
+
+test('the Quick Buttons block keeps its place, and the popup opens over its page and gives it back', async ({
+  page,
+}) => {
+  await expect(blocks(page).getByRole('button')).toHaveText([
+    'All',
+    'Pizzas',
+    /./,
+    'Sides',
+    'Dips',
+    'Drinks',
+    'Deals',
+    /^Quick Buttons/,
+  ]);
+  const quick = blocks(page).getByRole('button', { name: /^Quick Buttons/ });
+  await quick.click();
+  await expect(quick).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('pizza-tile')).toHaveCount(0);
+
+  await block(page, 'Dips').click();
+  await expect(popupOf(page)).toBeVisible();
+  await add(page, 'Dips', 'Garlic').click();
+  await popupOf(page).getByRole('button', { name: 'Done' }).click();
+  await expect(popupOf(page)).toBeHidden();
+  await expect(quick).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('pizza-tile')).toHaveCount(0);
+  await expect(cartLines(page)).toHaveCount(1);
 });
 
 test('past three lines the pizza action rows fold, except on the line last touched', async ({
