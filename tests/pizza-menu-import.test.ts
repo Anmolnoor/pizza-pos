@@ -361,6 +361,11 @@ async function main() {
         ['["Ham","Pineapple","Cheese","Tomato sauce"]'],
         'a pizza row carries its ingredients',
       );
+      same(
+        lines('pizza_products', 'product_id, menu_id, kind', "kind = 'half-and-half'"),
+        ['pz-half-and-half|half-and-half|half-and-half'],
+        'the half-and-half row has menu id and kind half-and-half, as the order API expects',
+      );
       const menuRows = rows('SELECT id, catalog, owned_rows FROM pizza_menu');
       assertEqualOrThrow(menuRows.length, 1, 'pizza_menu has one row');
       same(JSON.parse(menuRows[0].catalog), catalog, 'holding the catalogue');
