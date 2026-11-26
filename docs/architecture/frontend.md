@@ -517,6 +517,8 @@ on, with no React in it:
 
 `tests/pizza-sheet-state.test.ts`, `tests/pizza-cart-store.test.ts`, and
 `tests/pizza-kot-browser.test.ts` cover these modules and the cart and print hooks that call them.
+`tests/pizza-pos-order-seam.test.ts` posts the requests these modules build to the real order routes
+of a store with the sample menu loaded, and reads the catalogue through `GET /api/pizza/catalog`.
 
 ## Printing
 
