@@ -4,11 +4,11 @@ Read decision D3 in [../decisions.md](../decisions.md) first: it says what the s
 
 ## Outcome
 
-1. `main/pizza/migrations.ts`: `PIZZA_MIGRATIONS`, with its own version counter in `_flo_meta` (`pizza_schema_version`), run right after upstream's migrations and whenever the reference schema is built. Version 1 creates `pizza_products` and `quick_buttons` exactly as the contract defines them.
+1. `main/pizza/migrations.ts`: `PIZZA_MIGRATIONS`, with its own version counter in `_flo_meta` (`pizza_schema_version`), run right after upstream's migrations and whenever the reference schema is built. Version 1 creates `pizza_products`, `pizza_menu` and `pizza_quick_buttons` exactly as the contract defines them.
 2. The hook in `main/db.ts`, as small as the spike's (about 14 lines).
 3. Recovery: a database file at the same upstream version but an older pizza version must be accepted where upstream compares against the reference schema. Key `getRecoverySchemaReference` by the candidate's pizza version as well (call sites near `main/db.ts:1526, 1861, 5449`), so a backup taken before a later pizza migration is listed as valid for downgrade recovery. With only version 1 today, prove it in the test with a second, test-only pizza migration.
 4. A pizza version newer than the build enters the same downgrade-recovery flow as a newer upstream version, not a plain error.
-5. Currency reset: `captureCurrencyResetMenu` and `restoreCurrencyResetMenu` (`main/db.ts:3304, 3336`) carry a fixed list of menu tables. `pizza_products` belongs with them; `quick_buttons` is cleared with the menu it points at. Say in the report what you decided and why.
+5. Currency reset: `captureCurrencyResetMenu` and `restoreCurrencyResetMenu` (`main/db.ts:3304, 3336`) carry a fixed list of menu tables. `pizza_products` and `pizza_menu` belong with them; `pizza_quick_buttons` is cleared with the menu it points at. Say in the report what you decided and why.
 
 ## Rules
 
