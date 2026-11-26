@@ -509,7 +509,7 @@ on, with no React in it:
 
 | Module | Contents |
 | --- | --- |
-| `catalog.ts` | `loadPizzaCatalog()` requests `GET /api/pizza/catalog` once and keeps the answer; `getPizzaCatalog()` reads it synchronously; `reloadPizzaCatalog()` fetches it again. A 404 means the shop has no pizza menu, and the catalogue is then `null`. A failed fetch keeps the catalogue already held, and only the latest fetch changes it, whatever order the answers arrive in. A login or a logout clears the catalogue and any fetch in flight, so the next `loadPizzaCatalog()` asks again; locking the screen and unlocking it with a PIN keep the catalogue, because the store and its menu are the same. A screen that needs the catalogue calls `loadPizzaCatalog()` when it mounts and again after a sign-in, because the login cleared what was held. The screen that loads a new menu calls `reloadPizzaCatalog()`. |
+| `catalog.ts` | `loadPizzaCatalog()` requests `GET /api/pizza/catalog` once and keeps the answer; `getPizzaCatalog()` reads it synchronously; `reloadPizzaCatalog()` fetches it again. A 404 means the shop has no pizza menu, and the catalogue is then `null`. A failed fetch keeps the catalogue already held, and only the latest fetch changes it, whatever order the answers arrive in. A login or a logout clears the catalogue and any fetch in flight, so the next `loadPizzaCatalog()` asks again; locking the screen and unlocking it with a PIN keep the catalogue, because the store and its menu are the same. The dashboard layout loads it for every dashboard screen through `usePizzaCatalog()`; see [pizza screens](#pizza-screens). The screen that loads a new menu calls `reloadPizzaCatalog()`. |
 | `sheet-state.ts` | `newSheet`, `sheetReducer`, and `sheetLine`: the state of the pizza sheet, one action per control, and the cart line that state describes. `sheetLine` runs the state through `validateRecipe` in `shared/pizza/recipe.ts`, so Add is off, with that function's message, until the recipe is valid against the catalogue. A plain pizza has no recipe. The `load` action opens a cart line whose product id starts with `pz-`; any other line leaves the state as it is. |
 | `cart-lines.ts` | `customizeOne` takes one off a line of several and gives it a line of its own; `replaceCartLine` saves an edited line where it stood, and merges it into a line it has become identical to. Both return a new item list and change nothing. "Customize 1" gives the split line a temporary id, because it holds the same pizza as the line it came from. When the sheet is closed without saving, the screen calls `replaceCartLine(items, temporaryId, line)` to merge it back. |
 | `line-recipe.ts` | `lineRecipe` and `recipeForVariant`: the recipe a line is identified and sent by, and a pizza recipe at the size of the line's variant. |
@@ -545,6 +545,42 @@ is in the
 spec that loads a menu uses `loadSampleMenu` and, in `test.afterAll`, `clearPizzaMenu` from
 `frontend/e2e/helpers/pizza-menu.ts`, because the suite shares one database and a loaded menu puts
 its categories first in the POS.
+
+### Pizza screens
+
+[`frontend/src/components/pos/pizza/`](../../frontend/src/components/pos/pizza) holds the pizza
+screens of the cashier POS. They show only while a pizza menu is loaded: with none,
+`usePizzaPos` returns `null` and the POS page, the product grid, and the cart panel render as they
+do without the fork.
+
+| Module | Contents |
+| --- | --- |
+| `usePizzaCatalog.ts` | `usePizzaCatalog()` holds the catalogue as React state. It calls `loadPizzaCatalog()` when its component mounts and again whenever the session token changes, which covers a sign-in. The dashboard layout calls it, so every dashboard screen has the catalogue, and a reprint from the orders page builds its detail lines from it. |
+| `usePizzaPos.tsx` | `usePizzaPos(products, categories, selectCategory)` is the POS page's one pizza hook. It owns the open sheet and returns a `PizzaPos`: the category blocks and the tile renderer for the product grid, `open` for a pizza product reached without a tile (search, a customer's top items, a scanned product), `edit` and `customizeOne` for the cart panel, and the sheet element the page mounts. It selects the Pizzas category once, when the catalogue and that category are both present. |
+| `PizzaHome.tsx` | `PizzaCategoryBlocks` takes the props of the product grid's category row and shows the top-level categories, with All first, as blocks in each category's colour; the chosen block has a ring and a tick. `PizzaTile` shows a menu pizza with one button per size variant: a tap adds that plain pizza, and Customize opens the sheet on that pizza with no size chosen. `HalfAndHalfTile` is the tile of the `pz-half-and-half` product: a size button opens the sheet as a half and half at that size. Any other product keeps the grid's own tile and dialog. |
+| `PizzaSheet.tsx` | The pizza sheet, a Radix dialog over `sheetReducer` and `sheetLine`: size, whole or half and half, the pizza on each half side by side, ingredient chips, cook, cut, dip steppers, note, quantity, the price, and the "Prints as" box. A tapped ingredient is pressed and reads `NO` with its name struck through. Add (Save when a cart line is open) is disabled while `sheetLine` refuses the pizza, and its message shows beside the button. A tap outside the dialog does not close it; Escape and the close button do, and the focus returns to the control that opened it. Prices are the catalogue's cents divided by 100, which is exact because the menu load refuses a currency not counted in hundredths. |
+| `PizzaCartLine.tsx` | `PizzaLineDetails` puts `cartLineDetailLines` under a line's name. `PizzaLineActions` is the action row of a pizza line: a quantity stepper, "Customize 1" on a line of two or more, and Edit. It replaces the cart panel's own edit and quantity controls on that line; remove and price override stay the cart panel's. |
+
+Saving looks up the product, the size variant, and the dip add-ons in the POS page's product list
+by the ids `sheetLine` derives. If one is missing, because the catalogue was edited after the menu
+was loaded, the sheet adds nothing and shows a message. A new pizza goes through
+`useCartStore.addItem`; an edited line goes through `replaceCartLine`, keeping its price override.
+"Customize 1" writes `customizeOne`'s item list to the cart and opens the sheet on the split line;
+closing the sheet unsaved merges that line back with `replaceCartLine`.
+
+The hooks in upstream files are: `usePizzaCatalog()` in the dashboard layout; in the POS page the
+`usePizzaPos` call, one line each in the product tap handler, the dialog-open guard, and the cart
+panel's edit handler, the `pizza` prop on the product grid and the cart panel, and the sheet mount;
+in `ProductGrid.tsx` the `pizza` prop, which swaps the category row, the grid columns, and the tile
+of a pizza product; in `CartPanel.tsx` the `pizza` prop, which adds the detail lines and the action
+row. Every pizza control is at least 48 px in both directions.
+
+`frontend/e2e/pizza-pos.spec.ts` drives these screens in Chromium against the sample menu, loaded
+through `POST /api/pizza/menu/import`: the home with and without a menu, a one-tap pizza, a half and
+half, identical halves, "Customize 1", an edit that merges two lines, a cash order read back through
+the API, the sheet with the keyboard alone, and control sizes at 1180 × 820. A loaded menu cannot be
+unloaded, so the spec deletes the products and categories the menu made when it ends; the
+catalogue itself stays loaded on that server.
 
 ## Printing
 
@@ -760,7 +796,9 @@ frontend/src/
 │   ├── layout/                 Title bar, sidebar, status bar, auth guard, theme sync
 │   ├── orders/                 Order card, history grid, refund modal
 │   ├── pos/                    Cart, product grid, payment, number pad, checkout modals,
-│   │                           payment queue drawer, payment ticket modal
+│   │   │                       payment queue drawer, payment ticket modal
+│   │   └── pizza/              Pizza home tiles and category blocks, the pizza sheet,
+│   │                           pizza cart lines
 │   ├── products/               Product image uploader
 │   ├── providers/              I18nProvider
 │   ├── settings/               The settings screen's building blocks:
