@@ -682,6 +682,33 @@ async function main() {
         }
       },
 
+    'Case 6g: an edit key reused with a cleared recipe instead of a kept one is a conflict':
+      async () => {
+        const order = (await createOrder([gardenLine({ modifier_selection: gardenSent })])).data
+          .order;
+        const [line] = liveRows(order.id);
+        const version = editVersion(order.id, line.id);
+        const sendAt = (replacement: object) =>
+          api(baseUrl, `/api/orders/${order.id}/items/${line.id}/edit`, {
+            method: 'PATCH',
+            body: { expected_edit_version: version, replacement },
+            headers: { ...owner.authHeader, 'Idempotency-Key': 'pizza-recipe-absent-or-null' },
+          });
+        const kept = await sendAt(gardenLine({ special_instructions: 'Ring the bell' }));
+        assertEqualOrThrow(kept.status, 200, 'the edit that leaves the recipe out is accepted');
+        const again = await sendAt(gardenLine({ special_instructions: 'Ring the bell' }));
+        assertEqualOrThrow(again.status, 200, 'the same request again is answered as before');
+        const cleared = await sendAt(
+          gardenLine({ special_instructions: 'Ring the bell', modifier_selection: null }),
+        );
+        assertEqualOrThrow(cleared.status, 409, 'the same key with an explicit null is refused');
+        assertEqualOrThrow(
+          liveRows(order.id)[0].modifier_selection,
+          stored(gardenStored),
+          'and the kept recipe still stands',
+        );
+      },
+
     'Case 6e: an item a menu load retired cannot be sold again, but a sold line can shrink':
       async () => {
         const islandLine = (extra: object = {}) => ({

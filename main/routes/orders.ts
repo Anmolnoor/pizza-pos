@@ -6113,7 +6113,8 @@ function normalizeReplacementForHash(replacement: unknown): Record<string, unkno
     quantity: Number(r.quantity),
     variant_id: r.variant_id ?? null,
     variant_selection: r.variant_selection ?? null,
-    modifier_selection: r.modifier_selection ?? null,
+    // Left out keeps a stored recipe and null clears it, so the two must not hash alike.
+    modifier_selection: r.modifier_selection,
     special_instructions:
       typeof r.special_instructions === 'string' ? r.special_instructions.trim() || null : null,
     addons,
