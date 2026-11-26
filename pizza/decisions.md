@@ -254,7 +254,9 @@ The owner's rule: an extra of an ingredient or an added topping costs one toppin
 
 One price fits FloCafe's add-on model, where `addons.price` is one number. So a menu load makes two add-ons, `ad-topping` at the price in the menu file and `ad-topping-half` at half of it, in a group linked to the pizzas and the deals. A line carries as many of each as its recipe has extras and added toppings, and its price stays FloCafe's own: the variant plus its add-ons. D2's pricing hook is still not built, and tax, discounts, refunds, receipts and reports treat the charge as any add-on.
 
-What the add-ons do not say is which topping it is. The recipe does, and the server holds the two together: a line whose topping add-on quantities differ from what its recipe derives is refused (`checkLineRecipe` in `main/pizza/order-recipe.ts`). A cashier never picks these add-ons by hand: the pizza sheet counts them, and upstream's add-on window leaves the group out.
+What the add-ons do not say is which topping it is. The recipe does, and the server holds the two together: a line whose topping add-on quantities differ from what its recipe derives is refused (`checkLineRecipe` in `main/pizza/order-recipe.ts`). A cashier never picks these add-ons by hand: the pizza sheet counts them, and upstream's add-on window leaves the group out. When that window replaces a sent pizza by its own product, to change its size, the request keeps the topping add-ons the line was sold with (`keptToppingAddons`), because the server keeps the line's recipe.
+
+The kitchen is not shown the charge. On a line of three pizzas, `+ Topping x2` under `EXTRA CHEESE` and `ADD BACON` reads as two more toppings to put on, or as two for the whole line. So `kitchenAddons` in `shared/pizza/toppings.ts` leaves the two topping add-ons off every kitchen ticket (the server's, the browser's ESC/POS, raster and HTML ones) and off the kitchen display, where the recipe lines already name each topping. Receipts, bills, the cart and the Orders page keep them: there they are what the customer pays.
 
 **Checked.** `tests/pizza-toppings-order.test.ts` posts orders to the real routes of a store with the pizza profile and the sample menu: a whole pizza with two toppings costs two topping prices more and is taxed on the total, a half and half with one on each half costs two half prices more, and a line that disagrees is refused on create, append, edit and replacement, and on a quick button.
 
@@ -264,5 +266,7 @@ What the add-ons do not say is which topping it is. The recipe does, and the ser
 - The price is in one place, `toppings.price` in the menu file and in the stored catalogue. A screen that changes it has to load the menu again, because both add-on rows are written from it.
 - A replacement that sends the same topping add-ons with a recipe that needs another count is refused, and one with a different count is a new sale priced from the current catalogue (the rule for any changed add-on).
 - Per-size topping prices would not fit this: they need an add-on per size, or the pricing hook.
+- After a menu load that drops `toppings`, a pizza already sent with an extra or an added topping can shrink but not grow: a quantity increase is refused, because the menu has no price for the topping and the add-on group is switched off. A decrease still works, at the prices sold.
+- A line made before a menu load can hold a topping the menu dropped. The sheet shows everything a line holds, a dropped topping by its id, and each comes off in one tap; until then the line cannot be saved.
 
 Decided by the owner on 2026-11-26.
