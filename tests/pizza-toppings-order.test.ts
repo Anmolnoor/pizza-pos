@@ -19,7 +19,7 @@ const {
   api,
 } = require('./helpers/pizza-print-harness');
 const { initDatabase, getDatabase } = require('../main/db');
-const { kdsRecipe } = require('../main/pizza/order-recipe');
+const { kdsRecipe, withKdsRecipeLines } = require('../main/pizza/order-recipe');
 const { registerRoutes } = require('../main/routes/index');
 const net = require('node:net');
 const { printKOTDetailed, prepareReceipt } = require('../main/printers/thermal');
@@ -293,6 +293,24 @@ async function main() {
 
         accepted(await loadMenu(sample), 200, 'the sample loads again');
         same([...prices(), addon('ad-topping').is_active], [2.25, 1.13, 1], 'and they are back');
+
+        // A pizza sent with toppings, then the menu drops them: it can shrink but not grow.
+        const sent = await createOrder([
+          gardenLine({ quantity: 2, modifier_selection: twoOnWhole, addons: [toppings(2)] }),
+        ]);
+        accepted(sent, 201, 'two pizzas with toppings are sent');
+        const orderId = sent.data.order.id;
+        accepted(await loadMenu(without), 200, 'the menu drops its toppings');
+        const more = await edit(orderId, liveRows(orderId)[0].id, { quantity: 3 });
+        assertEqualOrThrow(more.status, 400, 'one more is refused: there is no price for it');
+        const fewer = await edit(orderId, liveRows(orderId)[0].id, { quantity: 1 });
+        accepted(fewer, 200, 'one fewer is accepted');
+        same(
+          [liveRows(orderId)[0].quantity, liveRows(orderId)[0].subtotal],
+          [1, 27.5],
+          'at the prices it was sold for',
+        );
+        accepted(await loadMenu(sample), 200, 'the sample loads once more');
       },
 
     'Case 3: a whole pizza with one extra and one added topping costs two toppings more':
@@ -869,15 +887,37 @@ async function main() {
               printed.some((row) => row.trim() === line || row.trim().endsWith(line)),
               `${name}: prints ${line}`,
             );
-          assertOrThrow(
-            printed.some((row) => /Topping/.test(row) && /2/.test(row)),
-            `${name}: prints the Topping add-on with its count`,
-          );
-          assertOrThrow(
-            printed.some((row) => /Half topping/.test(row)),
-            `${name}: prints the Half topping add-on`,
-          );
         }
+        // The charge lines are for the customer. A cook would read "+ Topping x2" as two more to put on.
+        assertOrThrow(
+          !ticket.some((row) => /topping/i.test(row)),
+          'kitchen ticket: prints no topping charge line',
+        );
+        assertOrThrow(
+          receipt.some((row) => /\+ Topping x2/.test(row) && /4\.50/.test(row)),
+          'classic receipt: prints the Topping add-on with its count and amount',
+        );
+        assertOrThrow(
+          receipt.some((row) => /\+ Half topping x2/.test(row) && /2\.26/.test(row)),
+          'classic receipt: prints the Half topping add-on',
+        );
+
+        const dips = { id: 'ad-dips-ranch', name: 'Ranch', price: 1.25, quantity: 1 };
+        const shown = withKdsRecipeLines([
+          { ...order.items[0], addons: [dips, ...order.items[0].addons] },
+          { id: 999, product_id: 'sd-green-salad', addons: [dips], modifier_selection: null },
+        ]);
+        same(
+          shown[0].addons.map((addon: any) => addon.id),
+          ['ad-dips-ranch'],
+          'kitchen display: the pizza keeps its dip and loses the topping charge',
+        );
+        assertOrThrow(
+          shown[0].recipe_lines.includes('EXTRA CHEESE') &&
+            shown[0].recipe_lines.includes('ADD BACON'),
+          'kitchen display: the recipe lines still name the extra and the topping',
+        );
+        same(shown[1].addons, [dips], 'kitchen display: an item without a recipe is as it was');
       },
   });
 }

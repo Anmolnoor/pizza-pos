@@ -29,12 +29,27 @@ function Price({ price }: { price: number | null }) {
   return <span className="font-normal tabular-nums">+{fmt(price)}</span>;
 }
 
+/** The cross on a chip whose tap takes what it names off the pizza. */
+function TakeOff() {
+  const t = useTranslations('pizza');
+  return (
+    <span role="img" aria-label={t('toppingTakeOff')} className="shrink-0">
+      <X size={16} aria-hidden />
+    </span>
+  );
+}
+
 /**
  * The ingredients of one pizza or half as chips, each reading its state in words: the name, `NO`
  * and the name struck through, or `EXTRA`, the name and its price. After them come the toppings
  * added, as `ADD` chips that take the topping off again, and Add, which opens the menu's toppings
  * as a grid. A topping the pizza already has is not listed. A menu without toppings has no Add,
  * and its ingredients go from normal to `NO` and back.
+ *
+ * The chips show everything the pizza holds, whatever the menu says now: a line made before a
+ * menu load can hold a topping the menu dropped, shown by its id, or a removal or an extra of an
+ * ingredient the pizza lost. Each has a cross and comes off in one tap, so such a line can always
+ * be seen and put right.
  */
 export function PizzaChanges({
   catalog,
@@ -52,7 +67,8 @@ export function PizzaChanges({
   wide: boolean;
   /** What one extra or added topping costs on this pizza or half. */
   price: number | null;
-  onIngredient: (name: string) => void;
+  /** `gone` is true for a name the pizza no longer has, which one tap takes off. */
+  onIngredient: (name: string, gone?: boolean) => void;
   onTopping: (toppingId: string) => void;
 }) {
   const t = useTranslations('pizza');
@@ -60,15 +76,18 @@ export function PizzaChanges({
   const [listing, setListing] = useState(false);
   const listId = useId();
   const add = useRef<HTMLButtonElement>(null);
+  const chips = useRef<HTMLDivElement>(null);
+  /** Where the focus goes when the chip that had it is gone: Add, or the chips when there is none. */
+  const refocus = () => (add.current ?? chips.current)?.focus();
+  const toppings = catalog.toppings?.items ?? [];
+  const gone = [...half.removed, ...half.extra].filter((name) => !pizza.ingredients.includes(name));
   const has = new Set(pizza.ingredients.map((name) => name.toLowerCase()));
-  const offered = (catalog.toppings?.items ?? []).filter(
-    (topping) => !has.has(topping.label.trim().toLowerCase()),
-  );
+  const offered = toppings.filter((topping) => !has.has(topping.label.trim().toLowerCase()));
   const full = half.added.length >= MAX_ADDED_TOPPINGS;
 
   return (
     <>
-      <div className="flex flex-wrap gap-2">
+      <div ref={chips} tabIndex={-1} className="flex flex-wrap gap-2 outline-none">
         {pizza.ingredients.map((name) => {
           const off = half.removed.includes(name);
           const extra = half.extra.includes(name);
@@ -88,28 +107,43 @@ export function PizzaChanges({
             </button>
           );
         })}
-        {offered
-          .filter((topping) => half.added.includes(topping.id))
-          .map((topping) => (
+        {gone.map((name) => {
+          const off = half.removed.includes(name);
+          return (
             <button
-              key={topping.id}
+              key={name}
               type="button"
-              data-testid="pizza-added-topping"
+              data-testid="pizza-gone-ingredient"
               onClick={() => {
-                onTopping(topping.id);
-                // This chip is gone once the topping is off.
-                add.current?.focus();
+                onIngredient(name, true);
+                refocus();
               }}
-              className={cn(CHIP, FOCUS, MORE, 'border-dashed pe-3')}
+              className={cn(CHIP, FOCUS, off ? OFF : MORE, 'pe-3')}
             >
-              <span className="font-bold">{t('toppingAdded')}</span>
-              {topping.label}
-              <Price price={price} />
-              <span role="img" aria-label={t('toppingTakeOff')} className="shrink-0">
-                <X size={16} aria-hidden />
-              </span>
+              <span className="font-bold">{off ? t('no') : t('extra')}</span>
+              {off ? <s>{name}</s> : name}
+              <TakeOff />
             </button>
-          ))}
+          );
+        })}
+        {half.added.map((id) => (
+          <button
+            key={id}
+            type="button"
+            data-testid="pizza-added-topping"
+            onClick={() => {
+              onTopping(id);
+              // This chip is gone once the topping is off.
+              refocus();
+            }}
+            className={cn(CHIP, FOCUS, MORE, 'border-dashed pe-3')}
+          >
+            <span className="font-bold">{t('toppingAdded')}</span>
+            {toppings.find((topping) => topping.id === id)?.label ?? id}
+            <Price price={price} />
+            <TakeOff />
+          </button>
+        ))}
         {offered.length > 0 && (
           <button
             ref={add}

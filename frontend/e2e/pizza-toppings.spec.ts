@@ -381,6 +381,68 @@ test.describe('toppings on a pizza', () => {
     ).toEqual([['ad-topping', 2]]);
   });
 
+  test('an extra and a topping the menu has dropped still show on a reopened line and come off', async ({
+    page,
+    request,
+  }) => {
+    const sheet = await openLargeGarden(page);
+    await chip(sheet, 'Olives', 'normal').click();
+    await chip(sheet, 'Olives', 'NO').click();
+    await addTopping(sheet).click();
+    await toppingList(sheet).getByRole('button', { name: 'Bacon' }).click();
+    await addToOrder(sheet).click();
+    await expect(sheet).toBeHidden();
+    await expect(details(cartLines(page).first())).toHaveText(['EXTRA OLIVES', 'ADD BACON']);
+
+    const without = sampleMenu();
+    delete without.toppings;
+    try {
+      await loadSampleMenu(request, without);
+      // A refresh asks at most every 30 seconds, so the till's clock moves on a minute.
+      await page.clock.setFixedTime(Date.now() + 60_000);
+      // The sheet opens on the menu held; it is reopened until that is the menu without toppings.
+      await expect(async () => {
+        await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+        await cartLines(page).first().getByRole('button', { name: 'Edit', exact: true }).click();
+        try {
+          await expect(addTopping(sheet)).toHaveCount(0, { timeout: 1000 });
+        } catch (error) {
+          await page.keyboard.press('Escape');
+          await expect(sheet).toBeHidden();
+          throw error;
+        }
+      }).toPass({ timeout: 20_000 });
+
+      // The line still has both, and the menu has a price for neither.
+      const save = sheet.getByRole('button', { name: /^Save/ });
+      const message = sheet.getByTestId('pizza-sheet-message');
+      const bacon = addedChip(sheet, 'bacon');
+      await expect(chip(sheet, 'Olives', 'EXTRA')).toBeVisible();
+      await expect(bacon, 'a topping the menu no longer names shows by its id').toContainText(
+        /^ADD\s*bacon/,
+      );
+      await expect(save).toBeDisabled();
+      await expect(message).toContainText('This menu has no price for extra Olives');
+      await shot(page, 'toppings-dropped-from-menu.png');
+
+      await chip(sheet, 'Olives', 'EXTRA').click();
+      await expect(chip(sheet, 'Olives', 'normal')).toHaveAttribute('aria-pressed', 'false');
+      await expect(save).toBeDisabled();
+      await expect(message).toContainText('That topping is not on the menu');
+      await bacon.click();
+      await expect(sheet.getByTestId('pizza-added-topping')).toHaveCount(0);
+      await expect(message).toBeEmpty();
+      await expect(printsAs(sheet)).toHaveText(['LARGE GARDEN']);
+      await expect(save).toBeEnabled();
+      await save.click();
+      await expect(sheet).toBeHidden();
+      await expect(details(cartLines(page).first())).toHaveCount(0);
+      await expect(cartLines(page).first()).toContainText(money(LARGE));
+    } finally {
+      await loadSampleMenu(request);
+    }
+  });
+
   test('the chips and the list work with the keyboard only', async ({ page }) => {
     const sheet = sheetOf(page);
     /** Tabs until `target` has the focus, backwards when asked; the focus never leaves the dialog. */

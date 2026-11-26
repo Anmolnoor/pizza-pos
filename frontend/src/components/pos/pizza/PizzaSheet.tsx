@@ -138,7 +138,7 @@ function HalfColumn({
   /** What one extra or added topping costs here. */
   toppingPrice: number | null;
   onPizza: (pizzaId: string) => void;
-  onIngredient: (name: string) => void;
+  onIngredient: (name: string, gone?: boolean) => void;
   onTopping: (toppingId: string) => void;
 }) {
   const t = useTranslations('pizza');
@@ -220,7 +220,9 @@ export function PizzaHalves({
       wide={!state.split}
       toppingPrice={state.split ? toppingPrices.half : toppingPrices.whole}
       onPizza={(pizzaId) => dispatch({ type: 'pizza', half: index, pizzaId })}
-      onIngredient={(name) => dispatch({ type: 'ingredient', half: index, name, extras })}
+      onIngredient={(name, gone) =>
+        dispatch({ type: 'ingredient', half: index, name, extras: extras && !gone })
+      }
       onTopping={(toppingId) => dispatch({ type: 'topping', half: index, toppingId })}
     />
   ));

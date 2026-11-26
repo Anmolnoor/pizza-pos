@@ -4,10 +4,16 @@
  *
  * Run: npm run test:pizza-toppings
  */
-const { assertOrThrow, assertEqualOrThrow, runCases } = require('./helpers/pizza-print-harness');
+const {
+  assertOrThrow,
+  assertEqualOrThrow,
+  loadFrontend,
+  rows,
+  runCases,
+} = require('./helpers/pizza-print-harness');
 const { MenuError, parseMenuFile } = require('../shared/pizza/menu');
 const { RecipeError, validateRecipe, recipeKey } = require('../shared/pizza/recipe');
-const { toppingCounts } = require('../shared/pizza/toppings');
+const { kitchenAddons, toppingCounts } = require('../shared/pizza/toppings');
 const { ticketLines } = require('../shared/pizza/ticket');
 const sample = require('./fixtures/pizza-sample-menu.json');
 const {
@@ -41,6 +47,7 @@ const {
 const {
   chargedAddons,
   handPickedGroups,
+  keptToppingAddons,
   toppingCharges,
   toppingPrices,
 } = require('../frontend/src/lib/pizza/toppings');
@@ -590,11 +597,15 @@ runCases('Pizza toppings', {
   'Case 16: a plain pizza with only an extra or an added topping has a recipe': () => {
     const plain = newSheet({ pizzaId: 'garden', sizeId: 'large' });
     assertEqualOrThrow(sheetLine(catalog(), plain).recipe, null, 'a plain pizza has none');
-    same(sheetLine(catalog(), plain).toppings, [], 'and no topping to charge');
+    same(toppingCharges(sheetLine(catalog(), plain).recipe), [], 'and no topping to charge');
 
     const extra = sheetLine(catalog(), tap(plain, olives, olives));
     same(extra.recipe, whole('garden', { extra: ['Olives'] }), 'an extra alone is a recipe');
-    same(extra.toppings, [{ id: 'ad-topping', quantity: 1 }], 'charged as one topping');
+    same(
+      toppingCharges(extra.recipe),
+      [{ id: 'ad-topping', quantity: 1 }],
+      'charged as one topping',
+    );
     same(extra.printsAs.detailLines, ['EXTRA OLIVES'], 'and printed');
     const added = sheetLine(catalog(), tap(plain, topping(0, 'bacon')));
     same(added.recipe, whole('garden', { added: ['bacon'] }), 'so is an added topping alone');
@@ -613,7 +624,11 @@ runCases('Pizza toppings', {
         { type: 'ingredient', half: 1, name: 'Cheese' },
       ),
     );
-    same(halfLine.toppings, [{ id: 'ad-topping-half', quantity: 2 }], 'halves: two half toppings');
+    same(
+      toppingCharges(halfLine.recipe),
+      [{ id: 'ad-topping-half', quantity: 2 }],
+      'halves: two half toppings',
+    );
     same(
       toppingCharges(threeLarge),
       [
@@ -895,4 +910,196 @@ runCases('Pizza toppings', {
     );
     assertEqualOrThrow(buttonPrice(tapped), 27.5, 'so the tile shows 23.00 + 2 x 2.25');
   },
+
+  'Case 23: what the menu no longer has can be taken off, and the line can then be saved': () => {
+    // A cart line made before a menu load that dropped the topping and one of the ingredients.
+    const stale = sheetReducer(newSheet(), {
+      type: 'load',
+      line: cartLine(
+        'pz-garden',
+        pizza({
+          whole: {
+            pizzaId: 'garden',
+            removed: ['Capers'],
+            extra: ['Olives', 'Pesto'],
+            added: ['bacon', 'gold-leaf'],
+          },
+        }),
+      ),
+    });
+    same(
+      stale.halves[0],
+      {
+        pizzaId: 'garden',
+        removed: ['Capers'],
+        extra: ['Olives', 'Pesto'],
+        added: ['bacon', 'gold-leaf'],
+      },
+      'the sheet holds everything the line has, on the menu or not',
+    );
+    assertOrThrow(!sheetLine(catalog(), stale).canAdd, 'and it cannot be saved as it stands');
+    // One tap on each stale chip: an ingredient the pizza lost goes straight back to nothing.
+    const cleared = tap(
+      stale,
+      { type: 'ingredient', half: 0, name: 'Capers', extras: false },
+      { type: 'ingredient', half: 0, name: 'Pesto', extras: false },
+      { type: 'topping', half: 0, toppingId: 'gold-leaf' },
+    );
+    same(
+      cleared.halves[0],
+      { pizzaId: 'garden', removed: [], extra: ['Olives'], added: ['bacon'] },
+      'what the menu still has stays',
+    );
+    const line = sheetLine(catalog(), cleared);
+    assertOrThrow(line.canAdd, `and the line can be saved (${line.message})`);
+
+    // A menu that dropped its toppings altogether: the extra and the topping both come off.
+    const without = structuredClone(sample);
+    delete without.toppings;
+    const menu = parseMenuFile(without);
+    const held = sheetReducer(newSheet(), {
+      type: 'load',
+      line: cartLine('pz-garden', whole('garden', { extra: ['Olives'], added: ['bacon'] })),
+    });
+    assertOrThrow(!sheetLine(menu, held).canAdd, 'without toppings on the menu it is refused');
+    const plain = tap(held, { ...olives, extras: false }, topping(0, 'bacon'));
+    assertEqualOrThrow(sheetLine(menu, plain).recipe, null, 'with both off it is a plain pizza');
+    assertOrThrow(sheetLine(menu, plain).canAdd, 'that can be saved');
+  },
+
+  'Case 24: the kitchen is not shown the charge: topping add-ons are left off its lists': () => {
+    const ranch = { id: 'ad-dips-ranch', name: 'Ranch', price: 1.25, quantity: 2 };
+    const charges = [
+      { id: 'ad-topping', name: 'Topping', price: 2.25, quantity: 2 },
+      { id: 'ad-topping-half', name: 'Half topping', price: 1.13, quantity: 1 },
+    ];
+    same(kitchenAddons([ranch, ...charges]), [ranch], 'the dip stays, the two charges go');
+    same(kitchenAddons(JSON.stringify([ranch, ...charges])), [ranch], 'also from stored text');
+    same(kitchenAddons([{ name: 'Topping' }]), [{ name: 'Topping' }], 'only the ids decide');
+    for (const other of [null, undefined, 'not json', 7])
+      assertEqualOrThrow(kitchenAddons(other), other, `${String(other)} is handed back`);
+
+    const frontend = loadFrontend();
+    require('../frontend/src/lib/pizza/catalog');
+    const recipe = whole('garden', { extra: ['Cheese'], added: ['bacon'] });
+    const order = (addons: unknown) => ({
+      id: 1,
+      order_number: 'P-1',
+      created_at: '2026-01-01T12:00:00.000Z',
+      type: 'takeaway',
+      items: [
+        {
+          id: 1,
+          order_id: 1,
+          product_id: 'pz-garden',
+          product_name: 'Garden',
+          unit_price: 23,
+          quantity: 3,
+          subtotal: 86.25,
+          tax_amount: 0,
+          total: 86.25,
+          addons,
+          detailLines: ticketLines(catalog(), recipe, 42).detailLines,
+          modifier_selection: recipe,
+          special_instructions: null,
+          status: 'pending',
+        },
+      ],
+    });
+    const options = { stationName: 'Kitchen', language: 'en', timezone: 'UTC' };
+    const kitchen: Record<string, (addons: unknown) => string> = {
+      'browser ESC/POS': (addons) =>
+        rows(
+          frontend.kotEncoder.buildKotBytes(
+            order(addons),
+            { ...options, columns: 42, paperWidth: 80 },
+            [],
+          ),
+        ).join('\n'),
+      'raster document': (addons) =>
+        JSON.stringify(
+          frontend.printDocument.buildFrontendKotDocument(order(addons), {
+            ...options,
+            columns: 42,
+          }),
+        ),
+      'browser HTML': (addons) =>
+        frontend.kotWebPrint.generateKotHtml(order(addons), { ...options, paperWidth: 80 }),
+    };
+    for (const [path, print] of Object.entries(kitchen)) {
+      for (const addons of [[ranch, ...charges], JSON.stringify([ranch, ...charges])]) {
+        const stored = typeof addons === 'string' ? ', add-ons stored as text' : '';
+        const printed = print(addons);
+        // Upstream's HTML ticket lists add-ons only from a list, so text prints none there.
+        const expected =
+          stored && path === 'browser HTML'
+            ? ['EXTRA CHEESE', 'ADD BACON']
+            : ['EXTRA CHEESE', 'ADD BACON', 'Ranch'];
+        for (const line of expected)
+          assertOrThrow(printed.includes(line), `kitchen ticket, ${path}${stored}: prints ${line}`);
+        assertOrThrow(
+          !/topping/i.test(printed),
+          `kitchen ticket, ${path}${stored}: prints no topping charge line`,
+        );
+      }
+      assertOrThrow(
+        /Topping/.test(print([{ id: 'ad-hand-made', name: 'Topping sauce', quantity: 1 }])),
+        `kitchen ticket, ${path}: an add-on of another id prints as before, whatever its name`,
+      );
+    }
+    const bill = {
+      id: 1,
+      bill_number: 'B-1',
+      subtotal: 86.25,
+      discount_amount: 0,
+      tax_amount: 0,
+      total: 86.25,
+      payment_details: [{ method: 'cash', amount: 86.25 }],
+      order: order([ranch, ...charges]),
+    };
+    const tenant = { business_name: 'Pizza Test', country: 'US', currency: 'USD', timezone: 'UTC' };
+    const receiptOptions = { columns: 42, paperWidth: 80, languages: ['en'] };
+    for (const [name, build] of [
+      ['classic', frontend.receiptEncoder.buildClassicReceiptBytes],
+      ['compact', frontend.receiptEncoder.buildCompactReceiptBytes],
+    ] as const) {
+      const printed = rows(build(bill, tenant, receiptOptions, [])).join('\n');
+      assertOrThrow(/Topping/.test(printed), `receipt, browser ${name}: keeps the Topping charge`);
+      assertOrThrow(/Half topping/.test(printed), `receipt, browser ${name}: and the Half topping`);
+    }
+  },
+
+  "Case 25: the Orders page's replace window keeps the toppings a sent pizza is charged for":
+    () => {
+      const sold = {
+        product_id: 'pz-garden',
+        addons: [
+          { id: 'ad-dips-ranch', name: 'Ranch', price: 1.25, quantity: 1 },
+          { id: 'ad-topping', name: 'Topping', price: 2.25, quantity: 2 },
+        ],
+      };
+      const garlic = { id: 'ad-dips-garlic', name: 'Garlic', price: 1.25, quantity: 1 };
+      same(
+        keptToppingAddons(sold, 'pz-garden', [garlic]).map((addon: any) => [
+          addon.id,
+          addon.quantity,
+        ]),
+        [
+          ['ad-dips-garlic', 1],
+          ['ad-topping', 2],
+        ],
+        'the same pizza keeps its topping add-ons beside what the window chose',
+      );
+      same(
+        keptToppingAddons(sold, 'pz-garden', [garlic, sold.addons[1]]).length,
+        2,
+        'one it already carries is not added twice',
+      );
+      same(keptToppingAddons(sold, 'pz-island', [garlic]), [garlic], 'another product takes none');
+      same(
+        keptToppingAddons({ product_id: 'pz-garden' }, 'pz-garden', []),
+        [],
+        'nor a line with none',
+      );
+    },
 });

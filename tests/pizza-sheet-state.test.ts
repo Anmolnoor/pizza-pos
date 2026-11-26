@@ -49,6 +49,8 @@ const EMPTY = {
 };
 /** One side of the sheet with a pizza chosen and nothing changed on it. */
 const untouched = (pizzaId: string) => ({ pizzaId, removed: [], extra: [], added: [] });
+/** What one of the pizza costs as the sheet shows it, from the menu when it is given no products. */
+const unitPrice = (state: object) => sheetQuote(catalog, state, undefined, false).unit;
 const largeGarden = () => newSheet({ pizzaId: 'garden', sizeId: 'large' });
 const largeHalves = () =>
   after(
@@ -115,8 +117,6 @@ runCases('pizza-sheet-state', {
         productId: 'pz-garden',
         variantId: 'pz-garden-large',
         dips: [],
-        toppings: [],
-        unitPriceCents: 2300,
         printsAs: { heading: 'LARGE GARDEN', detailLines: [] },
         canAdd: true,
         message: null,
@@ -124,8 +124,8 @@ runCases('pizza-sheet-state', {
       'a plain large Garden',
     );
     assertEqualOrThrow(
-      sheetLine(catalog, newSheet({ pizzaId: 'plain', sizeId: 'small' })).unitPriceCents,
-      1500,
+      unitPrice(newSheet({ pizzaId: 'plain', sizeId: 'small' })),
+      15,
       'every pizza costs its size price',
     );
   },
@@ -238,7 +238,7 @@ runCases('pizza-sheet-state', {
     assertEqualOrThrow(line.productId, 'pz-garden', 'the product');
     assertEqualOrThrow(line.variantId, 'pz-garden-large', 'the size variant');
     same(line.dips, [], 'no dips');
-    assertEqualOrThrow(line.unitPriceCents, 2300, 'removals do not change the price');
+    assertEqualOrThrow(unitPrice(state), 23, 'removals do not change the price');
     same(
       line.printsAs,
       {
@@ -282,7 +282,7 @@ runCases('pizza-sheet-state', {
     same(line.recipe, recipe, 'the recipe, first half first');
     assertEqualOrThrow(line.productId, 'pz-half-and-half', 'the half-and-half product');
     assertEqualOrThrow(line.variantId, 'pz-half-and-half-large', 'its size variant');
-    assertEqualOrThrow(line.unitPriceCents, 2300, 'a half and half costs the size price');
+    assertEqualOrThrow(unitPrice(largeHalves()), 23, 'a half and half costs the size price');
     same(
       line.printsAs,
       {
@@ -326,28 +326,23 @@ runCases('pizza-sheet-state', {
       ],
       'the dips, in menu order, without one the menu does not have',
     );
-    assertEqualOrThrow(line.unitPriceCents, 2300 + 3 * 125, 'the size price plus the dips');
+    assertEqualOrThrow(unitPrice(state), 23 + 3 * 1.25, 'the size price plus the dips');
     assertEqualOrThrow(line.recipe, null, 'a pizza with dips and nothing else is still plain');
     assertEqualOrThrow(
-      sheetLine(catalog, after(largeHalves(), { type: 'dip', dipId: 'garlic', count: 1 }))
-        .unitPriceCents,
-      2300 + 125,
+      unitPrice(after(largeHalves(), { type: 'dip', dipId: 'garlic', count: 1 })),
+      23 + 1.25,
       'a half and half with a dip',
     );
     same(
-      sheetLine(catalog, after(state, { type: 'quantity', quantity: 3 })).unitPriceCents,
-      2300 + 3 * 125,
+      unitPrice(after(state, { type: 'quantity', quantity: 3 })),
+      23 + 3 * 1.25,
       'the unit price is for one, whatever the quantity',
     );
   },
 
   'Case 7: Add is refused with a message the cashier can act on': () => {
     refused(newSheet({ pizzaId: 'garden' }), 'Pick a size', 'no size yet');
-    assertEqualOrThrow(
-      sheetLine(catalog, newSheet({ pizzaId: 'garden' })).unitPriceCents,
-      null,
-      'no size yet: no price',
-    );
+    assertEqualOrThrow(unitPrice(newSheet({ pizzaId: 'garden' })), null, 'no size yet: no price');
     refused(newSheet({ sizeId: 'large' }), 'Pick a pizza', 'no pizza yet');
 
     const split = newSheet({ split: true, sizeId: 'large' });
@@ -356,11 +351,7 @@ runCases('pizza-sheet-state', {
     refused(split, 'Pick the first half', 'no half yet');
     refused(second, 'Pick the first half', 'only the second half');
     refused(first, 'Pick the second half', 'only the first half');
-    assertEqualOrThrow(
-      sheetLine(catalog, first).unitPriceCents,
-      2300,
-      'the price shows while a half is still missing',
-    );
+    assertEqualOrThrow(unitPrice(first), 23, 'the price shows while a half is still missing');
 
     let coreMessage = '';
     try {

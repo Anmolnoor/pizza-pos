@@ -144,8 +144,11 @@ test.afterAll(async () => {
   expect(failures, 'cleaning up after the sent-orders spec').toEqual([]);
 });
 
-/** A table with one order on it: a large half and half with a removal, and a deal. */
-async function placeOrder(): Promise<Placed> {
+/**
+ * A table with one order on it: a large half and half with a removal, and a deal. `half` changes
+ * what the half and half is sent with.
+ */
+async function placeOrder(half: object = {}): Promise<Placed> {
   const tableNumber = `PZ-${Date.now()}-${placed.length}`;
   const table = await api.post(`${BASE}/api/tables`, {
     headers: ownerHeaders,
@@ -165,6 +168,7 @@ async function placeOrder(): Promise<Placed> {
           variant_id: 'pz-half-and-half-large',
           quantity: 1,
           modifier_selection: HALVES,
+          ...half,
         },
         { product_id: 'dl-large-combo', quantity: 1, modifier_selection: COMBO_RECIPE },
       ],
@@ -624,6 +628,67 @@ test.describe('a sent pizza and a sent deal', () => {
     await expect(page.getByPlaceholder('Search products')).toBeHidden();
     item = itemOf((await readOrder(order.id)).items, 'pz-half-and-half');
     expect(recipeOf(item)).toEqual({ ...HALVES, sizeId: 'medium' });
+  });
+
+  test('"Replace item" on the Orders page changes the size of a pizza with a topping and keeps its charge', async ({
+    page,
+  }) => {
+    const withBacon = {
+      ...HALVES,
+      halves: [HALVES.halves[0], { pizzaId: 'classic', removed: [], added: ['bacon'] }],
+    };
+    const order = await placeOrder({
+      modifier_selection: withBacon,
+      addons: [{ id: 'ad-topping-half', quantity: 1 }],
+    });
+    await signIn(page);
+    const panel = await openInOrders(page, order);
+    const bodies: Record<string, unknown>[] = [];
+    await page.route(`**/api/orders/${order.id}/items/*/edit`, async (route) => {
+      bodies.push(route.request().postDataJSON());
+      await route.continue();
+    });
+
+    await panel
+      .locator('div.text-sm')
+      .filter({ hasText: 'Half & Half' })
+      .getByTitle('Edit item')
+      .click();
+    await page.getByRole('button', { name: 'Replace item' }).click();
+    await page.getByPlaceholder('Search products').fill('Half & Half');
+    await page.getByRole('button', { name: /^Half & Half/ }).click();
+    // The window offers the dips and not the toppings, which are counted from the recipe.
+    const window = page
+      .locator('div.fixed')
+      .filter({ has: page.getByRole('radio', { name: /^Medium/ }) })
+      .last();
+    await expect(window.getByText('Ranch', { exact: true })).toBeVisible();
+    await expect(window.getByText(/topping/i)).toHaveCount(0);
+    await page.getByRole('radio', { name: /^Medium/ }).click();
+    await page.getByRole('button', { name: /^Save changes/ }).click();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect.poll(() => bodies.length).toBe(1);
+    const replacement = bodies[0].replacement as {
+      addons: { id: string; quantity: number }[];
+      variant_id: string;
+    };
+    expect(replacement.variant_id).toBe('pz-half-and-half-medium');
+    expect('modifier_selection' in replacement).toBe(false);
+    expect(replacement.addons.map((addon) => [addon.id, addon.quantity])).toEqual([
+      ['ad-topping-half', 1],
+    ]);
+    await expect(page.getByPlaceholder('Search products')).toBeHidden();
+
+    const read = await api.get(`${BASE}/api/orders/${order.id}`, { headers: ownerHeaders });
+    const item = (await read.json()).order.items.find(
+      (entry: { product_id: string; status: string }) =>
+        entry.product_id === 'pz-half-and-half' && entry.status === 'pending',
+    );
+    expect(recipeOf(item)).toEqual({ ...withBacon, sizeId: 'medium' });
+    expect(Number(item.unit_price)).toBe(MEDIUM);
+    expect(
+      item.addons.map((addon: { id: string; quantity: number }) => [addon.id, addon.quantity]),
+    ).toEqual([['ad-topping-half', 1]]);
   });
 
   test('"Add Item" on the Orders page sends a half and half and a deal to the POS', async ({

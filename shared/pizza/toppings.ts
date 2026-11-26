@@ -8,6 +8,28 @@ export const HALF_TOPPING_ADDON = 'ad-topping-half';
 /** The most toppings added to one pizza or one half. */
 export const MAX_ADDED_TOPPINGS = 10;
 
+export const isToppingAddon = (id: unknown): boolean =>
+  id === TOPPING_ADDON || id === HALF_TOPPING_ADDON;
+
+/**
+ * A line's add-ons as the kitchen is shown them, on a ticket or a display: without the two
+ * topping add-ons. Those are the charge, and the recipe lines already name each topping, so
+ * "+ Topping x2" under them would read as two more to put on. A list stored as JSON text is
+ * read first; anything that is not a list is handed back as it came.
+ */
+export function kitchenAddons<T>(addons: T): T {
+  let list: unknown = addons;
+  if (typeof addons === 'string') {
+    try {
+      list = JSON.parse(addons);
+    } catch {
+      return addons;
+    }
+  }
+  if (!Array.isArray(list)) return addons;
+  return list.filter((addon) => !isToppingAddon(addon?.id)) as T;
+}
+
 /**
  * How many of each topping add-on one of a line carries: every extra and every added topping of
  * a whole pizza counts as a whole topping, and every one on a half as a half topping. A deal adds

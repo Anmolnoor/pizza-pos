@@ -12,7 +12,7 @@ import type { CartItem, Product } from '@/lib/types';
 import { toppingCounts } from '../../../../shared/pizza/toppings';
 import { cartLineUnitPrice } from '../cart-price';
 import { lineRecipe, PIZZA_PRODUCT_PREFIX as PRODUCT_PREFIX } from './line-recipe';
-import { toppingCharges, toppingPrices, toppingTotal, type ToppingPrices } from './toppings';
+import { toppingPrices, toppingTotal, type ToppingPrices } from './toppings';
 
 /** One side of the sheet: the pizza picked there, and what is taken off it, made extra and added. */
 export interface SheetHalf {
@@ -76,10 +76,6 @@ export interface SheetLine {
   productId: string | null;
   variantId: string | null;
   dips: { addonId: string; name: string; priceCents: number; quantity: number }[];
-  /** The topping add-ons one pizza carries for its extras and added toppings. */
-  toppings: { id: string; quantity: number }[];
-  /** The size price plus the dips, without toppings, for one pizza; null until a size is picked. */
-  unitPriceCents: number | null;
   printsAs: TicketLines | null;
   canAdd: boolean;
   /** Why Add is off. */
@@ -246,7 +242,6 @@ export function sheetLine(catalog: PizzaCatalog, state: SheetState, columns = 42
         ]
       : [],
   );
-  const size = catalog.sizes.find((entry) => entry.id === state.sizeId);
   const productId = pizza && PRODUCT_PREFIX + (pizza.whole?.pizzaId ?? 'half-and-half');
 
   return {
@@ -254,10 +249,6 @@ export function sheetLine(catalog: PizzaCatalog, state: SheetState, columns = 42
     productId,
     variantId: pizza && `${productId}-${pizza.sizeId}`,
     dips,
-    toppings: toppingCharges(pizza),
-    unitPriceCents: size
-      ? size.priceCents + dips.reduce((sum, dip) => sum + dip.priceCents * dip.quantity, 0)
-      : null,
     printsAs: pizza && ticketLines(catalog, pizza, columns),
     canAdd: pizza !== null,
     message,

@@ -1,6 +1,7 @@
 /** Extras and added toppings as money in the browser: the two add-ons a line carries for its recipe. */
 import {
   HALF_TOPPING_ADDON,
+  isToppingAddon,
   TOPPING_ADDON,
   toppingCounts,
 } from '../../../../shared/pizza/toppings';
@@ -17,8 +18,7 @@ export interface ToppingPrices {
 }
 type OnSale = { addon_groups?: { addons?: { id: string; price: number }[] }[] | null };
 
-export const isToppingAddon = (id: unknown): boolean =>
-  id === TOPPING_ADDON || id === HALF_TOPPING_ADDON;
+export { isToppingAddon };
 
 /** The topping add-ons one of a line carries for its recipe: none for a recipe without toppings. */
 export function toppingCharges(
@@ -81,4 +81,22 @@ export function toppingTotal(counts: Counts, prices: ToppingPrices): number | nu
  */
 export function handPickedGroups<T extends { id: string | number }>(groups: T[]): T[] {
   return groups.filter((group) => group.id !== TOPPINGS_GROUP);
+}
+
+/**
+ * The add-ons of a replacement built in upstream's edit window, which cannot show a topping
+ * add-on: when it replaces a sent line by its own product, the server keeps that line's recipe,
+ * so the topping add-ons the line was sold with are kept beside what the window chose.
+ */
+export function keptToppingAddons<T extends { id?: unknown }>(
+  sold: { product_id: unknown; addons?: readonly { id?: unknown }[] | null },
+  productId: unknown,
+  chosen: T[],
+): T[] {
+  if (productId !== sold.product_id) return chosen;
+  const kept = (sold.addons ?? []).filter(
+    (addon) => isToppingAddon(addon.id) && !chosen.some((entry) => entry.id === addon.id),
+  );
+  // An add-on of an order item has the name, price and quantity the window's own have.
+  return [...chosen, ...(kept as T[])];
 }
