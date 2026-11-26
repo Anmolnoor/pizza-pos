@@ -1127,7 +1127,8 @@ function insertOrderItems(
       allowInactive: !!context.preserveSelections,
       allowUnselected: !!context.preserveSelections,
     });
-    if (!context.preserveSelections) checkLineRecipe(db, items, item, variant?.id);
+    if (!context.preserveSelections)
+      checkLineRecipe(db, items, item, variant?.id, context.preserveUnitPrice ? item : undefined);
     let unitPrice = context.preserveUnitPrice
       ? Number(item.unit_price)
       : variant

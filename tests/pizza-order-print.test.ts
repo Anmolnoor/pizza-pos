@@ -703,6 +703,42 @@ async function main() {
         writePizzaMenu(db, JSON.stringify(catalog));
       }
     },
+
+    'Case 5b: a deal prints what it was sold with after a menu reload, on every renderer':
+      async () => {
+        const placed = await placedOrder([
+          { product_id: 'dl-three-large-wings', quantity: 1, modifier_selection: threeLarge },
+        ]);
+        const changed = JSON.parse(JSON.stringify(catalog));
+        changed.deals.find((deal: any) => deal.id === 'three-large-wings').description =
+          'Any 3 large pizzas & 6 wings';
+        writePizzaMenu(db, JSON.stringify(changed));
+        try {
+          for (const printer of [PRINTERS[0], PRINTERS[1]]) {
+            for (const [name, printed] of Object.entries(await printAll(placed, printer))) {
+              assertDetailRows(printed, DEAL_LINES, `${name}, ${printer.label}`);
+              assertOrThrow(
+                !printed.join('\n').includes('6 WINGS'),
+                `${name}, ${printer.label}: the reloaded description does not print`,
+              );
+            }
+          }
+          // A recipe stored before the description travelled with it prints the menu in force.
+          const legacy = { ...placed.order };
+          legacy.items = placed.order.items.map((item: any) => ({
+            ...item,
+            modifier_selection: JSON.stringify(threeLarge),
+          }));
+          const documents = await printAll({ order: legacy, bill: placed.bill }, PRINTERS[0]);
+          assertDetailRows(
+            documents['kitchen ticket'],
+            [...DEAL_LINES.slice(0, -1), 'INCLUDES: ANY 3 LARGE PIZZAS & 6 WINGS'],
+            'a legacy recipe',
+          );
+        } finally {
+          writePizzaMenu(db, JSON.stringify(catalog));
+        }
+      },
   });
 }
 
