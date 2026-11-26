@@ -49,8 +49,16 @@ let heldLock;
  */
 function dataLock(dataDir, mode) {
   const Database = require('better-sqlite3');
-  const lock = new Database(path.join(dataDir, 'headless-lock.db'), { timeout: 0 });
+  const lockPath = path.join(dataDir, 'headless-lock.db');
+  const lock = new Database(lockPath, { timeout: 0 });
   try {
+    // In WAL mode a reader does not keep a writer out, so the lock would not hold. A new lock
+    // database is in rollback mode; one that is not is refused, never used.
+    const journal = lock.pragma('journal_mode', { simple: true });
+    if (journal !== 'delete')
+      throw new Error(
+        `The lock database ${lockPath} is in ${String(journal).toUpperCase()} mode, in which it cannot keep a restore and the POS apart. Stop the POS, delete ${lockPath} and any ${lockPath}-wal and ${lockPath}-shm, then start it again`,
+      );
     if (mode === 'exclusive') lock.exec('BEGIN EXCLUSIVE');
     else lock.exec('BEGIN; SELECT count(*) FROM sqlite_master');
   } catch (error) {

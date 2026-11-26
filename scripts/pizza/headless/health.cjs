@@ -36,21 +36,23 @@ function storeAgeHours(dataDir) {
 
 function checkBackups(dataDir) {
   const dir = backupDir(dataDir);
-  const newest = (fs.existsSync(dir) ? fs.readdirSync(dir) : [])
+  const backups = (fs.existsSync(dir) ? fs.readdirSync(dir) : [])
     .filter((name) => BACKUP_NAME.test(name))
-    .map((name) => ({ name, mtime: fs.statSync(path.join(dir, name)).mtimeMs }))
-    .sort((a, b) => b.mtime - a.mtime)[0];
-  const limit = `(limit ${MAX_BACKUP_AGE_HOURS} h)`;
-  // A date ahead of the clock is no proof of a recent backup: after a clock rollback it hides one
-  // that is missing.
+    .map((name) => ({ name, hours: hoursSince(fs.statSync(path.join(dir, name)).mtimeMs) }))
+    .sort((a, b) => a.hours - b.hours);
+  // A date ahead of the clock is no proof of a recent backup: after a clock rollback it would
+  // hide one that is missing. Such a backup is reported and left out.
+  for (const { name, hours } of backups.filter((backup) => backup.hours < 0))
+    console.log(
+      `warn backups: not counted: ${name} is dated in the future, by ${(-hours).toFixed(1)} h`,
+    );
   const recent = (hours) => hours >= 0 && hours <= MAX_BACKUP_AGE_HOURS;
-  const age = newest ? hoursSince(newest.mtime) : Infinity;
-  const found = !newest
-    ? `no pizza-pos-*.db backup in ${dir}`
-    : age < 0
-      ? `newest ${newest.name} is dated in the future, by ${(-age).toFixed(1)} h`
-      : `newest ${newest.name} is ${age.toFixed(1)} h old`;
-  if (recent(age)) {
+  const newest = backups.find((backup) => backup.hours >= 0);
+  const limit = `(limit ${MAX_BACKUP_AGE_HOURS} h)`;
+  const found = newest
+    ? `newest ${newest.name} is ${newest.hours.toFixed(1)} h old`
+    : `no pizza-pos-*.db backup in ${dir}${backups.length > 0 ? ' that is not dated in the future' : ''}`;
+  if (newest && recent(newest.hours)) {
     console.log(`ok   backups: ${found} ${limit}`);
     return true;
   }

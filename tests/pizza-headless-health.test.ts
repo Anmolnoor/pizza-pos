@@ -10,6 +10,7 @@ const {
   assertOrThrow,
 } = require('./helpers/test-setup');
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import Database from 'better-sqlite3';
 import {
   backupDir,
@@ -141,11 +142,30 @@ void runCases('Pizza headless kit: fixed-port health check', [
         const backup = await runKit('backup.cjs', [], env);
         assertEqualOrThrow(backup.status, 0, `backup exits 0: ${backup.output}`);
         const ahead = new Date(Date.now() + 3 * 3600 * 1000);
-        fs.utimesSync(backup.stdout.trim().split('\n').pop()!, ahead, ahead);
+        const dated = backup.stdout.trim().split('\n').pop()!;
+        fs.utimesSync(dated, ahead, ahead);
         const futureBackup = await runKit('health.cjs', [], env);
         console.log(futureBackup.output);
         assertOrThrow(futureBackup.status !== 0, 'a backup dated in the future is not recent');
         assertIncludesOrThrow(futureBackup.stderr, 'dated in the future', 'and the line says so');
+
+        // A recent backup beside it counts: the future-dated one is reported, not put first.
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        const second = await runKit('backup.cjs', [], env);
+        assertEqualOrThrow(second.status, 0, `a second backup exits 0: ${second.output}`);
+        const both = await runKit('health.cjs', [], env);
+        console.log(both.output);
+        assertEqualOrThrow(both.status, 0, 'health passes on the recent backup');
+        assertIncludesOrThrow(
+          both.stdout,
+          `ok   backups: newest ${path.basename(second.stdout.trim().split('\n').pop()!)}`,
+          'the recent backup is the one measured',
+        );
+        assertIncludesOrThrow(
+          both.output,
+          `not counted: ${path.basename(dated)} is dated in the future`,
+          'and the future-dated one is reported',
+        );
       } finally {
         await server.stop();
       }

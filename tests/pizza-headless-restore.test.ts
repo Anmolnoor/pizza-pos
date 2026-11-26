@@ -19,6 +19,8 @@ import {
   backupDir,
   headlessEnv,
   holdLock,
+  kitDir,
+  repoRoot,
   liveDbPath,
   runCases,
   runKit,
@@ -194,6 +196,67 @@ void runCases('Pizza headless kit: restore', [
       } finally {
         await restore.kill();
       }
+    },
+  ],
+  [
+    'a .env in the repository folder cannot move the service off the folder it locked',
+    async () => {
+      const { env, backup } = await storeWithBackup();
+      // A copy of the repository's entry points beside a .env, so the real folder is not touched.
+      const root = scratchDir('flo-pizza-headless-root-');
+      const kit = path.join(root, 'scripts', 'pizza', 'headless');
+      fs.mkdirSync(kit, { recursive: true });
+      for (const name of ['serve.cjs', 'common.cjs'])
+        fs.copyFileSync(path.join(kitDir, name), path.join(kit, name));
+      for (const name of ['dev-server.js', 'package.json'])
+        fs.copyFileSync(path.join(repoRoot, name), path.join(root, name));
+      for (const name of ['dist', 'node_modules', 'frontend'])
+        fs.symlinkSync(path.join(repoRoot, name), path.join(root, name));
+      const elsewhere = scratchDir('flo-pizza-headless-elsewhere-');
+      fs.writeFileSync(path.join(root, '.env'), `FLO_DEV_USER_DATA=${elsewhere}\n`);
+
+      const before = fs.statSync(liveDbPath(env)).mtimeMs;
+      const server = await startHeadless(env, kit);
+      try {
+        assertOrThrow(
+          server.output().includes('[DevServer] Loaded .env'),
+          'the server read the .env beside it',
+        );
+        assertEqualOrThrow(fs.readdirSync(elsewhere).length, 0, 'the other folder is not used');
+        assertOrThrow(
+          server.output().includes(`Opening database at: ${liveDbPath(env)}`),
+          "the server opened the database in the unit's folder",
+        );
+        assertOrThrow(fs.statSync(liveDbPath(env)).mtimeMs >= before, 'which is still there');
+        await assertRefused(env, backup, IN_USE);
+      } finally {
+        await server.stop();
+      }
+    },
+  ],
+  [
+    'a lock database in WAL mode, where the lock would not hold, stops every command',
+    async () => {
+      const { env, backup } = await storeWithBackup();
+      const lock = new Database(lockPath(env));
+      lock.pragma('journal_mode = WAL');
+      lock.exec('CREATE TABLE made_wal (id)');
+      lock.close();
+      const refusal = 'is in WAL mode';
+      await assertRefused(env, backup, refusal);
+      for (const script of ['backup.cjs', 'serve.cjs']) {
+        const result = await runKit(script, [], env);
+        assertOrThrow(result.status !== 0, `${script} exits non-zero`);
+        assertIncludesOrThrow(result.stderr, refusal, `${script} says why`);
+      }
+      for (const name of fs.readdirSync(env.FLO_DEV_USER_DATA))
+        if (name.startsWith('headless-lock.db')) fs.rmSync(path.join(env.FLO_DEV_USER_DATA, name));
+      const result = await runKit('restore.cjs', [backup], env);
+      assertEqualOrThrow(
+        result.status,
+        0,
+        `with the lock database removed it runs: ${result.output}`,
+      );
     },
   ],
   [

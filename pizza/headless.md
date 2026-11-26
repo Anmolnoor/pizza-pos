@@ -74,6 +74,8 @@ FAIL SERVER_APP_PORT=3003 (Flo Server App): ECONNREFUSED
 ok   backups: newest pizza-pos-2026-11-25T07-00-03-120Z.db is 3.2 h old (limit 26 h)
 ```
 
+The newest backup is the newest one not dated in the future. A backup dated ahead of the clock, as after a clock correction, is listed on a `warn backups: not counted` line and left out; the check fails only when no other backup is recent enough. A store's own date counts the same way: one dated in the future is not a new store.
+
 A store with no backup at all fails the check, whether or not the backup folder exists. The one exception is a store set up within the last 26 hours, measured from its oldest setting in the database: its first daily backup is not due yet, and the backup line says so and passes. A store whose database cannot be read counts as old.
 
 Whatever watches the PC should run `health.cjs` on a schedule and alert on a non-zero exit. It is the one check that covers the services, their ports and the backups.
@@ -100,6 +102,10 @@ Backups are written to `headless-backups/` inside the data folder, named `pizza-
 The service, a backup and a restore share one lock: the file `headless-lock.db` in the data folder, locked by the operating system for as long as the process that took it lives. The service and a backup hold it together, so a backup runs beside the POS. A restore needs it alone. Nothing is left to clean up when a process is killed or the PC loses power, and the clock plays no part.
 
 A command that cannot have the lock stops at once with a non-zero exit and changes nothing. A restore says `<data folder> is in use by the POS, a backup or another restore`. A backup or the service started during a restore says `A restore is replacing the database in <data folder>`. systemd then starts the service again every 5 seconds until the restore has finished. It does not retry a failed backup: the timer runs it again the next day, and until then `systemctl --user status pizza-pos-backup.service` shows the failure and the health check reports the missing backup once the newest is over 26 hours old. Do not start two backups at the same moment: each clears the other's unfinished copy.
+
+The lock holds only while `headless-lock.db` is an ordinary SQLite file in rollback-journal mode, which is how it is made. Every command checks this first, and if the file has been put into WAL mode it stops and says to stop the POS and delete `headless-lock.db` with its `-wal` and `-shm` files.
+
+`serve.cjs` locks the data folder named in `headless.env`, and the server it loads opens the database in that same folder. `dev-server.js` also reads a `.env` file from the repository folder; under the service, a `FLO_DEV_USER_DATA`, `PORT`, `KDS_PORT` or `SERVER_APP_PORT` in that file is ignored, and the service log says so.
 
 Only a POS started through `serve.cjs` holds the lock. One started by hand with `node dev-server.js` does not, and restore then has only its service and port checks.
 
@@ -168,7 +174,7 @@ It stops and disables the service and the timer, deletes the three unit files an
 
 | Step | Checked how |
 | :--- | :--- |
-| Unit files, file modes, health, backup, restore, the lock, recovery steps | 30 test cases against a real headless server, with a stand-in for `systemctl` |
+| Unit files, file modes, health, backup, restore, the lock, recovery steps | 32 test cases against a real headless server, with a stand-in for `systemctl` |
 | The first backup `install.sh` takes | **Not run**: the tests only read the script |
 | Install as a user service, health on fixed ports | Run for real on Fedora 45 (systemd 262) |
 | Install again with a changed port | Run for real: the server restarted on the new port |

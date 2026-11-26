@@ -421,6 +421,22 @@ export function importMenu(db: Database.Database, catalog: PizzaCatalog): Import
     }
     const stamp = now();
     for (const row of rows) summary[writeRow(db, row, stamp)] += 1;
+    // A category nested under another by hand is judged before it: the parent then sees whether
+    // its child stayed on.
+    const depth = (entry: string): number => {
+      let id: unknown = entry.slice('categories:'.length);
+      let above = 0;
+      for (; isCategory(entry) && id && above < 32; above++)
+        id = (
+          db.prepare('SELECT parent_id FROM categories WHERE id = ?').get(id) as
+            | { parent_id: string | null }
+            | undefined
+        )?.parent_id;
+      return above;
+    };
+    const depths = new Map(gone.map((entry) => [entry, depth(entry)]));
+    gone.sort((a, b) => (depths.get(b) as number) - (depths.get(a) as number));
+    gone.sort((a, b) => isCategory(a) - isCategory(b));
     for (const entry of gone) {
       const table = entry.split(':', 1)[0];
       const id = entry.slice(table.length + 1);

@@ -657,6 +657,20 @@ async function main() {
       db.prepare("DELETE FROM products WHERE id = 'in-sub'").run();
       db.prepare("DELETE FROM categories WHERE id = 'sub-byhand'").run();
 
+      // Drinks nested under Deals by hand, and both leave the menu in one load: Deals is judged
+      // after Drinks has been switched off, so it does not stay on for a child that is going.
+      load(sampleMenu());
+      db.prepare("UPDATE categories SET parent_id = 'cat-deals' WHERE id = 'cat-drinks'").run();
+      const neither = sampleMenu();
+      neither.categories.splice(2, 2);
+      load(neither);
+      same(
+        lines('categories', 'id', 'is_active = 0'),
+        ['cat-deals', 'cat-drinks'],
+        'a parent and its child that both left the menu are switched off by the same load',
+      );
+      db.prepare("UPDATE categories SET parent_id = NULL WHERE id = 'cat-drinks'").run();
+
       db.prepare("DELETE FROM products WHERE id = 'byhand'").run();
       load(sampleMenu());
       assertEqualOrThrow(

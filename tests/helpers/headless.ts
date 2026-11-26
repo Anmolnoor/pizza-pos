@@ -116,9 +116,9 @@ export function appDb(): typeof import('../../main/db') {
 export type HeadlessServer = { output: () => string; stop: () => Promise<void> };
 
 /** Starts the server the way the unit does: through the kit's launcher, which holds the lock. */
-export async function startHeadless(env: HeadlessEnv): Promise<HeadlessServer> {
+export async function startHeadless(env: HeadlessEnv, kit = kitDir): Promise<HeadlessServer> {
   delete env.ELECTRON_RUN_AS_NODE;
-  const child = spawn(process.execPath, [path.join(kitDir, 'serve.cjs')], {
+  const child = spawn(process.execPath, [path.join(kit, 'serve.cjs')], {
     cwd: repoRoot,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
