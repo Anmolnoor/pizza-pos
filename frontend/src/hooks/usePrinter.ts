@@ -892,10 +892,12 @@ export const usePrinterStore = create<PrinterState>()(
           const hydratedLargeOrderNumber = usePosSettingsStore.getState().billShowLargeOrderNumber;
           const showCustomerContact = usePosSettingsStore.getState().kotShowCustomerContact;
           // Asked at print time through the route order staff may read, so a change in Settings
-          // counts at once; a failed read prints no time.
+          // counts at once; a failed or stalled read prints no time and never holds the ticket.
           const showScheduledTime = order.scheduled_for
             ? await api
-                .get<{ setting?: { value?: string } }>('/settings/scheduled_orders_enabled')
+                .get<{ setting?: { value?: string } }>('/settings/scheduled_orders_enabled', {
+                  timeout: 2000,
+                })
                 .then((res) => res.data?.setting?.value === 'true')
                 .catch(() => false)
             : false;

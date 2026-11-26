@@ -625,9 +625,11 @@ runCases('pizza-kot-customer-contact', {
       const asked: string[] = [];
       let failing = false;
       const businessGet = frontend.api.get;
-      frontend.api.get = async (url: string) => {
+      let askedTimeout: unknown;
+      frontend.api.get = async (url: string, config?: { timeout?: number }) => {
         asked.push(url);
         if (url !== '/settings/scheduled_orders_enabled') return businessGet(url);
+        askedTimeout = config?.timeout;
         if (failing) throw new Error('offline');
         return { data: (await readScheduled()).data };
       };
@@ -640,6 +642,11 @@ runCases('pizza-kot-customer-contact', {
       assertOrThrow(
         asked.includes('/settings/scheduled_orders_enabled'),
         'the hook read the setting from its own endpoint',
+      );
+      // A stalled read must not hold the ticket: the lookup gives up and prints without the line.
+      assertOrThrow(
+        typeof askedTimeout === 'number' && askedTimeout > 0 && askedTimeout <= 3000,
+        `the setting read has a short timeout (got ${String(askedTimeout)})`,
       );
       await setScheduled('true');
       assertEqualOrThrow(await printsTheTime(), true, 'switched on: the next print has the line');
