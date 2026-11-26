@@ -603,8 +603,8 @@ show with the pizza screens, while `usePizzaPos` returns a `PizzaPos`.
 
 | Module | Contents |
 | --- | --- |
-| `lib/pizza/quick-buttons.ts` | No React. `fetchQuickButtons`, `saveQuickButton`, `updateQuickButton`, and `deleteQuickButton` are the four requests. `buttonContents` gives what the route stores of a cart line: product, variant, the recipe through `lineRecipe`, add-ons as id and quantity, and the note. `buttonLine` builds the line a tap adds from the POS page's product list, with that product's own variant and add-on objects, so `generateCartItemId` gives the id of the line the button was saved from. It is `null` when the button's `usable` is false, or when the list lacks the product, the variant, or an add-on. `buttonPrice` is the variant or product price plus the add-ons at the counter price; the server stores no price. `buttonSummary` is the one line a tile shows. `buttonSheetLine` turns a button into the line the pizza sheet opens on, under an id `sheetButtonId` reads back, and `isPizzaButton` says which buttons the sheet can open. `refusalMessage` reads the server's `error` text. |
-| `components/pos/pizza/useQuickButtons.tsx` | `useQuickButtonStore` is a Zustand store of the listed buttons and the open dialog; `load()` lists for the customer the cart holds and keeps only the latest answer. `useQuickButtonRights()` mirrors the routes: `catalog.manage` for shop-wide buttons, `orders.create` for a customer's. `QuickButtonsBlock` is the block among the category blocks, with the number of shop-wide buttons. `QuickButtonSaveAction` is the "Save as quick button" control of a cart line and of the pizza sheet; it renders nothing for a user who may save for neither the shop nor the order's customer. `useQuickButtonSheet()` tells `usePizzaPos` whether a dialog is open and takes a pizza the sheet saves for a button. |
+| `lib/pizza/quick-buttons.ts` | No React. `fetchQuickButtons`, `saveQuickButton`, `updateQuickButton`, and `deleteQuickButton` are the four requests. `buttonContents` gives what the route stores of a cart line: product, variant, the recipe through `lineRecipe`, add-ons as id and quantity, and the note. `buttonLine` builds the line a tap adds from the POS page's product list, with that product's own variant and add-on objects, so `generateCartItemId` gives the id of the line the button was saved from. It is `null` when the button's `usable` is false, when the list lacks the product, the variant, or an add-on, or when `buttonSoldOut` finds the variant sold out by `isVariantSoldOut`, the rule the size buttons of a pizza tile use. `buttonPrice` is the variant or product price plus the add-ons, at the variant's online price while the order is for an online platform, as the cart charges it; the server stores no price. `buttonSummary` is the one line a tile shows. `buttonSheetLine` turns a button into the line the pizza sheet opens on, under an id `sheetButtonId` reads back, and `isPizzaButton` says which buttons the sheet can open. `refusalMessage` reads the server's `error` text. |
+| `components/pos/pizza/useQuickButtons.tsx` | `useQuickButtonStore` is a Zustand store of the listed buttons and the open dialog; `load(customerId)` lists for that customer, `load()` lists again for the last one, and only the latest answer is kept. The area passes the id of `cart.customer`, the customer the cart panel shows, and the same customer is the one a save is for. `useQuickButtonRights()` mirrors the routes: `catalog.manage` for shop-wide buttons, `orders.create` for a customer's. `QuickButtonsBlock` is the block among the category blocks, with the number of shop-wide buttons. `QuickButtonSaveAction` is the "Save as quick button" control of a cart line and of the pizza sheet; it renders nothing for a user who may save for neither the shop nor the order's customer. `useQuickButtonSheet()` tells `usePizzaPos` whether a dialog is open and takes a pizza the sheet saves for a button. |
 | `components/pos/pizza/QuickButtons.tsx` | `QuickButtonsArea` sits in the product grid's scroll area above the tiles. It lists the buttons when it mounts and when the cart's customer changes, shows the page or the favourites row, and mounts the open dialog: save, label and colour, or the delete confirm. |
 
 The Quick Buttons block selects the id `quick-buttons` in place of a category. No product has that
@@ -612,8 +612,9 @@ category, so the product grid shows no tiles and `QuickButtonsArea` shows the pa
 of the order's customer first, with a tile that saves a line of the order for them, then the
 shop-wide buttons in the server's order. Each tile has the button's colour, its label,
 `buttonSummary`, and `buttonPrice`. A tap calls `useCartStore.addItem` with quantity 1, so a second
-tap raises the quantity of the same line. A button with no `buttonLine` is grey, shows the server's
-`reason` beside an icon, and its add control is disabled. While the Pizzas category or All is open
+tap raises the quantity of the same line. A button with no `buttonLine` is grey and shows, beside an icon, the server's
+`reason` or that its size is sold out. Its add control is `aria-disabled` and ignores a tap, so the
+keyboard still reaches the reason. While the Pizzas category or All is open
 and the customer has buttons, they show as one row above the pizza tiles.
 
 The `⋯` menu of a tile shows only to a user who may change that button. "Edit label & colour" and
@@ -640,7 +641,7 @@ a store with the sample menu loaded: each kind of cart line is saved and comes b
 cart line id. `frontend/e2e/pizza-quick-buttons.spec.ts` drives the screens in Chromium: the block
 and the page, saving from a cart line and from the sheet, a tap and a second tap, relabel and
 recolour, "Edit the item", delete with its confirm, a customer's favourites, a button whose pizza
-left the menu, a cashier's view, a refused request, and the keyboard alone. It deletes every button
+left the menu, a deal saved from its cart line, a cashier's view, a refused request, and the keyboard alone. It deletes every button
 it saves and deactivates the cashier it creates; the API has no route that deletes a customer, so
 its two customers stay.
 

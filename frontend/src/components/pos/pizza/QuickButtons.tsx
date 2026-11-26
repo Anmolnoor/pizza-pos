@@ -21,6 +21,7 @@ import {
   buttonName,
   buttonPrice,
   buttonSheetLine,
+  buttonSoldOut,
   buttonSummary,
   deleteQuickButton,
   isPizzaButton,
@@ -54,6 +55,10 @@ const OPEN_BLOCK = '[data-testid="pizza-category-blocks"] [aria-pressed="true"]'
 
 type EditItem = (line: CartItem) => void;
 
+/** True while the order is for an online platform, as the cart decides which price a line has. */
+const useOnlineOrder = () =>
+  useCartStore((cart) => cart.orderType === 'online' && cart.onlinePlatform.trim().length > 0);
+
 /** A tile's frame: the button's colour, or grey for one that cannot be added. */
 function tileClass(color: string, usable: boolean): string {
   const classes = getCategoryColorClasses(color);
@@ -76,6 +81,7 @@ function Face({
   reason: string;
 }) {
   const fmt = useFormatCurrency();
+  const online = useOnlineOrder();
   return (
     <>
       <span className="break-words text-sm font-bold leading-tight text-foreground">{label}</span>
@@ -90,7 +96,7 @@ function Face({
               getCategoryColorClasses(color)?.text,
             )}
           >
-            {fmt(buttonPrice(line))}
+            {fmt(buttonPrice(line, online))}
           </span>
         </>
       ) : (
@@ -191,7 +197,8 @@ function Tile({
       <button
         type="button"
         data-testid="quick-button-add"
-        disabled={!line}
+        // Not `disabled`: the reason must stay reachable with the keyboard.
+        aria-disabled={!line}
         onClick={() =>
           line &&
           useCartStore
@@ -206,7 +213,7 @@ function Tile({
             )
         }
         className={cn(
-          'flex min-w-0 flex-1 flex-col items-start gap-1 rounded-xl p-2.5 pe-12 text-start disabled:cursor-not-allowed',
+          'flex min-w-0 flex-1 flex-col items-start gap-1 rounded-xl p-2.5 pe-12 text-start aria-disabled:cursor-not-allowed',
           FOCUS,
         )}
       >
@@ -214,7 +221,10 @@ function Tile({
           label={button.label}
           color={button.color}
           line={line}
-          reason={button.reason ?? t('quickNotOnPos')}
+          reason={
+            button.reason ??
+            (buttonSoldOut(button, products) ? t('quickSoldOut') : t('quickNotOnPos'))
+          }
         />
       </button>
       {(button.customer_id === null ? rights.shop : rights.customers) && (
@@ -286,6 +296,7 @@ function QuickButtonDialogs({
   const tCommon = useTranslations('common');
   const tProducts = useTranslations('products');
   const fmt = useFormatCurrency();
+  const online = useOnlineOrder();
   const labelId = useId();
   const { open, load } = useQuickButtonStore();
   const rights = useQuickButtonRights();
@@ -329,17 +340,20 @@ function QuickButtonDialogs({
     if (dialog.type === 'delete') void send(() => deleteQuickButton(dialog.button.id));
     else if (dialog.type === 'edit')
       void send(() => updateQuickButton(dialog.button.id, { label, color }));
-    else if (line)
-      void send(() =>
-        saveQuickButton({
-          label,
-          color,
-          ...buttonContents(line),
-          ...(scope === 'customer' && rights.customer
-            ? { customer_id: String(rights.customer.id) }
-            : {}),
-        }),
-      );
+    else if (line && scope) {
+      // A button meant for a customer is never saved for the shop because the customer left the order.
+      const customerId = scope === 'customer' ? rights.customer?.id : null;
+      if (customerId === undefined) toast.error(t('quickNoCustomer'));
+      else
+        void send(() =>
+          saveQuickButton({
+            label,
+            color,
+            ...buttonContents(line),
+            ...(customerId === null ? {} : { customer_id: String(customerId) }),
+          }),
+        );
+    }
   };
 
   return (
@@ -414,7 +428,7 @@ function QuickButtonDialogs({
                           </p>
                         )}
                         <p className="mt-1 text-sm font-bold tabular-nums text-foreground">
-                          {fmt(buttonPrice(line))}
+                          {fmt(buttonPrice(line, online))}
                         </p>
                       </>
                     )}
@@ -569,7 +583,7 @@ export function QuickButtonsArea({
   const customer = useCartStore((state) => state.customer);
   const customerId = customer?.id ?? null;
   useEffect(() => {
-    void load();
+    void load(customerId);
   }, [load, customerId]);
 
   // Until the list for a new customer arrives, the last customer's buttons must not show.

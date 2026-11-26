@@ -93,6 +93,10 @@ const deleteEveryButton = () =>
 test.beforeAll(async () => {
   await withApi(async (api) => {
     await loadSampleMenu(api);
+    // Shop-wide buttons a crashed earlier run left behind would throw the counts off.
+    const left = await api.get(BUTTONS, { headers: ownerHeaders() });
+    for (const button of ((await left.json()) as { buttons: Saved[] }).buttons)
+      await api.delete(`${BUTTONS}/${button.id}`, { headers: ownerHeaders() });
     for (const customer of [CASEY, ROBIN]) {
       const response = await api.post(`${BASE}/api/customers`, {
         headers: ownerHeaders(),
@@ -563,7 +567,11 @@ test('a button whose pizza left the menu is greyed with the reason and cannot be
     const stale = tileOf(shopSection(page), 'LG GARDEN');
     await expect(stale).toHaveAttribute('data-usable', 'false');
     await expect(stale).toContainText('Garden is not on the menu. Pick another item');
-    await expect(addOf(stale)).toBeDisabled();
+    // It cannot be added, and the keyboard still reaches it and its reason.
+    await expect(addOf(stale)).toHaveAttribute('aria-disabled', 'true');
+    await addOf(stale).focus();
+    await expect(addOf(stale)).toBeFocused();
+    await page.keyboard.press('Enter');
     await addOf(stale).click({ force: true });
     await expect(cartLines(page)).toHaveCount(0);
     await shot(page, 'quick-buttons-stale.png');
@@ -585,6 +593,58 @@ test('a button whose pizza left the menu is greyed with the reason and cannot be
   } finally {
     await withApi((api) => loadSampleMenu(api));
   }
+});
+
+test('a deal is saved from its cart line and a tap adds it with the same choices', async ({
+  page,
+}) => {
+  const deal = itemsOf('deals').find((entry) => entry.id === 'three-large-wings')!;
+  const name = deal.name as string;
+  await openPos(page);
+  await page.getByTestId('pizza-category-blocks').getByRole('button', { name: 'Deals' }).click();
+  await page.getByTestId('pos-product-card').filter({ hasText: name }).click();
+  const dialog = page.getByRole('dialog', { name });
+  const panel = dialog.getByRole('tabpanel');
+  const whole = (pizza: string) =>
+    panel.getByRole('group', { name: 'Whole pizza' }).getByRole('button', { name: pizza });
+  await whole('Garden').click();
+  await panel.getByRole('button', { name: 'Olives', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Next: Pizza 2' }).click();
+  await whole('Island').click();
+  await dialog.getByRole('button', { name: 'Next: Pizza 3' }).click();
+  await whole('Classic Pepperoni').click();
+  await dialog.getByRole('button', { name: 'Next: Wing flavour' }).click();
+  await panel.getByRole('button', { name: 'Sweet Chili' }).click();
+  await dialog.getByTestId('deal-add').click();
+  await expect(dialog).toBeHidden();
+  await expect(cartLines(page)).toHaveCount(1);
+
+  const line = cartLines(page).first();
+  const lines = await details(line).allTextContents();
+  expect(lines.length).toBeGreaterThan(3);
+  await saveAction(line).click();
+  await expect(
+    saveDialog(page).getByTestId('quick-button-adds').getByTestId('pizza-line-detail'),
+  ).toHaveText(lines);
+  await saveAs(page, '3 LG + WINGS', 'Violet');
+  const savedFrom = await line.innerText();
+  await line.getByTestId('cart-item-remove-btn').click();
+  await expect(cartLines(page)).toHaveCount(0);
+
+  await openQuickPage(page);
+  const tile = tileOf(shopSection(page), '3 LG + WINGS');
+  await expect(tile).toContainText(money(deal.price!));
+  await addOf(tile).click();
+  await expect(cartLines(page)).toHaveCount(1);
+  expect(await cartLines(page).first().innerText()).toBe(savedFrom);
+  await expect(details(cartLines(page).first())).toHaveText(lines);
+  await addOf(tile).click();
+  await expect(quantity(cartLines(page).first())).toHaveText('2');
+
+  // A deal button is relabelled and deleted like any other; the pizza sheet cannot open it.
+  await menuOf(tile).click();
+  await expect(page.getByRole('menuitem')).toHaveText(['Edit label & colour', 'Delete button']);
+  await page.keyboard.press('Escape');
 });
 
 test("a cashier adds buttons and manages a customer's, and cannot change the shop's", async ({

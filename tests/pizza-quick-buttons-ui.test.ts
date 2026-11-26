@@ -337,6 +337,95 @@ async function main() {
         );
       },
 
+    'Case 9: the price is the online price while the order is for an online platform': async () => {
+      const half = productOf('pz-half-and-half');
+      const large = { ...variantOf(half, 'pz-half-and-half-large'), online_price: 30 };
+      const line = {
+        product: half,
+        variant: large,
+        addons: [addonOf(half, 'ad-dips-garlic', 2)],
+        special_instructions: '',
+      };
+      const dips = (2 * cents('dips', 'garlic')) / 100;
+      assertEqualOrThrow(
+        quick().buttonPrice(line, true),
+        30 + dips,
+        'with a platform chosen: the size online price and the dips, as the cart charges',
+      );
+      assertEqualOrThrow(
+        quick().buttonPrice(line, false),
+        cents('sizes', 'large') / 100 + dips,
+        'at the counter: the size price and the dips',
+      );
+    },
+
+    'Case 10: a button whose size is sold out is not addable, and says so': async () => {
+      const button = saved['a half and half with a removal and a dip'];
+      const soldOut = products.map((product) =>
+        product.id !== 'pz-half-and-half'
+          ? product
+          : {
+              ...product,
+              variants: product.variants.map((variant: any) =>
+                variant.id === 'pz-half-and-half-large'
+                  ? { ...variant, track_inventory: true, stock_quantity: 0 }
+                  : variant,
+              ),
+            },
+      );
+      assertEqualOrThrow(quick().buttonSoldOut(button, soldOut), true, 'the size is sold out');
+      assertEqualOrThrow(quick().buttonLine(button, soldOut), null, 'so a tap adds nothing');
+      assertEqualOrThrow(quick().buttonSoldOut(button, products), false, 'in stock: not sold out');
+      assertOrThrow(quick().buttonLine(button, products) !== null, 'and it adds');
+      assertEqualOrThrow(
+        quick().buttonSoldOut(saved['a side with an add-on'], soldOut),
+        false,
+        'a button with no size is never sold out',
+      );
+    },
+
+    'Case 11: the list follows the customer the screen names, not the id the cart holds':
+      async () => {
+        const {
+          useQuickButtonStore,
+        } = require('../frontend/src/components/pos/pizza/useQuickButtons');
+        const make = async (name: string, phone: string) => {
+          const created = await api(baseUrl, '/api/customers', {
+            method: 'POST',
+            headers,
+            body: { name, phone },
+          });
+          assertEqualOrThrow(created.status, 201, `${name} is created (${json(created.data)})`);
+          return created.data.customer;
+        };
+        const first = await make('First Example', '+16045550111');
+        const second = await make('Second Example', '+16045550112');
+        const theirs = await saveLine(lineOf(LINES['a drink size']), 'First cola', first.id);
+        const own = () =>
+          useQuickButtonStore
+            .getState()
+            .buttons.filter((button: any) => button.customer_id !== null)
+            .map((button: any) => button.id);
+
+        // A resumed held order sets the id and leaves the customer the cart panel shows.
+        cart().setCustomer(second);
+        useCartStore.setState({ customerId: first.id });
+        await useQuickButtonStore.getState().load(second.id);
+        same(own(), [], 'the customer shown has no buttons, whatever id the cart holds');
+
+        cart().setCustomer(first);
+        useCartStore.setState({ customerId: second.id });
+        await useQuickButtonStore.getState().load(first.id);
+        same(own(), [theirs.id], 'the customer shown has theirs');
+        await useQuickButtonStore.getState().load();
+        same(own(), [theirs.id], 'a reload after a change lists for the same customer');
+
+        await useQuickButtonStore.getState().load(null);
+        same(own(), [], 'with no customer: the shop buttons only');
+        await quick().deleteQuickButton(theirs.id);
+        cart().setCustomer(null);
+      },
+
     'Case 7: a refusal carries the message the server gave': async () => {
       const line = lineOf(LINES['a plain pizza']);
       let message = '';

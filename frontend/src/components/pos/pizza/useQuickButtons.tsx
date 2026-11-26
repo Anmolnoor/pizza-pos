@@ -1,5 +1,6 @@
 'use client';
 
+import { useRef } from 'react';
 import { Check, Star } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useTranslations } from 'use-intl';
@@ -34,19 +35,23 @@ interface QuickButtonState {
   buttons: QuickButton[];
   dialog: QuickButtonDialog | null;
   open: (dialog: QuickButtonDialog | null) => void;
-  /** Lists the buttons again, for the customer the order has now. */
-  load: () => Promise<void>;
+  /** The customer the buttons were last listed for: the one the cart panel shows. */
+  customerId: string | number | null;
+  /** Lists the buttons for that customer, or again for the last one when none is named. */
+  load: (customerId?: string | number | null) => Promise<void>;
 }
 
 let latest: Promise<QuickButton[]> | null = null;
 
 /** The buttons and the open dialog, shared by the category block, the page, the cart and the sheet. */
-export const useQuickButtonStore = create<QuickButtonState>((set) => ({
+export const useQuickButtonStore = create<QuickButtonState>((set, get) => ({
   buttons: [],
   dialog: null,
+  customerId: null,
   open: (dialog) => set({ dialog }),
-  load: async () => {
-    const request = fetchQuickButtons(useCartStore.getState().customerId);
+  load: async (customerId = get().customerId) => {
+    set({ customerId });
+    const request = fetchQuickButtons(customerId);
     latest = request;
     try {
       const buttons = await request;
@@ -118,6 +123,8 @@ export function QuickButtonsBlock({
 export function useQuickButtonSheet() {
   const t = useTranslations('pizza');
   const dialogOpen = useQuickButtonStore((state) => state.dialog !== null);
+  /** True while a changed button is on its way to the server, when a second Save is ignored. */
+  const sending = useRef(false);
   return {
     dialogOpen,
     /**
@@ -133,10 +140,16 @@ export function useQuickButtonSheet() {
       }
       const id = typeof target === 'string' ? sheetButtonId(target) : null;
       if (!id) return false;
-      updateQuickButton(id, buttonContents(line)).then(
-        () => load().then(done),
-        (error) => toast.error(refusalMessage(error, t('quickFailed'))),
-      );
+      if (sending.current) return true;
+      sending.current = true;
+      updateQuickButton(id, buttonContents(line))
+        .then(
+          () => load().then(done),
+          (error) => toast.error(refusalMessage(error, t('quickFailed'))),
+        )
+        .finally(() => {
+          sending.current = false;
+        });
       return true;
     },
   };

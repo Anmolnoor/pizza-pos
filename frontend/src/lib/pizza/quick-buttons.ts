@@ -4,6 +4,7 @@
  */
 import api from '@/lib/api';
 import { cartLineUnitPrice } from '@/lib/cart-price';
+import { isVariantSoldOut } from '@/lib/product-variants';
 import type { CartItem, Product, ProductVariant } from '@/lib/types';
 import type { QuickButton, QuickButtonInput } from '../../../../shared/pizza/types';
 import { cartLineDetailLines } from './detail-lines';
@@ -61,16 +62,28 @@ export function buttonContents(line: ButtonLine): ButtonContents {
   };
 }
 
+const variantOf = (button: QuickButton, products: Product[]) =>
+  products
+    .find((entry) => String(entry.id) === button.product_id)
+    ?.variants?.find((entry) => entry.id === button.variant_id) ?? null;
+
+/** True when the size the button holds is sold out, as the size buttons of a pizza tile decide it. */
+export function buttonSoldOut(button: QuickButton, products: Product[]): boolean {
+  const variant = variantOf(button, products);
+  return variant !== null && isVariantSoldOut(variant);
+}
+
 /**
  * The cart line a tap on the button adds, built from the POS's own products so
  * that it is the line the button was saved from. Null when the button cannot
- * be added: the menu changed under it, or the POS does not sell what it holds.
+ * be added: the menu changed under it, the POS does not sell what it holds, or
+ * its size is sold out.
  */
 export function buttonLine(button: QuickButton, products: Product[]): ButtonLine | null {
-  if (!button.usable) return null;
+  if (!button.usable || buttonSoldOut(button, products)) return null;
   const product = products.find((entry) => String(entry.id) === button.product_id);
   if (!product) return null;
-  const variant = product.variants?.find((entry) => entry.id === button.variant_id) ?? null;
+  const variant = variantOf(button, products);
   if (button.variant_id && !variant) return null;
   const onSale = (product.addon_groups ?? []).flatMap((group) => group.addons ?? []);
   const addons = button.addons.flatMap(({ id, quantity }) => {
@@ -88,12 +101,12 @@ export function buttonLine(button: QuickButton, products: Product[]): ButtonLine
 }
 
 /**
- * What one tap costs now. The server stores no price.
- * ponytail: the counter price; an online platform's price shows in the cart once the line is added.
+ * What one tap costs now; the server stores no price. `online` is true while
+ * the order is for an online platform, which has its own price for a size.
  */
-export function buttonPrice(line: ButtonLine): number {
+export function buttonPrice(line: ButtonLine, online = false): number {
   return (
-    cartLineUnitPrice(line, false) +
+    cartLineUnitPrice(line, online) +
     line.addons.reduce((sum, addon) => sum + Number(addon.price) * (addon.quantity || 1), 0)
   );
 }
