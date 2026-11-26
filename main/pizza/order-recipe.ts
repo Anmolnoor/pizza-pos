@@ -3,7 +3,7 @@ import type Database from 'better-sqlite3';
 import { getDatabase } from '../db';
 import { RecipeError, validateRecipe } from '../../shared/pizza/recipe';
 import { ticketLines } from '../../shared/pizza/ticket';
-import type { OrderLineRecipe, PizzaCatalog } from '../../shared/pizza/types';
+import type { OrderLineRecipe, PizzaCatalog, PizzaRecipe } from '../../shared/pizza/types';
 
 const WRONG_ITEM = 'The recipe is for a different item. Remove it and add it again';
 const NOT_PRINTED = 'RECIPE NOT PRINTED - CHECK ORDER';
@@ -131,9 +131,28 @@ export function kdsRecipe(line: Line): unknown {
 }
 
 /**
+ * False for the malformed shapes `ticketLines` would print short without throwing: a pizza needs
+ * one whole or two halves, each with a list of removals, and a deal's pops are an object.
+ */
+function hasPrintableShape(recipe: OrderLineRecipe): boolean {
+  const pizzaShape = (pizza: PizzaRecipe) => {
+    const parts = pizza.whole ? [pizza.whole] : pizza.halves;
+    return (
+      !(pizza.whole && pizza.halves) &&
+      Array.isArray(parts) &&
+      parts.length === (pizza.whole ? 1 : 2) &&
+      parts.every((part) => Array.isArray(part?.removed))
+    );
+  };
+  if (recipe.kind === 'pizza') return pizzaShape(recipe);
+  return recipe.pizzas.every(pizzaShape) && typeof (recipe.pops ?? {}) === 'object';
+}
+
+/**
  * Order items with `detailLines` written from each line's recipe, for a printer laying out
- * `columns` characters. A recipe that does not pass the stored menu is logged and prints one
- * warning line, so a ticket never drops a recipe silently. A line with no recipe is left alone.
+ * `columns` characters. The recipe is not checked against the menu: an order sold before a menu
+ * change still prints. A recipe whose shape cannot be written out, or a menu that cannot be read,
+ * is logged and prints one warning line, so a ticket never drops a recipe silently.
  */
 export function withRecipeDetailLines<T>(items: T, columns: number): T {
   if (!Array.isArray(items) || !items.some(recipeOf)) return items;
@@ -150,7 +169,8 @@ export function withRecipeDetailLines<T>(items: T, columns: number): T {
     let detailLines = [NOT_PRINTED];
     try {
       if (!catalog) throw menuError;
-      detailLines = ticketLines(catalog, validateRecipe(catalog, recipe), columns).detailLines;
+      if (!hasPrintableShape(recipe)) throw new Error('The recipe is not in a printable shape');
+      detailLines = ticketLines(catalog, recipe, columns).detailLines;
     } catch (error) {
       console.warn(`[Pizza] Recipe not printed for order item ${item.id}:`, error);
     }

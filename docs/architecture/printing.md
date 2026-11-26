@@ -246,20 +246,25 @@ On the backend ESC/POS paths, a pizza or deal line gets its detail lines from th
 `renderCompactReceiptViaDocument`, and `renderMerchantReceiptViaDocument` pass the order's items
 through `withRecipeDetailLines(items, columns)` in `main/pizza/order-recipe.ts` before they build
 print data. It reads the catalogue from `pizza_menu` once per call and, for each item that holds a
-recipe, checks the recipe with `validateRecipe()` and sets `detailLines` to
-`ticketLines(catalog, recipe, columns).detailLines` (`shared/pizza/ticket.ts`), replacing any lines
-the item carried. `columns` is the renderer's own layout width, the value `resolvePrinterContext()`
+recipe, sets `detailLines` to `ticketLines(catalog, recipe, columns).detailLines`
+(`shared/pizza/ticket.ts`), replacing any lines the item carried. `columns` is the renderer's own layout width, the value `resolvePrinterContext()`
 returns after [text size](#text-size) is applied, so an extra large printer gets lines wrapped for
 half the paper's characters. `ticketLines` keeps every line within that width less the three-space
 indent, so `detailLineRows()` prints each one as given and the nesting of halves and deal pizzas
 survives. The item heading stays the product name and variant. An item with no recipe keeps the
 `detailLines` it carried.
 
-A recipe that cannot be written out never prints as a bare item. When the recipe does not pass the
-stored menu (a malformed recipe among the items a client sent to the print route, or a pizza,
-ingredient, or deal the menu no longer has), or the `pizza_menu` row is missing or unreadable, the
-item's detail lines are the single line `RECIPE NOT PRINTED - CHECK ORDER` and the cause is logged
-with the order item id.
+The recipe is not checked against the menu at print time, so an order sold before a menu change
+still prints its lines: a pizza, drink, or deal the menu no longer has prints by its id, and a
+removed ingredient prints under the name it was sold with.
+
+A recipe that cannot be written out never prints as a bare item. The item's detail lines are the
+single line `RECIPE NOT PRINTED - CHECK ORDER`, and the cause is logged with the order item id,
+when the `pizza_menu` row is missing or unreadable, when `ticketLines` throws on the recipe, or when
+the recipe has a shape `ticketLines` would print short: a pizza without exactly one of `whole` and
+two `halves`, a part whose `removed` is not a list, or a deal whose `pops` is not an object. Only a
+malformed recipe among the items a client sent to the print route can have such a shape; stored
+recipes are normalised when the order is written.
 
 The detailed receipt (`buildDetailedReceiptBytes`), the tax bill, compliance line templates, the
 browser HTML receipt (`web-print.ts`), the delivery slip, the payment ticket slip, and the kitchen

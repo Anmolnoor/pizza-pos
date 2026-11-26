@@ -366,40 +366,62 @@ async function main() {
       const originalWarn = console.warn;
       console.warn = (...args: unknown[]) => warned.push(args.map(String).join(' '));
       try {
-        // The print route prints the items the client sends; two of these are malformed.
+        // The print route prints the items the client sends. None of these can be written out.
         usePrinter(PRINTERS[0]);
-        const [garden, classic, island] = placed.order.items;
+        const [garden, , island] = placed.order.items;
+        const part = { pizzaId: 'garden', removed: [] };
+        const malformed: Record<string, object> = {
+          'a pizza with neither a whole nor halves': { kind: 'pizza' },
+          'removals that are text, not a list': {
+            ...garden.modifier_selection,
+            whole: { pizzaId: 'garden', removed: 'Olives' },
+          },
+          'removals that are a number': {
+            ...garden.modifier_selection,
+            whole: { pizzaId: 'garden', removed: 5 },
+          },
+          'no removals list at all': {
+            ...garden.modifier_selection,
+            whole: { pizzaId: 'garden' },
+          },
+          'only one half': { kind: 'pizza', v: 1, sizeId: 'large', halves: [part] },
+          'both a whole and halves': { ...garden.modifier_selection, halves: [part, part] },
+          'a deal with no pizza list': { kind: 'deal', v: 1, dealId: 'party' },
+          'a deal holding an empty pizza': { kind: 'deal', v: 1, dealId: 'party', pizzas: [{}] },
+          'a deal whose pops are a number': {
+            kind: 'deal',
+            v: 1,
+            dealId: 'party',
+            pizzas: [],
+            pops: 3,
+          },
+        };
+        const badItems = Object.values(malformed).map((recipe, index) => ({
+          ...garden,
+          id: 9000 + index,
+          modifier_selection: recipe,
+        }));
         const sent = await post('/api/printers/print-kot', {
           orderId: placed.order.id,
           stationName: 'Kitchen',
-          items: [
-            {
-              ...garden,
-              modifier_selection: {
-                ...garden.modifier_selection,
-                whole: { pizzaId: 'garden', removed: 'Olives' },
-              },
-            },
-            { ...classic, modifier_selection: { kind: 'pizza' } },
-            island,
-          ],
+          items: [...badItems, island],
         });
         assertEqualOrThrow(sent.status, 200, 'client items: the ticket is sent');
         const ticket = await capture.lastJob();
         assertEqualOrThrow(
           ticket.filter((row) => row === NOT_PRINTED).length,
-          2,
+          badItems.length,
           'client items: each unreadable recipe leaves the warning line',
         );
         assertOrThrow(ticket.includes(`${INDENT}NO HAM`), 'client items: the good recipe prints');
         assertOrThrow(!ticket.join('\n').includes('NO OLIVES'), 'client items: nothing is guessed');
         // A raster-capable printer renders the ticket twice, so each is logged at least once.
-        for (const item of [garden, classic]) {
+        Object.keys(malformed).forEach((shape, index) => {
           assertOrThrow(
-            warned.some((entry) => entry.includes(`order item ${item.id}:`)),
-            `client items: the log names order item ${item.id}`,
+            warned.some((entry) => entry.includes(`order item ${9000 + index}:`)),
+            `client items: the log names the item with ${shape}`,
           );
-        }
+        });
         assertOrThrow(
           !warned.some((entry) => entry.includes(`order item ${island.id}:`)),
           'client items: the good recipe is not logged',
@@ -419,6 +441,59 @@ async function main() {
         }
         assertOrThrow(warned.length >= 3, 'no menu: the failure is logged');
         assertOrThrow(warned[0].includes('menu is not loaded'), 'no menu: the log says why');
+      } finally {
+        console.warn = originalWarn;
+        writePizzaMenu(db, JSON.stringify(catalog));
+      }
+    },
+
+    'Case 5: a stored recipe still prints after the menu has changed under it': async () => {
+      const placed = await placedOrder([
+        {
+          product_id: 'pz-half-and-half',
+          variant_id: 'pz-half-and-half-large',
+          quantity: 1,
+          modifier_selection: half,
+        },
+        {
+          product_id: 'pz-garden',
+          variant_id: 'pz-garden-large',
+          quantity: 1,
+          modifier_selection: whole('garden', ['Olives']),
+        },
+      ]);
+      // Classic Pepperoni leaves the menu, and Garden's olives are renamed.
+      const changed = {
+        ...catalog,
+        pizzas: catalog.pizzas
+          .filter((pizza: any) => pizza.id !== 'classic')
+          .map((pizza: any) => ({
+            ...pizza,
+            ingredients: pizza.ingredients.map((name: string) =>
+              name === 'Olives' ? 'Black olives' : name,
+            ),
+          })),
+      };
+      const warned: string[] = [];
+      const originalWarn = console.warn;
+      console.warn = (...args: unknown[]) => warned.push(args.map(String).join(' '));
+      writePizzaMenu(db, JSON.stringify(changed));
+      try {
+        const documents = await printAll(placed, PRINTERS[0]);
+        for (const [name, printed] of Object.entries(documents)) {
+          // A pizza the menu no longer has prints by its id.
+          assertDetailRows(
+            printed,
+            ['1ST: ISLAND', '  NO PINEAPPLE', '2ND: CLASSIC'],
+            `${name}, removed pizza`,
+          );
+          assertOrThrow(
+            printed.includes(`${INDENT}NO OLIVES`),
+            `${name}: the removal prints under the name it was sold with`,
+          );
+          assertOrThrow(!printed.includes(NOT_PRINTED), `${name}: no warning line`);
+        }
+        assertEqualOrThrow(warned.length, 0, 'nothing is logged');
       } finally {
         console.warn = originalWarn;
         writePizzaMenu(db, JSON.stringify(catalog));
