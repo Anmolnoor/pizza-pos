@@ -385,6 +385,83 @@ async function main() {
       },
     );
 
+    await testCase('11. A note change on a sold pizza keeps the tax it was sold with', async () => {
+      const db = getDatabase();
+      const created = await api(baseUrl, '/api/products', {
+        method: 'POST',
+        headers,
+        body: {
+          name: 'Sample menu pizza',
+          price: 23,
+          category_id: (
+            db.prepare("SELECT id FROM categories WHERE name = 'Sample menu'").get() as any
+          ).id,
+          tax_category_id: 'food',
+        },
+      });
+      assertEqualOrThrow(created.status, 201, 'a pizza product is created in food tax');
+      const productId = created.data.product.id;
+      // What a menu load adds to a pizza: its size and its pizza_products row.
+      db.prepare(
+        `INSERT INTO product_variants (id, product_id, name, price, is_active, sort_order, created_at, updated_at)
+         VALUES (?, ?, 'Large', 23, 1, 0, datetime('now'), datetime('now'))`,
+      ).run(`${productId}-large`, productId);
+      db.prepare(
+        `INSERT INTO pizza_products (product_id, menu_id, kind, created_at, updated_at)
+         VALUES (?, 'sample', 'pizza', datetime('now'), datetime('now'))`,
+      ).run(productId);
+      const line = { product_id: productId, variant_id: `${productId}-large`, quantity: 1 };
+      const sold = await api(baseUrl, '/api/orders', {
+        method: 'POST',
+        headers,
+        body: { type: 'takeaway', items: [line] },
+      });
+      assertEqualOrThrow(sold.status, 201, 'the pizza is sold');
+      assertEqualOrThrow(taxLines(sold.data.order.tax_breakdown), 'GST 5% 1.15', 'with GST only');
+
+      // The product moves to another tax category after the sale.
+      db.prepare("UPDATE products SET tax_category_id = 'soda' WHERE id = ?").run(productId);
+      let edits = 0;
+      const replace = async (replacement: object) => {
+        const live = db
+          .prepare("SELECT id FROM order_items WHERE order_id = ? AND status = 'pending'")
+          .get(sold.data.order.id) as any;
+        const version = (
+          db
+            .prepare(
+              'SELECT COALESCE(MAX(id), 0) AS v FROM order_audit_log WHERE order_id = ? AND order_item_id = ?',
+            )
+            .get(sold.data.order.id, live.id) as any
+        ).v;
+        const edited = await api(
+          baseUrl,
+          `/api/orders/${sold.data.order.id}/items/${live.id}/edit`,
+          {
+            method: 'PATCH',
+            headers: { ...headers, 'Idempotency-Key': `pizza-tax-bc-note-${++edits}` },
+            body: { expected_edit_version: version, replacement },
+          },
+        );
+        assertEqualOrThrow(edited.status, 200, 'the replacement is accepted');
+        return db
+          .prepare('SELECT tax_breakdown, tax_amount, total FROM orders WHERE id = ?')
+          .get(sold.data.order.id) as any;
+      };
+
+      const noted = await replace({ ...line, special_instructions: 'Ring the bell' });
+      assertEqualOrThrow(
+        `${taxLines(JSON.parse(noted.tax_breakdown))} = ${noted.tax_amount}, ${noted.total}`,
+        'GST 5% 1.15 = 1.15, 24.15',
+        'note only: taxed as it was sold',
+      );
+      const two = await replace({ ...line, quantity: 2 });
+      assertEqualOrThrow(
+        `${taxLines(JSON.parse(two.tax_breakdown))}, ${two.total}`,
+        'GST 5% 2.30, PST 7% 3.22, 51.52',
+        'a second pizza is a new sale: taxed as the product is now',
+      );
+    });
+
     await testCase('9. The tax configuration is recorded as the owner saving it', () => {
       const audit = getDatabase()
         .prepare(

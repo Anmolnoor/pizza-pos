@@ -86,6 +86,7 @@ import {
 } from '../services/item-price-override';
 import { notifyKdsUpdate, notifyOrderUpdated } from '../services/kds';
 import { checkLineRecipe, keepStoredRecipe } from '../pizza/order-recipe';
+import { carrySoldTax, changesRecipeOnly } from '../pizza/sold-line';
 import { cloudSync } from '../services/cloud-sync';
 import {
   validateOrderNotes,
@@ -6904,7 +6905,8 @@ router.patch(
           wastedQuantity = Number((oldQuantity - newQuantity).toFixed(6));
         } else {
           let newItem: OrderItemInput;
-          const preserveUnitPrice = hasQuantity;
+          const recipeOnly = !hasQuantity && changesRecipeOnly(db, replacement, oldItem, oldAddons);
+          const preserveUnitPrice = hasQuantity || recipeOnly;
           const preserveStoredSelections = hasQuantity && newQuantity < oldQuantity;
           if (hasQuantity) {
             const lineQuantity = isStartedQuantityIncrease
@@ -6929,6 +6931,7 @@ router.patch(
           } else {
             newItem = { ...replacement };
             keepStoredRecipe(newItem, oldItem);
+            if (recipeOnly) newItem.unit_price = oldItem.unit_price;
           }
 
           if (isStartedQuantityIncrease) {
@@ -7029,6 +7032,7 @@ router.patch(
           });
           newItemId = insertedId;
           if (preserveUnitPrice) carryPriceOverride(db, oldItem.id, insertedId);
+          if (recipeOnly) carrySoldTax(db, oldItem.id, insertedId);
           if (
             carriedDiscountDetails &&
             Number(newItem.discount_amount || 0) > 0 &&

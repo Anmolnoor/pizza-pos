@@ -599,6 +599,89 @@ async function main() {
       assertEqualOrThrow(row(without.id).modifier_selection, 'null', 'nothing is stored for none');
     },
 
+    'Case 6f: changing only the recipe or the note of a sold pizza keeps what it was sold at':
+      async () => {
+        const order = (
+          await createOrder([
+            gardenLine({ modifier_selection: gardenSent }),
+            halfLine({
+              modifier_selection: halfSent,
+              price_override: { price: 20, reason: 'Regular customer' },
+            }),
+          ])
+        ).data.order;
+        const lineOf = (productId: string) =>
+          liveRows(order.id).find((line) => line.product_id === productId);
+        const discounted = await post(
+          `/api/orders/${order.id}/items/${lineOf('pz-garden').id}/discount`,
+          { discount_type: 'percentage', discount_value: 10 },
+        );
+        assertEqualOrThrow(discounted.status, 200, 'the garden line gets 10% off');
+        const money = (line: any) =>
+          JSON.stringify([line.unit_price, line.discount_amount, line.subtotal]);
+        assertEqualOrThrow(money(lineOf('pz-garden')), '[23,2.3,20.7]', 'sold at 23 less 2.30');
+
+        // A menu load with new prices: every size costs 2 more.
+        const reprice = (by: number) =>
+          db.prepare('UPDATE product_variants SET price = price + ?').run(by);
+        reprice(2);
+        try {
+          const removal = await edit(order.id, lineOf('pz-garden').id, {
+            replacement: gardenLine({ modifier_selection: whole('garden', ['Olives']) }),
+          });
+          assertEqualOrThrow(removal.status, 200, 'recipe only: accepted');
+          assertEqualOrThrow(
+            lineOf('pz-garden').modifier_selection,
+            stored(whole('garden', ['Olives'])),
+            'recipe only: the new recipe is stored',
+          );
+          assertEqualOrThrow(
+            money(lineOf('pz-garden')),
+            '[23,2.3,20.7]',
+            'recipe only: the price and the discount it was sold at stay',
+          );
+
+          const note = await edit(order.id, lineOf('pz-garden').id, {
+            replacement: gardenLine({ special_instructions: 'Ring the bell' }),
+          });
+          assertEqualOrThrow(note.status, 200, 'note only: accepted');
+          assertEqualOrThrow(
+            lineOf('pz-garden').special_instructions,
+            'Ring the bell',
+            'note only: the note is stored',
+          );
+          assertEqualOrThrow(money(lineOf('pz-garden')), '[23,2.3,20.7]', 'note only: same money');
+
+          const otherHalves = await edit(order.id, lineOf('pz-half-and-half').id, {
+            replacement: halfLine({
+              modifier_selection: halves(
+                { pizzaId: 'plain', removed: [] },
+                { pizzaId: 'classic', removed: [] },
+              ),
+            }),
+          });
+          assertEqualOrThrow(otherHalves.status, 200, 'overridden line: accepted');
+          const half = lineOf('pz-half-and-half');
+          assertEqualOrThrow(
+            JSON.stringify([half.unit_price, half.price_overridden, half.original_unit_price]),
+            '[20,1,23]',
+            'overridden line: the override and the price it replaced stay',
+          );
+
+          const medium = await edit(order.id, lineOf('pz-garden').id, {
+            replacement: gardenLine({ variant_id: 'pz-garden-medium' }),
+          });
+          assertEqualOrThrow(medium.status, 200, 'size change: accepted');
+          assertEqualOrThrow(
+            money(lineOf('pz-garden')),
+            '[21,0,21]',
+            'size change: charged the new price of the new size',
+          );
+        } finally {
+          reprice(-2);
+        }
+      },
+
     'Case 6e: an item a menu load retired cannot be sold again, but a sold line can shrink':
       async () => {
         const islandLine = (extra: object = {}) => ({
