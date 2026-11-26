@@ -8,6 +8,7 @@ const path = require('node:path');
 const {
   config,
   privateBackupDir,
+  maintenanceLock,
   timestamp,
   appModule,
   fsync,
@@ -53,6 +54,8 @@ main(async () => {
   const backupPath = path.resolve(process.argv[2]);
   if (!fs.statSync(backupPath).isFile()) throw new Error(`${backupPath} is not a file`);
 
+  // Held from before the checks until this process exits, after the database is closed.
+  maintenanceLock(settings.FLO_DEV_USER_DATA);
   refuseWhileUnitsRun();
   for (const name of ['PORT', 'KDS_PORT', 'SERVER_APP_PORT']) {
     if (await listening(settings[name])) {

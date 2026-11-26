@@ -36,6 +36,57 @@ function privateBackupDir(dataDir) {
   return dir;
 }
 
+/** The backup timer's schedule and its period; the health check allows one period between backups. */
+const BACKUP_TIMER = { onCalendar: 'daily', periodHours: 24 };
+
+function hasDied(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    return error.code === 'ESRCH';
+  }
+}
+
+/**
+ * Lets one backup or restore at a time work on a data folder, across processes: a lock file made
+ * with the exclusive flag, holding the process id, removed when the process exits. A lock whose
+ * process has died, or that was made before the last boot, is taken over.
+ */
+function maintenanceLock(dataDir) {
+  const lockPath = path.join(dataDir, '.headless-maintenance.lock');
+  const busy = (holder) =>
+    new Error(
+      `Another backup or restore (process ${holder}) is working on ${dataDir}. Wait for it to finish. If none is running, delete ${lockPath} and ${lockPath}.stale`,
+    );
+  const take = () => fs.writeFileSync(lockPath, String(process.pid), { flag: 'wx' });
+  try {
+    take();
+  } catch (error) {
+    if (error.code !== 'EEXIST') throw error;
+    let holder = 'unknown';
+    try {
+      holder = fs.readFileSync(lockPath, 'utf8');
+      const beforeBoot = fs.statSync(lockPath).mtimeMs < Date.now() - os.uptime() * 1000;
+      if (!beforeBoot && !hasDied(Number(holder))) throw busy(holder);
+      // Only one process can make the link, and it removes only the lock it judged stale.
+      const claim = `${lockPath}.stale`;
+      fs.linkSync(lockPath, claim);
+      try {
+        if (fs.readFileSync(claim, 'utf8') !== holder) throw busy('unknown');
+        fs.unlinkSync(lockPath);
+        take();
+      } finally {
+        fs.rmSync(claim, { force: true });
+      }
+    } catch (raced) {
+      throw raced.code === 'EEXIST' || raced.code === 'ENOENT' ? busy(holder) : raced;
+    }
+  }
+  process.on('exit', () => fs.rmSync(lockPath, { force: true }));
+}
+
 function timestamp() {
   return new Date().toISOString().replace(/[:.]/g, '-');
 }
@@ -124,6 +175,8 @@ module.exports = {
   repoRoot,
   config,
   BACKUP_NAME,
+  BACKUP_TIMER,
+  maintenanceLock,
   backupDir,
   privateBackupDir,
   timestamp,

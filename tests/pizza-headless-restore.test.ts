@@ -6,7 +6,9 @@
  *
  * Usage: npm run test:pizza-headless-restore
  */
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import Database from 'better-sqlite3';
 const {
@@ -69,6 +71,9 @@ async function storeWithBackup(): Promise<{ env: HeadlessEnv; backup: string }> 
   }
 }
 
+const lockPath = (env: HeadlessEnv) =>
+  path.join(env.FLO_DEV_USER_DATA, '.headless-maintenance.lock');
+
 const drivePending = (env: HeadlessEnv) =>
   path.join(env.FLO_DEV_USER_DATA, 'google-drive-restore.pending');
 
@@ -117,6 +122,72 @@ void runCases('Pizza headless kit: restore', [
       assertEqualOrThrow(modeOf(backupDir(env)), '700', 'the backup folder is owner-only');
       assertOrThrow(!fs.existsSync(drivePending(env)), 'no Drive restore intent is left behind');
       await assertServerHealthy(env, 'the server is healthy on the restored database');
+    },
+  ],
+  [
+    'of two restores started together, exactly one runs',
+    async () => {
+      const { env, backup } = await storeWithBackup();
+      const results = await Promise.all([
+        runKit('restore.cjs', [backup], env),
+        runKit('restore.cjs', [backup], env),
+      ]);
+      for (const result of results) console.log(result.output);
+      const refused = results.filter((result) => result.status !== 0);
+      assertEqualOrThrow(results.length - refused.length, 1, 'one restore exits 0');
+      assertEqualOrThrow(refused.length, 1, 'and the other is refused');
+      assertIncludesOrThrow(
+        refused[0].stderr,
+        'Another backup or restore',
+        'the refusal names the reason',
+      );
+      const safety = fs.readdirSync(backupDir(env)).filter((name) => name.startsWith('pre-'));
+      assertEqualOrThrow(safety.length, 1, 'only the one that ran took a safety copy');
+      assertOrThrow(!hasCategory(liveDbPath(env), 'cat-after'), 'the backup was restored');
+      assertOrThrow(!fs.existsSync(lockPath(env)), 'the lock is gone once it has finished');
+      await assertServerHealthy(env, 'the server is healthy on the restored database');
+    },
+  ],
+  [
+    'a restore and a backup both refuse while another holds the data folder',
+    async () => {
+      const { env, backup } = await storeWithBackup();
+      // This test process is alive, so a lock in its name is one that is held.
+      fs.writeFileSync(lockPath(env), String(process.pid));
+      await assertRefused(env, backup, `Another backup or restore (process ${process.pid})`);
+      const copies = fs.readdirSync(backupDir(env)).length;
+      const second = await runKit('backup.cjs', [], env);
+      assertOrThrow(second.status !== 0, 'a backup exits non-zero');
+      assertIncludesOrThrow(second.stderr, 'Another backup or restore', 'and says why');
+      assertEqualOrThrow(fs.readdirSync(backupDir(env)).length, copies, 'and writes nothing');
+      assertEqualOrThrow(
+        fs.readFileSync(lockPath(env), 'utf8'),
+        String(process.pid),
+        "the holder's lock is left alone",
+      );
+    },
+  ],
+  [
+    'a lock left by a process that has died, or made before the last boot, is taken over',
+    async () => {
+      const { env, backup } = await storeWithBackup();
+      const gone = spawnSync(process.execPath, ['-e', '']);
+      fs.writeFileSync(lockPath(env), String(gone.pid));
+      const afterCrash = await runKit('backup.cjs', [], env);
+      assertEqualOrThrow(afterCrash.status, 0, `a backup runs: ${afterCrash.output}`);
+      assertOrThrow(!fs.existsSync(lockPath(env)), 'and removes the lock when it has finished');
+
+      fs.writeFileSync(lockPath(env), String(process.pid));
+      const beforeBoot = new Date(Date.now() - os.uptime() * 1000 - 3600 * 1000);
+      fs.utimesSync(lockPath(env), beforeBoot, beforeBoot);
+      const result = await runKit('restore.cjs', [backup], env);
+      assertEqualOrThrow(result.status, 0, `a restore runs: ${result.output}`);
+      assertOrThrow(!hasCategory(liveDbPath(env), 'cat-after'), 'the backup was restored');
+      assertEqualOrThrow(
+        fs.readdirSync(env.FLO_DEV_USER_DATA).filter((name) => name.includes('.lock')).length,
+        0,
+        'nothing of the lock is left behind',
+      );
     },
   ],
   [

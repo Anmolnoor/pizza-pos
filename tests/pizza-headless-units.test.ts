@@ -99,6 +99,21 @@ void runCases('Pizza headless kit: unit files', [
     },
   ],
   [
+    'install.sh takes a first backup before it asks for health, and health allows one timer period',
+    async () => {
+      const install = fs.readFileSync(path.join(kitDir, 'install.sh'), 'utf8');
+      const backup = install.indexOf('node "$kit/backup.cjs"');
+      assertOrThrow(backup > 0, 'install.sh runs backup.cjs');
+      assertOrThrow(backup < install.indexOf('node "$kit/health.cjs"'), 'before the health check');
+      const { BACKUP_TIMER } = require(path.join(kitDir, 'common.cjs'));
+      assertEqualOrThrow(
+        JSON.stringify(BACKUP_TIMER),
+        JSON.stringify({ onCalendar: 'daily', periodHours: 24 }),
+        'the timer and the health limit share one period',
+      );
+    },
+  ],
+  [
     'refuses a relative data folder',
     async () => {
       const env = await headlessEnv({ BACKUP_KEEP: '7', FLO_DEV_USER_DATA: 'data' });

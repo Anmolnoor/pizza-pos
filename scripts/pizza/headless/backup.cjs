@@ -7,6 +7,7 @@ const {
   config,
   BACKUP_NAME,
   privateBackupDir,
+  maintenanceLock,
   timestamp,
   appModule,
   fsync,
@@ -20,6 +21,7 @@ main(async () => {
   if (!Number.isInteger(keep) || keep < 1)
     throw new Error(`BACKUP_KEEP must be a whole number of at least 1, got ${BACKUP_KEEP}`);
 
+  maintenanceLock(FLO_DEV_USER_DATA);
   const dir = privateBackupDir(FLO_DEV_USER_DATA);
   for (const name of fs.readdirSync(dir).filter((n) => /^\.pizza-pos-.*\.partial$/.test(n))) {
     fs.unlinkSync(path.join(dir, name));

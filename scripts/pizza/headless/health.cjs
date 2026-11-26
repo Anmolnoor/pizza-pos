@@ -1,41 +1,62 @@
 #!/usr/bin/env node
 // Fails unless each service answers its own health check on its configured port, and the newest
-// daily backup is recent. The server moves to the next port without failing when one is taken,
-// so the port is checked, not assumed.
+// backup is no older than one timer period (a store set up within that period needs none yet).
+// The server moves to the next port without failing when one is taken, so the port is checked,
+// not assumed.
 const fs = require('node:fs');
 const path = require('node:path');
-const { config, BACKUP_NAME, backupDir, main } = require('./common.cjs');
+const { config, BACKUP_NAME, BACKUP_TIMER, backupDir, main } = require('./common.cjs');
 
 const SERVICES = [
   ['PORT', 'Flo Local API'],
   ['KDS_PORT', 'Flo KDS Server'],
   ['SERVER_APP_PORT', 'Flo Server App'],
 ];
-const MAX_BACKUP_AGE_HOURS = 26;
+/** One timer period, and two hours for a backup that starts late or runs long. */
+const MAX_BACKUP_AGE_HOURS = BACKUP_TIMER.periodHours + 2;
+
+const hoursSince = (ms) => (Date.now() - ms) / 3_600_000;
+
+/** How long ago the store was set up: the age of its oldest setting. Unreadable counts as old. */
+function storeAgeHours(dataDir) {
+  try {
+    const Database = require('better-sqlite3');
+    const db = new Database(path.join(dataDir, 'flo.db'), { readonly: true, fileMustExist: true });
+    try {
+      const { born } = db.prepare('SELECT MIN(updated_at) AS born FROM settings').get();
+      const hours = hoursSince(Date.parse(`${born.replace(' ', 'T')}Z`));
+      return Number.isFinite(hours) ? hours : Infinity;
+    } finally {
+      db.close();
+    }
+  } catch {
+    return Infinity;
+  }
+}
 
 function checkBackups(dataDir) {
   const dir = backupDir(dataDir);
-  if (!fs.existsSync(dir)) {
-    console.log(`skip backups: no backup folder yet (${dir}); the first daily backup has not run`);
-    return true;
-  }
-  const newest = fs
-    .readdirSync(dir)
+  const newest = (fs.existsSync(dir) ? fs.readdirSync(dir) : [])
     .filter((name) => BACKUP_NAME.test(name))
     .map((name) => ({ name, mtime: fs.statSync(path.join(dir, name)).mtimeMs }))
     .sort((a, b) => b.mtime - a.mtime)[0];
-  if (!newest) {
-    console.error(`FAIL backups: no pizza-pos-*.db backup in ${dir}`);
-    return false;
+  const limit = `(limit ${MAX_BACKUP_AGE_HOURS} h)`;
+  const found = newest
+    ? `newest ${newest.name} is ${hoursSince(newest.mtime).toFixed(1)} h old`
+    : `no pizza-pos-*.db backup in ${dir}`;
+  if (newest && hoursSince(newest.mtime) <= MAX_BACKUP_AGE_HOURS) {
+    console.log(`ok   backups: ${found} ${limit}`);
+    return true;
   }
-  const hours = (Date.now() - newest.mtime) / 3_600_000;
-  const line = `backups: newest ${newest.name} is ${hours.toFixed(1)} h old (limit ${MAX_BACKUP_AGE_HOURS} h)`;
-  if (hours > MAX_BACKUP_AGE_HOURS) {
-    console.error(`FAIL ${line}`);
-    return false;
+  const storeAge = storeAgeHours(dataDir);
+  if (storeAge <= MAX_BACKUP_AGE_HOURS) {
+    console.log(
+      `ok   backups: ${found}; the store is ${storeAge.toFixed(1)} h old, so its first daily backup is not due ${limit}`,
+    );
+    return true;
   }
-  console.log(`ok   ${line}`);
-  return true;
+  console.error(`FAIL backups: ${found} ${limit}`);
+  return false;
 }
 
 main(async () => {
