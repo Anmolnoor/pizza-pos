@@ -12,6 +12,7 @@ const {
   assertOrThrow,
   assertEqualOrThrow,
   loadFrontend,
+  rows,
   runCases,
   createApp,
   startServer,
@@ -20,6 +21,9 @@ const {
 const { initDatabase, getDatabase } = require('../main/db');
 const { kdsRecipe } = require('../main/pizza/order-recipe');
 const { registerRoutes } = require('../main/routes/index');
+const net = require('node:net');
+const { printKOTDetailed, prepareReceipt } = require('../main/printers/thermal');
+const { getEffectiveOrderItems } = require('../main/routes/printers');
 const sample = require('./fixtures/pizza-sample-menu.json');
 
 const frontend = loadFrontend();
@@ -784,6 +788,96 @@ async function main() {
           76.88,
           'and is charged 71.25 + 2 x 2.25 + 1.13',
         );
+      },
+
+    'Case 18: the kitchen ticket and the receipt print the recipe lines and the add-on lines':
+      async () => {
+        // A loopback socket stands in for the kitchen printer and keeps what it is sent.
+        const jobs: Buffer[] = [];
+        const server = net.createServer((socket: any) => {
+          const chunks: Buffer[] = [];
+          socket.on('data', (chunk: Buffer) => chunks.push(chunk));
+          socket.on('error', () => {});
+          socket.on('close', () => jobs.push(Buffer.concat(chunks)));
+        });
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+        const printer = {
+          id: 'capture',
+          name: 'Capture',
+          connection_type: 'network',
+          ip_address: '127.0.0.1',
+          port: server.address().port,
+          paper_width: 'cols-42',
+          text_size: 'normal',
+        };
+        const created = await createOrder([
+          gardenLine({
+            modifier_selection: whole('garden', {
+              removed: ['Olives'],
+              extra: ['Cheese'],
+              added: ['bacon'],
+            }),
+            addons: [toppings(2)],
+          }),
+          halfLine({ modifier_selection: oneOnEachHalf, addons: [halfToppings(2)] }),
+        ]);
+        accepted(created, 201, 'the order is accepted');
+        const order = db
+          .prepare('SELECT * FROM orders WHERE id = ?')
+          .get(created.data.order.id) as any;
+        order.items = getEffectiveOrderItems(db, String(order.id));
+        const bill = (await post('/api/bills/generate', { order_id: order.id })).data.bill;
+
+        const sent = await printKOTDetailed(order, order.items, 'Kitchen', false, printer);
+        assertOrThrow(sent.ok, 'the kitchen ticket is sent');
+        for (let waited = 0; jobs.length === 0 && waited < 5000; waited += 20)
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        server.close();
+        const ticket = rows(jobs.pop() ?? Buffer.alloc(0));
+        const receipt = rows(
+          prepareReceipt(
+            order,
+            bill,
+            { name: 'Sample Pizza Co.', country: 'CA', currency: 'CAD', timezone: 'UTC' },
+            'classic',
+          ).data,
+        );
+        const itemRows = (printed: string[]) => {
+          const from = printed.findIndex((row) => row.includes('Garden'));
+          const to = printed.findIndex((row, index) => index > from && /ADD BACON/.test(row));
+          return printed.slice(
+            from,
+            printed.indexOf('', to) > 0 ? printed.indexOf('', to) : to + 12,
+          );
+        };
+        console.log(
+          `  kitchen ticket, 42 columns:\n${itemRows(ticket)
+            .map((row) => `    |${row}`)
+            .join('\n')}`,
+        );
+        console.log(
+          `  classic receipt, 42 columns:\n${itemRows(receipt)
+            .map((row) => `    |${row}`)
+            .join('\n')}`,
+        );
+        for (const [name, printed] of [
+          ['kitchen ticket', ticket],
+          ['classic receipt', receipt],
+        ] as const) {
+          for (const line of ['NO OLIVES', 'EXTRA CHEESE', 'ADD BACON', 'EXTRA CHEESE'])
+            assertOrThrow(
+              printed.some((row) => row.trim() === line || row.trim().endsWith(line)),
+              `${name}: prints ${line}`,
+            );
+          assertOrThrow(
+            printed.some((row) => /Topping/.test(row) && /2/.test(row)),
+            `${name}: prints the Topping add-on with its count`,
+          );
+          assertOrThrow(
+            printed.some((row) => /Half topping/.test(row)),
+            `${name}: prints the Half topping add-on`,
+          );
+        }
       },
   });
 }
