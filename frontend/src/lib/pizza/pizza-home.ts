@@ -6,7 +6,7 @@ type Priced = Pick<Product, 'price' | 'variants'>;
 
 /**
  * The price most pizzas share at each size, by size name in menu order, as the cart charges it.
- * A size has none when no price is shared by two pizzas or two prices tie.
+ * A size has none unless more than half the pizzas on sale at that size, and at least two, have it.
  */
 export function standardPrices(pizzas: Priced[], online: boolean): Map<string, number> {
   const counts = new Map<string, Map<number, number>>();
@@ -19,8 +19,9 @@ export function standardPrices(pizzas: Priced[], online: boolean): Map<string, n
     }
   const standard = new Map<string, number>();
   for (const [size, prices] of counts) {
-    const [first, second] = [...prices].sort((a, b) => b[1] - a[1]);
-    if (first[1] >= 2 && first[1] !== second?.[1]) standard.set(size, first[0]);
+    const [first] = [...prices].sort((a, b) => b[1] - a[1]);
+    const total = [...prices.values()].reduce((sum, count) => sum + count, 0);
+    if (first[1] >= 2 && first[1] * 2 > total) standard.set(size, first[0]);
   }
   return standard;
 }
@@ -53,4 +54,11 @@ export function sizeLabels(names: Iterable<string>): Map<string, string> {
   const uses = new Map<string, number>();
   for (const name of unique) uses.set(short(name), (uses.get(short(name)) ?? 0) + 1);
   return new Map(unique.map((name) => [name, uses.get(short(name))! > 1 ? name : short(name)]));
+}
+
+/** One label per size for the whole menu, so a tile and the legend never name a size apart. */
+export function catalogSizeLabels(products: Pick<Product, 'variants'>[]): Map<string, string> {
+  return sizeLabels(
+    products.flatMap((product) => activeVariants(product.variants).map((v) => v.name)),
+  );
 }

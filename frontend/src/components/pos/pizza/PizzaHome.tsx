@@ -3,7 +3,7 @@
 import { SlidersHorizontal } from 'lucide-react';
 import { useTranslations } from 'use-intl';
 import { cartVariantUnitPrice } from '@/lib/cart-price';
-import { sizeLabels, tilePrice } from '@/lib/pizza/pizza-home';
+import { tilePrice } from '@/lib/pizza/pizza-home';
 import { activeVariants, isVariantSoldOut } from '@/lib/product-variants';
 import type { Category, Product, ProductVariant } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -26,6 +26,8 @@ export const PIZZA_GRID_CLASS =
 
 /** The price most pizzas share at each size, by size name: see `standardPrices`. */
 type StandardPrices = ReadonlyMap<string, number>;
+/** The label of each size on the menu, by size name: see `catalogSizeLabels`. */
+type SizeLabels = ReadonlyMap<string, string>;
 
 /**
  * The top-level categories as one row of blocks that wraps. It takes the props
@@ -86,6 +88,7 @@ function InOrder({ count }: { count: number }) {
 function SizeButtons({
   product,
   standard,
+  labels,
   disabled,
   fmt,
   onSize,
@@ -93,6 +96,7 @@ function SizeButtons({
 }: {
   product: Product;
   standard: StandardPrices;
+  labels: SizeLabels;
   disabled: boolean;
   fmt: (amount: number) => string;
   onSize: (variant: ProductVariant) => void;
@@ -102,7 +106,6 @@ function SizeButtons({
   // What the cart charges for the size: its online price on an order for an online platform.
   const online = useOnlineOrder();
   const variants = activeVariants(product.variants);
-  const labels = sizeLabels(variants.map((variant) => variant.name));
   return (
     // More sizes than a tile is wide wrap to a second row; each button keeps its 48 px.
     <div className={cn('flex flex-wrap gap-1', className)}>
@@ -121,12 +124,12 @@ function SizeButtons({
               price: fmt(cartVariantUnitPrice({ product, variant }, online)),
             })}
             className={cn(
-              'group/size flex min-h-12 min-w-12 flex-1 flex-col items-center justify-center rounded-lg border border-border bg-muted/60 px-1 text-sm font-bold leading-tight text-foreground transition-colors hover:border-brand hover:bg-brand hover:text-white active:border-brand active:bg-brand active:text-white disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-muted/60 disabled:hover:text-foreground',
+              'group/size flex min-h-12 min-w-12 scroll-mt-28 flex-1 flex-col items-center justify-center rounded-lg border border-border bg-muted/60 px-1 text-sm font-bold leading-tight text-foreground transition-colors hover:border-brand hover:bg-brand hover:text-white active:border-brand active:bg-brand active:text-white disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-muted/60 disabled:hover:text-foreground',
               soldOut && 'line-through',
               FOCUS,
             )}
           >
-            {labels.get(variant.name)}
+            {labels.get(variant.name) ?? variant.name}
             {/* Only a price that differs from the one in the Half & Half legend is shown. */}
             {price !== null && (
               <span className="text-[11px] tabular-nums text-brand group-enabled/size:group-hover/size:text-white group-enabled/size:group-active/size:text-white dark:text-indigo-300">
@@ -148,6 +151,7 @@ export function PizzaTile({
   product,
   number,
   standard,
+  labels,
   inCart,
   disabled,
   fmt,
@@ -157,6 +161,7 @@ export function PizzaTile({
   product: Product;
   number?: number;
   standard: StandardPrices;
+  labels: SizeLabels;
   inCart: number;
   disabled: boolean;
   fmt: (amount: number) => string;
@@ -168,20 +173,20 @@ export function PizzaTile({
     <div
       data-testid="pizza-tile"
       className={cn(
-        'group flex flex-col rounded-xl border bg-card transition-colors has-[[data-customize]:enabled:hover]:bg-muted/40',
+        'group flex flex-col rounded-xl border bg-card transition-colors',
         CUSTOMIZE_FOCUS,
         inCart > 0 ? 'border-brand' : 'border-border',
       )}
     >
       {/* The top 48 px opens the sheet; the size buttons sit below it, never over it. */}
-      <div className="relative min-h-12 px-2 pt-1.5">
+      <div className="relative min-h-12 rounded-t-xl px-2 pt-1.5 transition-colors has-[[data-customize]:enabled:hover]:bg-muted/40">
         <button
           type="button"
           data-customize
           disabled={disabled}
           onClick={onCustomize}
           aria-label={t('customizeNamed', { name: product.name })}
-          className="absolute inset-0 outline-hidden disabled:cursor-not-allowed"
+          className="absolute inset-0 scroll-mt-28 outline-hidden disabled:cursor-not-allowed"
         />
         {/* The number and the icon float, no taller than a line, so the name's second line has the whole width. */}
         <div className={cn('pointer-events-none relative min-w-0', disabled && 'opacity-50')}>
@@ -206,6 +211,7 @@ export function PizzaTile({
       <SizeButtons
         product={product}
         standard={standard}
+        labels={labels}
         disabled={disabled}
         fmt={fmt}
         onSize={onSize}
@@ -222,6 +228,7 @@ export function PizzaTile({
 export function HalfAndHalfTile({
   product,
   standard,
+  labels,
   inCart,
   disabled,
   fmt,
@@ -229,13 +236,13 @@ export function HalfAndHalfTile({
 }: {
   product: Product;
   standard: StandardPrices;
+  labels: SizeLabels;
   inCart: number;
   disabled: boolean;
   fmt: (amount: number) => string;
   onSize: (variant: ProductVariant) => void;
 }) {
   const t = useTranslations('pizza');
-  const labels = sizeLabels(standard.keys());
   return (
     <div
       data-testid="pizza-half-tile"
@@ -255,6 +262,7 @@ export function HalfAndHalfTile({
       <SizeButtons
         product={product}
         standard={standard}
+        labels={labels}
         disabled={disabled}
         fmt={fmt}
         onSize={onSize}
@@ -267,7 +275,7 @@ export function HalfAndHalfTile({
           <span className="font-medium">{t('standardPrices')}</span>
           {[...standard].map(([size, price]) => (
             <span key={size} className="flex items-center gap-1 whitespace-nowrap">
-              <span aria-hidden>{labels.get(size)}</span>
+              <span aria-hidden>{labels.get(size) ?? size}</span>
               <span className="sr-only">{size}</span>
               <span className="font-semibold tabular-nums text-foreground">{fmt(price)}</span>
             </span>

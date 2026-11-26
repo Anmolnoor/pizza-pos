@@ -6,7 +6,7 @@ import { useTranslations } from 'use-intl';
 import { customizeOne, replaceCartLine, sheetAddons } from '@/lib/pizza/cart-lines';
 import { holdPizzaCatalog } from '@/lib/pizza/catalog';
 import { PIZZA_PRODUCT_PREFIX } from '@/lib/pizza/line-recipe';
-import { standardPrices } from '@/lib/pizza/pizza-home';
+import { catalogSizeLabels, standardPrices } from '@/lib/pizza/pizza-home';
 import { newSheet, sheetReducer, type SheetLine, type SheetState } from '@/lib/pizza/sheet-state';
 import { chargedAddons } from '@/lib/pizza/toppings';
 import type { CartItem, Category, Product } from '@/lib/types';
@@ -140,6 +140,9 @@ export function usePizzaPos(
     catalog.pizzas.find((pizza) => PIZZA_PRODUCT_PREFIX + pizza.id === product.id);
   const sizeOf = (product: Product, variantId: string) => variantId.slice(product.id.length + 1);
   const standard = standardPrices(products.filter(menuPizza), online);
+  const labels = catalogSizeLabels(
+    products.filter((product) => product.id === HALF_AND_HALF || menuPizza(product)),
+  );
 
   const save = (line: SheetLine, state: SheetState, asButton = false) => {
     const product = products.find((entry) => entry.id === line.productId);
@@ -220,6 +223,7 @@ export function usePizzaPos(
             key={product.id}
             product={product}
             standard={displayed.some(menuPizza) ? standard : NO_STANDARD}
+            labels={labels}
             inCart={inCart}
             disabled={disabled}
             fmt={fmt}
@@ -236,6 +240,7 @@ export function usePizzaPos(
           product={product}
           number={pizza.number}
           standard={displayed.some((entry) => entry.id === HALF_AND_HALF) ? standard : NO_STANDARD}
+          labels={labels}
           inCart={inCart}
           disabled={disabled}
           fmt={fmt}

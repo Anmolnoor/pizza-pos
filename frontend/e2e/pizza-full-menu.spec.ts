@@ -424,6 +424,51 @@ test('the price legend stays on screen at the end of the list', async ({ page })
   await shot(page, 'full-menu-scrolled.png');
 });
 
+test('a tile control reached by the keyboard is never under the Half & Half row', async ({
+  page,
+}) => {
+  const tiles = page.getByTestId('pizza-tile');
+  const steps = PIZZAS * 4 - 1;
+  await page.getByTestId('pos-catalog-scroll').evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await tiles.last().getByRole('button').last().focus();
+  /** Where the focused control sits, or null once focus has left the pizza tiles. */
+  const focused = () =>
+    page.evaluate(() => {
+      const control = document.activeElement as HTMLElement | null;
+      if (!control?.closest('[data-testid="pizza-tile"]')) return null;
+      const half = document.querySelector('[data-testid="pizza-half-tile"]')!;
+      const box = control.getBoundingClientRect();
+      const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+      return {
+        name: control.getAttribute('aria-label'),
+        top: box.top,
+        below: half.getBoundingClientRect().bottom,
+        hit: !!hit && control.contains(hit),
+      };
+    });
+  const check = async (key: string) => {
+    const seen: string[] = [];
+    for (let step = 0; step < steps; step += 1) {
+      await page.keyboard.press(key);
+      const at = await focused();
+      expect(at, `${key} ${step + 1} stays on a pizza tile`).not.toBeNull();
+      expect(at!.top, `${at!.name} is below the Half & Half row`).toBeGreaterThanOrEqual(
+        at!.below - 1,
+      );
+      expect(at!.hit, `${at!.name} is not covered`).toBe(true);
+      seen.push(at!.name!);
+    }
+    return seen;
+  };
+  const up = await check('Shift+Tab');
+  expect(up.at(-1)).toBe('Customize Garden');
+  const down = await check('Tab');
+  expect(down.at(-1)).toMatch(new RegExp(`^${nameOf(PIZZAS)}, `));
+  await shot(page, 'full-menu-keyboard-focus.png');
+});
+
 test("a Half & Half priced apart shows its own prices beside the pizzas' legend", async ({
   page,
 }) => {

@@ -9,7 +9,12 @@ const { assertEqualOrThrow, loadFrontend, runCases } = require('./helpers/pizza-
 const { isDeepStrictEqual } = require('node:util');
 
 loadFrontend();
-const { sizeLabels, standardPrices, tilePrice } = require('../frontend/src/lib/pizza/pizza-home');
+const {
+  catalogSizeLabels,
+  sizeLabels,
+  standardPrices,
+  tilePrice,
+} = require('../frontend/src/lib/pizza/pizza-home');
 
 const same = (actual: unknown, expected: unknown, message: string) =>
   assertEqualOrThrow(
@@ -145,5 +150,55 @@ runCases('pizza-home', {
       'Small and S are told apart, Medium still shortens',
     );
     same(entries(sizeLabels(['Large', 'Large'])), [['Large', 'L']], 'a name twice is one size');
+  },
+
+  'Case 9: a price is the standard only when more than half the pizzas have it': () => {
+    const large = (prices: number[]) =>
+      entries(
+        standardPrices(
+          prices.map((price) => pizza([15, 19, price])),
+          false,
+        ),
+      )[2];
+    same(large([23, 23, 25, 26, 27]), undefined, 'two of five is not most pizzas');
+    same(large([23, 23, 23, 25, 26]), ['Large', 23], 'three of five is');
+    same(large([23, 23, 25, 25]), undefined, 'half is not most');
+  },
+
+  'Case 10: every tile and the legend label a size the same way, from the whole menu': () => {
+    const withL = (prices: [number, number, number], price: number, extra = {}) => {
+      const product = pizza(prices);
+      product.variants.push(variant('L', price, extra));
+      return product;
+    };
+    const plain = pizza([15, 19, 23]);
+    const labelsOf = (menu: ReturnType<typeof pizza>[]) =>
+      entries(catalogSizeLabels(menu)).filter(([name]) => name === 'Large' || name === 'L');
+    const both = [
+      ['Large', 'Large'],
+      ['L', 'L'],
+    ];
+    same(labelsOf([plain, withL([15, 19, 23], 21)]), both, 'a pizza with no L still reads Large');
+    same(
+      labelsOf([plain, withL([15, 19, 23], 21, { is_active: false }), withL([15, 19, 23], 22)]),
+      both,
+      'an L switched off on one pizza is still on the menu',
+    );
+    const menu = [withL([15, 19, 23], 20), withL([15, 19, 23], 21), withL([15, 19, 23], 22)];
+    same(
+      [...standardPrices(menu, false).keys()],
+      ['Small', 'Medium', 'Large'],
+      'L has no standard',
+    );
+    same(labelsOf(menu), both, 'the legend still tells Large from L');
+    same(
+      entries(catalogSizeLabels([withL([15, 19, 23], 21, { is_active: false })])),
+      [
+        ['Small', 'S'],
+        ['Medium', 'M'],
+        ['Large', 'L'],
+      ],
+      'a size on sale nowhere takes no label',
+    );
   },
 });
