@@ -21,7 +21,7 @@ export function importMenu(db: Database, catalog: PizzaCatalog): { created: numb
 
 **2. `main/routes/pizza.ts`**, mounted with one line in the server's route index:
 
-- `POST /api/pizza/menu/import`: the body is the menu file. It is parsed with `parseMenuFile` before anything is written; a `MenuError` answers 400 with its `path` and message and writes nothing. Success answers with the summary. Allowed for the same permission that lets a user edit products; say which one you used.
+- `POST /api/pizza/menu/import`: the body is the menu file. It is parsed with `parseMenuFile` before anything is written; a `MenuError` answers 400 with its `path` and message and writes nothing. Success answers with the summary. Allowed for the bulk import permission, `catalog.import-export`.
 - `GET /api/pizza/catalog`: the stored `PizzaCatalog`, for any signed-in POS user; 404 when no menu has been loaded.
 
 ## Rules
