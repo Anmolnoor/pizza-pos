@@ -367,9 +367,9 @@ async function main() {
       const originalWarn = console.warn;
       console.warn = (...args: unknown[]) => warned.push(args.map(String).join(' '));
       try {
-        // The print route prints the items the client sends. None of these can be written out.
+        // None of these can be written out.
         usePrinter(PRINTERS[0]);
-        const [garden, , island] = placed.order.items;
+        const [garden] = placed.order.items;
         const part = { pizzaId: 'garden', removed: [] };
         const malformed: Record<string, object> = {
           'a pizza with neither a whole nor halves': { kind: 'pizza' },
@@ -397,35 +397,43 @@ async function main() {
             pops: 3,
           },
         };
-        const badItems = Object.values(malformed).map((recipe, index) => ({
-          ...garden,
-          id: 9000 + index,
-          modifier_selection: recipe,
-        }));
+        // Lines stored in a shape that cannot be written out, as damaged data would be. The
+        // request still carries the readable recipes the browser last saw.
+        const shapes = Object.keys(malformed);
+        const damaged = await placedOrder([
+          ...shapes.map(() => line('garden', whole('garden', ['Olives']))),
+          line('island', whole('island', ['Ham'])),
+        ]);
+        const badItems = damaged.order.items.slice(0, shapes.length);
+        badItems.forEach((item: any, index: number) =>
+          db
+            .prepare('UPDATE order_items SET modifier_selection = ? WHERE id = ?')
+            .run(JSON.stringify(malformed[shapes[index]]), item.id),
+        );
         const sent = await post('/api/printers/print-kot', {
-          orderId: placed.order.id,
+          orderId: damaged.order.id,
           stationName: 'Kitchen',
-          items: [...badItems, island],
+          items: damaged.order.items,
         });
-        assertEqualOrThrow(sent.status, 200, 'client items: the ticket is sent');
+        assertEqualOrThrow(sent.status, 200, 'stored lines: the ticket is sent');
         const ticket = await capture.lastJob();
         assertEqualOrThrow(
           ticket.filter((row) => row === NOT_PRINTED).length,
           badItems.length,
-          'client items: each unreadable recipe leaves the warning line',
+          'stored lines: each unreadable recipe leaves the warning line',
         );
-        assertOrThrow(ticket.includes(`${INDENT}NO HAM`), 'client items: the good recipe prints');
-        assertOrThrow(!ticket.join('\n').includes('NO OLIVES'), 'client items: nothing is guessed');
+        assertOrThrow(ticket.includes(`${INDENT}NO HAM`), 'stored lines: the good recipe prints');
+        assertOrThrow(!ticket.join('\n').includes('NO OLIVES'), 'stored lines: nothing is guessed');
         // A raster-capable printer renders the ticket twice, so each is logged at least once.
-        Object.keys(malformed).forEach((shape, index) => {
+        shapes.forEach((shape, index) => {
           assertOrThrow(
-            warned.some((entry) => entry.includes(`order item ${9000 + index}:`)),
-            `client items: the log names the item with ${shape}`,
+            warned.some((entry) => entry.includes(`order item ${badItems[index].id}:`)),
+            `stored lines: the log names the item with ${shape}`,
           );
         });
         assertOrThrow(
-          !warned.some((entry) => entry.includes(`order item ${island.id}:`)),
-          'client items: the good recipe is not logged',
+          !warned.some((entry) => entry.includes(`order item ${damaged.order.items.at(-1).id}:`)),
+          'stored lines: the good recipe is not logged',
         );
 
         // The stored menu is gone: no recipe can be written out.
@@ -447,6 +455,75 @@ async function main() {
         writePizzaMenu(db, JSON.stringify(catalog));
       }
     },
+
+    'Case 4b: the ticket prints the saved lines, whatever item bodies the request carries':
+      async () => {
+        usePrinter(PRINTERS[0]);
+        const garden = {
+          product_id: 'pz-garden',
+          variant_id: 'pz-garden-large',
+          quantity: 2,
+          modifier_selection: whole('garden', ['Olives']),
+          special_instructions: 'Ring the bell',
+        };
+        const island = {
+          product_id: 'pz-island',
+          variant_id: 'pz-island-large',
+          quantity: 1,
+          modifier_selection: whole('island', ['Ham']),
+        };
+        const placed = await placedOrder([garden, island]);
+        const other = await placedOrder([
+          { ...island, modifier_selection: whole('island', ['Pineapple']) },
+        ]);
+        const [savedGarden] = placed.order.items;
+        const print = async (items?: object[]) => {
+          const sent = await post('/api/printers/print-kot', {
+            orderId: placed.order.id,
+            stationName: 'Kitchen',
+            ...(items ? { items } : {}),
+          });
+          assertEqualOrThrow(sent.status, 200, 'the ticket is sent');
+          return (await capture.lastJob()).join('\n');
+        };
+
+        // A browser that last saw the line before its removal was saved, and more besides.
+        const stale = await print([
+          {
+            ...savedGarden,
+            product_name: 'Free Pizza',
+            quantity: 9,
+            modifier_selection: whole('garden', []),
+            special_instructions: 'No charge',
+            addons: [{ name: 'Extra cheese', quantity: 1 }],
+          },
+          { ...savedGarden, id: 987654, product_name: 'Ghost Pizza' },
+          other.order.items[0],
+        ]);
+        assertOrThrow(/2x\s+Garden/.test(stale), 'stale body: the saved name and quantity print');
+        assertOrThrow(stale.includes(`${INDENT}NO OLIVES`), 'stale body: the saved removal prints');
+        assertOrThrow(stale.includes('Ring the bell'), 'stale body: the saved note prints');
+        for (const made of ['Free Pizza', '9x', 'No charge', 'Extra cheese', 'Ghost Pizza']) {
+          assertOrThrow(
+            !stale.includes(made),
+            `stale body: "${made}" from the request is not printed`,
+          );
+        }
+        assertOrThrow(
+          !stale.includes('NO PINEAPPLE'),
+          'stale body: a line of another order is not printed',
+        );
+        assertOrThrow(
+          !stale.includes('NO HAM'),
+          'the request still chooses the lines: one that was not asked for stays off the ticket',
+        );
+
+        const all = await print();
+        assertOrThrow(
+          all.includes(`${INDENT}NO OLIVES`) && all.includes(`${INDENT}NO HAM`),
+          'with no items in the request, every saved line prints',
+        );
+      },
 
     'Case 5: a stored recipe still prints after the menu has changed under it': async () => {
       const placed = await placedOrder([

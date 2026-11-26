@@ -1479,8 +1479,13 @@ router.post(
       const warnings: NonNullable<Awaited<ReturnType<typeof printKOTDetailed>>['warnings']> = [];
       let failure: Awaited<ReturnType<typeof printKOTDetailed>> | null = null;
       let failedPrinter: any = printer;
-      const kotSourceItems = (Array.isArray(items) ? items : orderItems).filter((item: any) =>
-        isKotItemPending(item?.status),
+      // The request only chooses lines; what prints is the saved order.
+      const requestedIds = Array.isArray(items)
+        ? new Set(items.map((item: any) => String(item?.id)))
+        : null;
+      const kotSourceItems = orderItems.filter(
+        (item: any) =>
+          (!requestedIds || requestedIds.has(String(item.id))) && isKotItemPending(item.status),
       );
 
       if (stationName) {
