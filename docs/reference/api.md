@@ -735,7 +735,8 @@ A row the previous load wrote and this one does not is switched off (`is_active 
 `deactivated`; it is not deleted, because orders point at it, and its `pizza_products` row stays. A
 side that loses its modifier keeps the link to its add-on group; the group is switched off, so the
 side sells without the choice. A category the menu no longer uses stays on while it still holds an
-active product, and the first load after its last active product is gone switches it off. A later
+active product or an active sub-category, and the first load after the last of them is gone
+switches it off. A later
 file that has the entry again switches it back on. Any other row that left the file and was
 switched on again by hand stays on through later loads, until a file has it again. The previous
 load's rows are worked out from the catalogue it stored; while that catalogue is unreadable, every
