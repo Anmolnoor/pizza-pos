@@ -80,14 +80,18 @@ async function placeOrder(request: APIRequestContext, items: object[]): Promise<
 }
 
 async function openKds(page: Page, view: 'Tabs' | 'Kanban') {
-  await page.goto(`${E2E_KDS_BASE_URL}/kds-standalone`);
-  await expect(
-    page.getByTestId('kds-login-form').or(page.getByTestId('kds-workspace')),
-  ).toBeVisible();
-  if (await page.getByTestId('kds-login-form').isVisible()) {
-    await page.getByTestId('kds-login-email').fill('owner@flo.local');
-    await page.getByTestId('kds-login-password').fill(E2E_PASSWORD);
-    await page.getByTestId('kds-login-submit').click();
+  // A page already on the display only switches view. Loading it a second time shows the sign-in
+  // form for a moment while the session is restored, and filling that form races the workspace.
+  if (!(await page.getByTestId('kds-workspace').isVisible())) {
+    await page.goto(`${E2E_KDS_BASE_URL}/kds-standalone`);
+    await expect(
+      page.getByTestId('kds-login-form').or(page.getByTestId('kds-workspace')),
+    ).toBeVisible();
+    if (await page.getByTestId('kds-login-form').isVisible()) {
+      await page.getByTestId('kds-login-email').fill('owner@flo.local');
+      await page.getByTestId('kds-login-password').fill(E2E_PASSWORD);
+      await page.getByTestId('kds-login-submit').click();
+    }
   }
   await expect(page.getByTestId('kds-workspace')).toBeVisible();
   await page.getByRole('button', { name: view, exact: true }).click();
