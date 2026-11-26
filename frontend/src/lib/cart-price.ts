@@ -215,7 +215,9 @@ export const roundCartMoney = roundMoney;
 /**
  * A draft's total as the server charges it: each line is rounded to the currency before the
  * lines are added up. `toPrecision` sheds binary noise first, so a true half cent rounds up as
- * the server's decimal arithmetic rounds it.
+ * the server's decimal arithmetic rounds it. This is a display estimate: it is not decimal
+ * arithmetic, can differ from the server by a cent at a price just under a half-cent boundary,
+ * and the server alone decides what is charged.
  */
 export function draftLinesTotal(
   lines: ReadonlyArray<{

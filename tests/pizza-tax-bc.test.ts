@@ -599,6 +599,67 @@ async function main() {
       },
     );
 
+    await testCase(
+      '13. A line stored before amounts were rounded is discounted as 32.10',
+      async () => {
+        const side = productIds['Sample side'];
+        const db = getDatabase();
+        const legacyOrder = async () => {
+          const created = await api(baseUrl, '/api/orders', {
+            method: 'POST',
+            headers,
+            body: { type: 'takeaway', items: [{ product_id: side, quantity: 3 }] },
+          });
+          assertEqualOrThrow(created.status, 201, 'an order of three is created');
+          // As the line and the order were stored before this change.
+          db.prepare('UPDATE order_items SET subtotal = 32.099999999999994 WHERE order_id = ?').run(
+            created.data.order.id,
+          );
+          db.prepare('UPDATE orders SET subtotal = 32.099999999999994 WHERE id = ?').run(
+            created.data.order.id,
+          );
+          return created.data.order;
+        };
+        const stored = (table: string, id: number) => {
+          const row = db
+            .prepare(
+              `SELECT subtotal, discount_amount, tax_amount, total FROM ${table} WHERE id = ?`,
+            )
+            .get(id) as any;
+          return JSON.stringify([row.subtotal, row.discount_amount, row.tax_amount, row.total]);
+        };
+        const asFresh = '[32.1,1.61,1.53,32.02]';
+
+        const onOrder = await legacyOrder();
+        const orderDiscount = await api(baseUrl, `/api/orders/${onOrder.id}/discount`, {
+          method: 'POST',
+          headers,
+          body: { discount_type: 'percentage', discount_value: 5 },
+        });
+        assertEqualOrThrow(orderDiscount.status, 200, 'order discount: applied');
+        assertEqualOrThrow(
+          stored('orders', onOrder.id),
+          asFresh,
+          'order discount: 1.61, as a new line',
+        );
+
+        const onBill = await legacyOrder();
+        const bill = await api(baseUrl, '/api/bills/generate', {
+          method: 'POST',
+          headers,
+          body: { order_id: onBill.id },
+        });
+        assertEqualOrThrow(bill.status, 201, 'bill discount: the bill is generated');
+        const billDiscount = await api(baseUrl, `/api/bills/${bill.data.bill.id}/discount`, {
+          method: 'POST',
+          headers,
+          body: { type: 'percentage', value: 5 },
+        });
+        assertEqualOrThrow(billDiscount.status, 200, 'bill discount: applied');
+        assertEqualOrThrow(stored('bills', bill.data.bill.id), asFresh, 'bill discount: 1.61 too');
+      },
+    );
+
     await testCase('9. The tax configuration is recorded as the owner saving it', () => {
       const audit = getDatabase()
         .prepare(

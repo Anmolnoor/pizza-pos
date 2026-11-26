@@ -64,6 +64,12 @@ Everything monetary is resolved server-side inside one transaction:
 - A percentage or flat discount is worked out by `discountOn()` in the same file: in decimal
   arithmetic, rounded half-up, never more than its base. The item, order, and bill discount
   routes, the recalculation after an order or a line changes, and the tax preview all use it.
+  `calculateOrderTotals()` in [`main/services/orders.ts`](../../main/services/orders.ts) rounds
+  each stored line subtotal to the currency before adding the lines up, so a line stored as
+  `32.099999999999994` is discounted and taxed as `32.10`.
+- An item discount and an order discount of the same percentage can differ by a cent in tax: an
+  item discount taxes the discounted line, while an order discount prorates tax that was already
+  rounded per line (1.52 against 1.53 on three at 10.70 with 5% off and 5% tax).
 - Quantity rules are checked per sale unit, including fractional and weight-precision products.
 - Stock deduction and recipe depletion are written in the same transaction for immediate orders
   (scheduled orders defer stock and recipe depletion until kitchen release), so the order and its
@@ -129,9 +135,11 @@ Later changes to the line keep the recipe:
   stock deductions are reused as a quantity reduction reuses them. Nothing is worked out from the
   current catalog or by the tax engine, so a menu load, a price override, or a tax change between
   the sale and the edit does not move the line's money, and the edit is accepted when the
-  product, its size, or one of its add-ons has since been switched off. A recipe that differs from
-  the saved one is checked against the current menu, so it is refused for a pizza the menu no
-  longer has; the saved recipe sent back unchanged is not checked. Any other replacement, a new
+  product, its size, or one of its add-ons has since been switched off. Two recipes are the
+  same when `recipeKey()` gives them the same key, whatever the order of their keys, removals,
+  and pops. A recipe that differs from the saved one, an explicit `null` that clears it included,
+  is checked against the current menu and needs a product that is still switched on, so it is
+  refused for a retired pizza; the saved recipe sent back is not checked. Any other replacement, a new
   size or one more add-on included, is a new sale: priced, taxed, and validated from the current
   catalog.
 - A replacement by another product does not carry the recipe over, and a line whose

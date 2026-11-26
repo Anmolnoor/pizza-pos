@@ -1,7 +1,10 @@
 /** A sold pizza or deal line whose recipe or note changes keeps the money it was sold at. */
 import type Database from 'better-sqlite3';
 import type { TaxResult } from '../services/tax';
+import { assertProductOnMenu } from '../routes/orders-validation';
 import { checkLineRecipe } from './order-recipe';
+import { recipeKey } from '../../shared/pizza/recipe';
+import type { OrderLineRecipe } from '../../shared/pizza/types';
 
 type Addon = { id?: unknown; quantity?: unknown } | null | undefined;
 
@@ -49,10 +52,27 @@ const parsed = (text: unknown): unknown => {
 };
 
 /**
+ * Whether two `modifier_selection` values say the same thing. Two recipes are compared by
+ * `recipeKey`, which needs no menu and ignores key order and the order removals and pops were
+ * tapped in; the order of halves and of a deal's pizzas still counts.
+ */
+function sameSelection(sent: unknown, sold: unknown): boolean {
+  const isRecipe = (value: unknown): value is OrderLineRecipe =>
+    ['pizza', 'deal'].includes((value as { kind?: string } | null)?.kind as string);
+  try {
+    if (isRecipe(sent) && isRecipe(sold)) return recipeKey(sent) === recipeKey(sold);
+  } catch {
+    return false;
+  }
+  return JSON.stringify(sent) === JSON.stringify(sold);
+}
+
+/**
  * Turns a recipe-only replacement into the sold line with a new recipe or note: the size, unit
  * price and item discount are copied from the saved row, never worked out again. A recipe that
- * differs from the saved one is checked against the menu; the saved one is not, so a pizza the
- * menu has since lost can still take a note.
+ * differs from the saved one, a cleared one included, is checked against the menu and needs a
+ * product that is still sold; the saved one is not checked, so a pizza the menu has since lost
+ * can still take a note.
  */
 export function carrySoldLine(
   db: Database.Database,
@@ -60,8 +80,17 @@ export function carrySoldLine(
   soldRow: object,
 ): void {
   const sold = soldRow as Record<string, unknown>;
-  if (JSON.stringify(line.modifier_selection ?? null) !== (sold.modifier_selection ?? 'null')) {
+  const soldRecipe = parsed(sold.modifier_selection);
+  if (sameSelection(line.modifier_selection ?? null, soldRecipe)) {
+    line.modifier_selection = soldRecipe;
+  } else {
     checkLineRecipe(db, [line], line, (sold.variant_id as string | null) ?? undefined);
+    // A plain pizza may drop its recipe without a look at the menu, so a retired one is stopped here.
+    assertProductOnMenu(
+      (db
+        .prepare('SELECT name, is_active, deleted_at FROM products WHERE id = ?')
+        .get(line.product_id) ?? {}) as Parameters<typeof assertProductOnMenu>[0],
+    );
   }
   Object.assign(line, {
     variant_id: sold.variant_id,

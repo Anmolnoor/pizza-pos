@@ -856,6 +856,60 @@ async function main() {
             'That pizza is not on the menu. Pick another pizza',
             'and refused, because the menu no longer has the pizza',
           );
+
+          // The same recipe with its keys in another order and a removal repeated is no change.
+          const reordered = await edit(order.id, line.id, {
+            replacement: islandLine({
+              special_instructions: 'Side door',
+              modifier_selection: {
+                whole: { removed: ['Ham', 'Ham'], pizzaId: 'island' },
+                sizeId: 'large',
+                v: 1,
+                kind: 'pizza',
+              },
+            }),
+          });
+          assertEqualOrThrow(reordered.status, 200, 'the same recipe, keys reordered: accepted');
+          const sideDoor = liveRows(order.id).find(
+            (row) => row.special_instructions === 'Side door',
+          );
+          assertEqualOrThrow(
+            sideDoor.modifier_selection,
+            stored(whole('island', ['Ham'])),
+            'and stored as it was sold',
+          );
+          // Clearing the recipe is a change of recipe: the pizza must still be on the menu.
+          const cleared = await edit(order.id, sideDoor.id, {
+            replacement: islandLine({
+              special_instructions: 'Side door',
+              modifier_selection: null,
+            }),
+          });
+          assertEqualOrThrow(cleared.status, 400, 'an explicit null on a retired pizza is refused');
+          assertEqualOrThrow(
+            cleared.data.error,
+            'Island is not on the menu. Pick another item',
+            'with a message the cashier can act on',
+          );
+          assertEqualOrThrow(
+            liveRows(order.id).find((row) => row.id === sideDoor.id)?.modifier_selection,
+            stored(whole('island', ['Ham'])),
+            'and the line keeps its recipe',
+          );
+          const stillBare = liveRows(order.id).find(
+            (row) => row.special_instructions === 'Back door',
+          );
+          const nullOnBare = await edit(order.id, stillBare.id, {
+            replacement: islandLine({
+              special_instructions: 'Front door',
+              modifier_selection: null,
+            }),
+          });
+          assertEqualOrThrow(
+            nullOnBare.status,
+            200,
+            'null on a line that has no recipe is no change',
+          );
         } finally {
           retire(1);
           writePizzaMenu(db, JSON.stringify(catalog));
