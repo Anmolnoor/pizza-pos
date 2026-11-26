@@ -533,7 +533,7 @@ runCases('pizza-cart-store', {
       }
     },
 
-  'Case 10c: a session boundary forgets the catalogue, and the next load fetches again':
+  'Case 10c: signing in or out forgets the catalogue, and the next load fetches again':
     async () => {
       const { getPizzaCatalog, loadPizzaCatalog, reloadPizzaCatalog } = pizzaCatalog();
       const { notifySessionBoundary } = require('../frontend/src/store/session-events');
@@ -543,6 +543,17 @@ runCases('pizza-cart-store', {
       try {
         await reloadPizzaCatalog();
         assertOrThrow(getPizzaCatalog() === catalog, 'a catalogue is held');
+        const held = route.calls.length;
+        notifySessionBoundary('lock');
+        assertOrThrow(getPizzaCatalog() === catalog, 'locking the screen keeps it');
+        notifySessionBoundary('pin-login');
+        assertOrThrow(getPizzaCatalog() === catalog, 'and so does unlocking with a PIN');
+        assertOrThrow((await loadPizzaCatalog()) === catalog, 'a load after the unlock');
+        assertEqualOrThrow(route.calls.length, held, 'answers from memory, with no request');
+        notifySessionBoundary('login');
+        assertEqualOrThrow(getPizzaCatalog(), null, 'signing in forgets it');
+        assertOrThrow((await loadPizzaCatalog()) === catalog, 'and the next load fetches again');
+        assertEqualOrThrow(route.calls.length, held + 1, 'with a request of its own');
         notifySessionBoundary('logout');
         assertEqualOrThrow(getPizzaCatalog(), null, 'signing out forgets it');
         answer = async () => ({ data: smaller });

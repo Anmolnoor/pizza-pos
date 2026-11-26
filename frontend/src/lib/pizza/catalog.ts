@@ -1,6 +1,6 @@
 /**
- * The pizza menu the server holds, fetched once and kept until the session
- * ends. The screen that loads a new menu into the POS must call
+ * The pizza menu the server holds, fetched once and kept until someone signs
+ * in or out. The screen that loads a new menu into the POS must call
  * `reloadPizzaCatalog()`; nothing else notices that the menu changed.
  */
 import api from '@/lib/api';
@@ -45,7 +45,9 @@ export function loadPizzaCatalog(): Promise<PizzaCatalog | null> {
 }
 
 // A sign-in may be another store, and a remembered "no menu" must not outlive the session.
-onSessionBoundary(() => {
+// Locking and unlocking with a PIN keep the store and its menu, so the catalogue stays.
+onSessionBoundary((event) => {
+  if (event !== 'login' && event !== 'logout') return;
   catalog = null;
   request = null;
 });
