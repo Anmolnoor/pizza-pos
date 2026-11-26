@@ -165,7 +165,7 @@ CREATE TABLE IF NOT EXISTS pizza_quick_buttons (
 - A recipe is optional on a pizza product: a plain pizza is just the product, its size variant and its dips. A half-and-half product and a deal product require one.
 - The line's product and variant must agree with the recipe, checked through `pizza_products` and the derived ids: `sizeId` matches the variant; `whole.pizzaId` is the product's menu id and `whole` is never on the half-and-half product; `halves` only on the half-and-half product; `dealId` is the deal product's menu id.
 - A replacement edit that sends no recipe keeps the stored one.
-- Print data gets `detailLines` and the heading from `ticketLines`.
+- Print data gets `detailLines` from `ticketLines`, called with the printer's layout column count. The item heading stays FloCafe's own product and variant name.
 
 ## Lanes and file ownership
 

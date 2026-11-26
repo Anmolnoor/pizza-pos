@@ -12015,6 +12015,7 @@ export function projectKdsItem(item: any, restricted: boolean): any {
     'quantity',
     'status',
     'special_instructions',
+    'modifier_selection',
     'created_at',
     'updated_at',
     'order_number',
