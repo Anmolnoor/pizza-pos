@@ -38,7 +38,7 @@ import { formatItemHeading } from '@/lib/printer/item-heading';
 import { generateCartItemId } from '@/lib/cart-identity';
 import { productNeedsCustomizer, scannedVariantNeedsCustomizer } from '@/lib/product-variants';
 import AddonModal from '@/components/pos/AddonModal';
-import { SentPizzaLine } from '@/components/pos/pizza/SentPizzaLine';
+import { SentPizzaLine, useFetchedPizzaMenu } from '@/components/pos/pizza/SentPizzaLine';
 import { sentToPos } from '@/lib/pizza/sent-to-pos';
 import ProductGrid from '@/components/pos/ProductGrid';
 import type { PosCategorySort, PosItemSort } from '@/lib/pos-sort';
@@ -219,6 +219,7 @@ export default function ServerStandalonePage() {
   const [pinError, setPinError] = useState('');
   const [signInMode, setSignInMode] = useState<'pin' | 'password' | null>(null);
   const [user, setUser] = useState<User | null>(null);
+  const pizzaMenu = useFetchedPizzaMenu(api, user?.id);
   const [disabled, setDisabled] = useState(false);
   const [regional, setRegional] = useState<ServerAppInfo | null>(null);
 
@@ -1644,7 +1645,7 @@ export default function ServerStandalonePage() {
                     {formatItemHeading(item.product_name, item.variant_selection)}
                   </span>
                 </div>
-                <SentPizzaLine item={item} className="ps-6" />
+                <SentPizzaLine item={item} menu={pizzaMenu} className="ps-6" />
               </div>
             ))}
           </div>

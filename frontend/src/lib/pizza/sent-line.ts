@@ -25,6 +25,8 @@ export interface SentItem {
   special_instructions?: string | null;
   edit_version?: number;
   modifier_selection?: unknown;
+  price_overridden?: number | boolean;
+  discount_amount?: number | null;
 }
 
 export interface SentAddon {
@@ -100,9 +102,25 @@ export function sentLine(item: SentItem): SentLine {
       price: Number(addon.price ?? 0),
       quantity: Number(addon.quantity ?? 1),
     })),
-    note: item.special_instructions ?? '',
+    note: (item.special_instructions ?? '').trim(),
     recipe: lineRecipe(storedRecipe(item)),
   };
+}
+
+/**
+ * False for a line the edit route would refuse whatever was changed: one of
+ * its add-ons no longer has an id, so a replacement could not name it.
+ */
+export function sentLineChangeable(item: SentItem): boolean {
+  return (item.addons ?? []).every((addon) => addon.id !== null && addon.id !== undefined);
+}
+
+/**
+ * True for a line with a price override or a discount of its own. The server
+ * prices a replacement from the catalogue, so saving a change drops either.
+ */
+export function sentLineRepriced(item: SentItem): boolean {
+  return Boolean(item.price_overridden) || Number(item.discount_amount ?? 0) > 0;
 }
 
 /** The line the sheet's `load` action reads; it looks at ids, counts, the note and the recipe only. */

@@ -16,13 +16,15 @@ import { E2E_BASE_URL as BASE, E2E_SERVER_APP_BASE_URL as SERVER_APP } from './h
  * page and in the Server App, and changing it from the POS and the Orders page.
  * Every spec shares one database, so this one loads the sample menu itself,
  * never asserts "no menu" against the server, cancels every order it places,
- * deactivates the cashier it creates, and clears the menu when it ends. Its
- * tables stay: an order's table is freed, and nothing else reads them.
+ * deactivates the cashier and the tables it creates, and clears the menu when
+ * it ends.
  */
 
 const ownerHeaders = { Authorization: `Bearer ${getE2eToken()}` };
 const WARNING = 'RECIPE NOT PRINTED - CHECK ORDER';
 const ADD_FROM_POS = 'Add a half and half or a deal from the POS';
+const PRICE_RESET =
+  'This line has its own price or a discount. Saving a change returns it to the menu price.';
 
 const menu = sampleMenu();
 const LARGE = (menu.sizes as { pizza: { id: string; price: number }[] }).pizza.find(
@@ -113,13 +115,21 @@ test.afterAll(async () => {
           data: { status: 'available' },
         }),
       );
+      // The API has no route that deletes a table; a deactivated one is off every screen.
+      await step(`deactivate table ${order.tableNumber}`, () =>
+        api.post(`${BASE}/api/tables/${order.tableId}/deactivate`, { headers: ownerHeaders }),
+      );
     }
     if (cashierId)
       await step('deactivate the cashier', () =>
         api.post(`${BASE}/api/staff/${cashierId}/deactivate`, { headers: ownerHeaders }),
       );
+    // The fixture's own values, whatever another spec left behind before this one read them.
     await step('restore the business settings', () =>
-      api.put(`${BASE}/api/settings/business`, { headers: ownerHeaders, data: business }),
+      api.put(`${BASE}/api/settings/business`, {
+        headers: ownerHeaders,
+        data: { ...business, billing_type: 'prepaid', tables_required: false },
+      }),
     );
     await clearPizzaMenu(api);
   } finally {
@@ -355,6 +365,61 @@ test.describe('a sent pizza and a sent deal', () => {
     await expect(detailsOf(sentLines(cart).first())).toHaveText(HALVES_LINES);
   });
 
+  test('a line with an edit that has no answer yet has no change button', async ({ page }) => {
+    const order = await placeOrder();
+    const [halfAndHalf] = (await readOrder(order.id)).items;
+    await signIn(page);
+    await page.evaluate(
+      ({ orderId, itemId }) => {
+        const tenantId = JSON.parse(localStorage.getItem('tenant')!).id;
+        localStorage.setItem(
+          `flo.orders.item-edit.attempt.v1:${tenantId}:e2e-owner:${orderId}:${itemId}`,
+          JSON.stringify({
+            mode: 'quantity',
+            path: `/orders/${orderId}/items/${itemId}/edit`,
+            orderId,
+            itemId,
+            actorId: 'e2e-owner',
+            tenantId,
+            idempotencyKey: crypto.randomUUID(),
+            createdAt: new Date().toISOString(),
+            body: { expected_edit_version: 0, quantity: 2 },
+          }),
+        );
+      },
+      { orderId: order.id, itemId: halfAndHalf.id },
+    );
+    const panel = await openInOrders(page, order);
+    await expect(detailsOf(sentLines(panel).first())).toHaveText(HALVES_LINES);
+    await expect(
+      sentLines(panel).nth(1).getByRole('button', { name: 'Change deal' }),
+    ).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Change pizza' })).toHaveCount(0);
+  });
+
+  test('a line with its own price warns that saving returns it to the menu price', async ({
+    page,
+  }) => {
+    const order = await placeOrder();
+    const [halfAndHalf] = (await readOrder(order.id)).items;
+    const priced = await api.patch(`${BASE}/api/orders/${order.id}/items/${halfAndHalf.id}/price`, {
+      headers: ownerHeaders,
+      data: { price: 20, reason: 'Regular' },
+    });
+    expect(priced.ok(), await priced.text()).toBeTruthy();
+    await signIn(page);
+    const panel = await openInOrders(page, order);
+    await sentLines(panel).first().getByRole('button', { name: 'Change pizza' }).click();
+    await expect(page.getByText(PRICE_RESET)).toBeVisible();
+    const sheet = page.getByRole('dialog', { name: 'Pizza' });
+    await expect(sheet).toBeVisible();
+    await sheet.getByRole('button', { name: 'Close' }).click();
+    // The deal has no price of its own, so it opens without the warning.
+    await sentLines(panel).nth(1).getByRole('button', { name: 'Change deal' }).click();
+    await expect(page.getByRole('dialog', { name: COMBO.name as string })).toBeVisible();
+    await expect(page.getByText(PRICE_RESET)).toHaveCount(1);
+  });
+
   test('the Orders page edit window changes quantity and size and keeps the recipe', async ({
     page,
   }) => {
@@ -491,9 +556,7 @@ test.describe('a sent pizza and a sent deal', () => {
     expect(recipeOf(itemOf((await readOrder(order.id)).items, 'pz-half-and-half'))).toEqual(HALVES);
   });
 
-  test('the Server App marks a sent pizza and sends a half and half to the POS', async ({
-    page,
-  }) => {
+  test('the Server App shows the lines and sends a half and half to the POS', async ({ page }) => {
     const order = await placeOrder();
     await page.goto(`${SERVER_APP}/server-standalone`);
     await page.evaluate(
@@ -506,10 +569,11 @@ test.describe('a sent pizza and a sent deal', () => {
     await page.reload();
     await page.getByRole('button', { name: new RegExp(order.tableNumber) }).click();
 
-    // The Server App's own server has no route for the menu, so it cannot write the lines out.
+    // Its server forwards the menu, so the lines are written out as in the POS.
     const ticket = page.locator('body');
-    await expect(sentLines(ticket).first().getByTestId('sent-pizza-warning')).toHaveText(WARNING);
-    await expect(sentLines(ticket)).toHaveCount(2);
+    await expect(detailsOf(sentLines(ticket).nth(0))).toHaveText(HALVES_LINES);
+    await expect(detailsOf(sentLines(ticket).nth(1))).toHaveText(COMBO_LINES);
+    await expect(page.getByTestId('sent-pizza-warning')).toHaveCount(0);
     await expect(page.getByRole('button', { name: /^Change (pizza|deal)$/ })).toHaveCount(0);
 
     const grid = page.getByTestId('pos-product-grid');

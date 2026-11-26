@@ -15,7 +15,9 @@ const {
   needsPizzaScreen,
   sentDetailLines,
   sentLine,
+  sentLineChangeable,
   sentLineEdit,
+  sentLineRepriced,
   sheetSentLine,
   sheetSource,
 } = require('../frontend/src/lib/pizza/sent-line');
@@ -255,6 +257,46 @@ runCases('pizza-sent-line', {
       lines(catalog, item({ product_id: 'dl-nope', modifier_selection: { kind: 'deal' } })),
       [RECIPE_NOT_PRINTED],
       'a recipe the menu no longer fits: the warning line',
+    );
+  },
+
+  'Case 10: a stored note with outer spaces does not make an untouched line a change': () => {
+    const spaced = item({ ...HALF_AND_HALF, special_instructions: '  Ring the bell ' });
+    assertEqualOrThrow(sheetEdit(spaced), null, 'saved as it was, nothing is sent');
+    const edit = sheetEdit(spaced, { type: 'cook', cook: 'well-done' });
+    assertEqualOrThrow(
+      edit.replacement.special_instructions,
+      'Ring the bell',
+      'a real change sends the note trimmed',
+    );
+  },
+
+  'Case 11: a line with an add-on the catalogue no longer names cannot be changed': () => {
+    assertEqualOrThrow(sentLineChangeable(HALF_AND_HALF), true, 'add-ons with ids');
+    assertEqualOrThrow(sentLineChangeable(GARDEN), true, 'no add-ons');
+    assertEqualOrThrow(
+      sentLineChangeable(item({ ...GARDEN, addons: [{ id: null, name: 'Old dip', price: 1 }] })),
+      false,
+      'an add-on with no id: the route would refuse the edit',
+    );
+  },
+
+  'Case 12: a line with its own price goes back to the menu price when it is replaced': () => {
+    assertEqualOrThrow(sentLineRepriced(GARDEN), false, 'a line at the menu price');
+    assertEqualOrThrow(
+      sentLineRepriced(item({ ...GARDEN, price_overridden: 1 })),
+      true,
+      'override',
+    );
+    assertEqualOrThrow(
+      sentLineRepriced(item({ ...GARDEN, discount_amount: 2.5 })),
+      true,
+      'discount',
+    );
+    assertEqualOrThrow(
+      sentLineRepriced(item({ ...GARDEN, discount_amount: 0 })),
+      false,
+      'no discount',
     );
   },
 });

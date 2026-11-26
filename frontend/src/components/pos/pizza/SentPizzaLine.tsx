@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useReducer, useRef, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useTranslations } from 'use-intl';
@@ -15,11 +15,12 @@ import {
   persistOrderItemEditAttempt,
   readOrderItemEditAttempt,
   replayOrderItemEditAttempt,
+  subscribeOrderItemEditAttemptsChanged,
   withOrderItemEditAttemptLock,
 } from '@/lib/order-item-edit-attempt';
 import { isOrderItemEditLocked } from '@/lib/order-payment-state';
 import { tenantCan } from '@/lib/permissions';
-import { getPizzaCatalog, loadPizzaCatalog } from '@/lib/pizza/catalog';
+import { getPizzaCatalog, hasPizzaMenu, loadPizzaCatalog } from '@/lib/pizza/catalog';
 import { newDeal } from '@/lib/pizza/deal-state';
 import { CART_DETAIL_COLUMNS } from '@/lib/pizza/detail-lines';
 import { PIZZA_PRODUCT_PREFIX } from '@/lib/pizza/line-recipe';
@@ -27,7 +28,9 @@ import {
   DEAL_PRODUCT_PREFIX,
   sentDetailLines,
   sentLine,
+  sentLineChangeable,
   sentLineEdit,
+  sentLineRepriced,
   sheetSentLine,
   sheetSource,
   type SentItem,
@@ -71,6 +74,64 @@ function useMenuAnswered(): boolean {
     };
   }, [token]);
   return answered;
+}
+
+/** The menu a screen fetched itself, and whether its request has answered. */
+export interface FetchedPizzaMenu {
+  catalog: PizzaCatalog | null;
+  answered: boolean;
+}
+
+/**
+ * The pizza menu for a screen with its own API client and sign-in, which is
+ * the Server App: fetched from `/api/pizza/catalog` whenever `userId` changes.
+ * No catalogue when the request fails or the menu has no pizzas.
+ */
+export function useFetchedPizzaMenu(
+  client: { get: (url: string) => Promise<{ data: unknown }> } | null,
+  userId: string | number | null | undefined,
+): FetchedPizzaMenu {
+  const [menu, setMenu] = useState<FetchedPizzaMenu>({ catalog: null, answered: false });
+  useEffect(() => {
+    if (!client || !userId) return;
+    let current = true;
+    const answer = (catalog: PizzaCatalog | null) => {
+      if (current) setMenu({ catalog: hasPizzaMenu(catalog) ? catalog : null, answered: true });
+    };
+    client.get('/api/pizza/catalog').then(
+      (response) => answer(response.data as PizzaCatalog),
+      () => answer(null),
+    );
+    return () => {
+      current = false;
+      setMenu({ catalog: null, answered: false });
+    };
+  }, [client, userId]);
+  return menu;
+}
+
+/**
+ * True while an earlier edit of the line has no confirmed answer. Upstream
+ * hides its own edit control then, and the Orders page resolves the edit.
+ */
+function useEditUnresolved(orderId: number | undefined, itemId: number): boolean {
+  const tenantId = useAuthStore((state) => state.currentTenant?.id ?? null);
+  const actorId = useAuthStore((state) => (state.user ? String(state.user.id) : null));
+  const [, changed] = useReducer((count: number) => count + 1, 0);
+  const scoped = orderId !== undefined && tenantId !== null && actorId !== null;
+  useEffect(
+    () =>
+      scoped
+        ? subscribeOrderItemEditAttemptsChanged({ tenantId, actorId, orderId }, changed)
+        : undefined,
+    [scoped, tenantId, actorId, orderId],
+  );
+  if (!scoped) return false;
+  try {
+    return readOrderItemEditAttempt(tenantId, actorId, orderId, itemId) !== null;
+  } catch {
+    return true;
+  }
 }
 
 /**
@@ -207,6 +268,7 @@ export function SentPizzaLine({
   item,
   order,
   onSaved,
+  menu,
   className = '',
 }: {
   item: { id: number };
@@ -214,12 +276,17 @@ export function SentPizzaLine({
   order?: Order | null;
   /** Called with the order as the server holds it after a change. */
   onSaved?: (order: Order) => void;
+  /** The menu of a screen that fetched it itself; without it, the dashboard's. */
+  menu?: FetchedPizzaMenu;
   className?: string;
 }) {
   const t = useTranslations('pizza');
   const tOrders = useTranslations('orders');
-  const catalog = usePizzaCatalog();
-  const answered = useMenuAnswered();
+  const held = usePizzaCatalog();
+  const heldAnswered = useMenuAnswered();
+  const catalog = menu ? menu.catalog : held;
+  const answered = menu ? menu.answered : heldAnswered;
+  const unresolved = useEditUnresolved(order?.id, item.id);
   const tenant = useAuthStore((state) => state.currentTenant);
   const open = useSentEdit((state) => state.open === item.id);
   const button = useRef<HTMLButtonElement | null>(null);
@@ -239,10 +306,12 @@ export function SentPizzaLine({
   const deal = catalog?.deals.find((entry) => DEAL_PRODUCT_PREFIX + entry.id === sent.product_id);
   const pizza = !deal && Boolean(sent.product_id?.startsWith(PIZZA_PRODUCT_PREFIX));
   const editable =
-    catalog && order && onSaved && (deal || pizza) && !unreadable
+    catalog && order && onSaved && (deal || pizza) && !unreadable && sentLineChangeable(sent)
       ? tenantCan(tenant, 'orders.item.edit') && !isOrderItemEditLocked(order)
       : false;
-  if (lines.length === 0 && !editable) return null;
+  // An edit of this line with no answer yet hides the button, except under the sheet that sent it.
+  const offered = editable && (open || !unresolved);
+  if (lines.length === 0 && !offered) return null;
 
   return (
     <div data-testid="sent-pizza-line" className={className}>
@@ -257,7 +326,7 @@ export function SentPizzaLine({
       ) : (
         <PizzaDetailLines lines={lines} testId="sent-pizza-detail" />
       )}
-      {editable && (
+      {offered && (
         <button
           type="button"
           ref={(element) => {
@@ -270,8 +339,12 @@ export function SentPizzaLine({
           className={CHANGE}
           onClick={() => {
             // Once the kitchen has started an item, upstream allows a change of quantity only.
-            if (sent.status !== 'pending') toast.error(tOrders('editPreparationStartedHint'));
-            else useSentEdit.setState({ open: item.id });
+            if (sent.status !== 'pending') {
+              toast.error(tOrders('editPreparationStartedHint'));
+              return;
+            }
+            if (sentLineRepriced(sent)) toast(t('sentPriceReset'), { icon: '⚠️', duration: 8000 });
+            useSentEdit.setState({ open: item.id });
           }}
         >
           {deal ? t('sentChangeDeal') : t('sentChangePizza')}

@@ -526,6 +526,7 @@ importer loaded the sample menu into.
 of a store with the sample menu loaded, and reads the catalogue through `GET /api/pizza/catalog`.
 `tests/pizza-sent-line.test.ts` covers `sent-line.ts`: the edit a changed plain pizza, half and half
 and deal send, an untouched line sending nothing, and the lines under a sent line.
+`tests/pizza-server-app-catalog.test.ts` reads the menu through the Server App's forward.
 
 ### Pizza menu screen
 
@@ -611,19 +612,24 @@ written out shows `RECIPE NOT PRINTED - CHECK ORDER` with a warning icon, once t
 has answered. An item with no recipe renders nothing, so a shop with no pizza menu sees upstream's
 list. It is mounted in three lists: "Already ordered" in the POS cart panel, the item list of the
 Orders page in both layouts (`OrderDetailPanel.tsx` and `OrderCard.tsx`), and the kitchen list of
-the Server App's ticket panel. The Server App's own server has no route for the pizza menu, so its
-browser holds no catalogue and every sent pizza or deal with a recipe shows the warning words there.
+the Server App's ticket panel. The Server App page has its own API client and sign-in, so it
+fetches the menu itself with `useFetchedPizzaMenu(api, user?.id)`, through its server's forward of
+`GET /api/pizza/catalog`, and hands it to `SentPizzaLine` as `menu`.
 
 Given the order, the component also shows "Change pizza" on a line of a pizza product and "Change
 deal" on a deal line, 48 px high. The button shows when a catalogue is held, the lines could be
 written, the user has `orders.item.edit`, and `isOrderItemEditLocked` does not lock the order: a
-paid, completed or cancelled order, or a paid scheduled one, has no button. It opens the pizza sheet or the deal
+paid, completed or cancelled order, or a paid scheduled one, has no button. Two more lines have
+none: one whose earlier edit has no confirmed answer yet, as upstream hides its own edit control
+until the Orders page resolves it, and one with an add-on that has no id (`sentLineChangeable`),
+which the route would refuse. It opens the pizza sheet or the deal
 configurator on the sent line. An item the kitchen has started does not open: the tap shows
-upstream's message that only the quantity can change. Save sends `sentLineEdit`'s body through the
+upstream's message that only the quantity can change. A line with a price override or a discount
+(`sentLineRepriced`) opens with a warning that saving a change returns it to the menu price, because
+the server prices a replacement from the catalogue. Save sends `sentLineEdit`'s body through the
 order's item edit route as the Orders page's edit window does: the attempt is stored with
 `order-item-edit-attempt.ts` before it goes, under a fresh `Idempotency-Key`, and cleared on a
-commit or a refusal, so an answer that never arrives is resolved from the Orders page. A line with
-an unresolved attempt is not sent again. A refusal shows the server's message and leaves the sheet
+commit or a refusal, so an answer that never arrives is resolved from the Orders page. A refusal shows the server's message and leaves the sheet
 open; a `409` also reads the order again. After a commit the component reads the order with
 `GET /orders/:id` and hands it to `onSaved`: the POS page sets it as the reopened order, and the
 Orders page refreshes its list. The server cancels the changed line and adds a new one, so the
@@ -644,7 +650,8 @@ The hooks in upstream files are: in `CartPanel.tsx` the `onExistingOrderChange` 
 `SentPizzaLine` under each "Already ordered" row; in the POS page that prop set to the reopened
 order's setter; in `OrderDetailPanel.tsx` and `OrderCard.tsx` `SentPizzaLine` under each item; in
 the Orders page and `EditOrderItemModal.tsx` the `sentToPos` line; in the Server App page
-`SentPizzaLine` under each kitchen row and the `sentToPos` line in the two product handlers.
+`SentPizzaLine` under each kitchen row, the `useFetchedPizzaMenu` call, and the `sentToPos` line in
+the two product handlers; in `main/server-app.ts` the forward of `GET /api/pizza/catalog`.
 
 `frontend/e2e/pizza-sent-orders.spec.ts` drives this in Chromium at 1180 × 820 against the sample
 menu, with the shop set to pay-later with tables for its duration, because the POS reopens an order
@@ -652,8 +659,9 @@ from its table: the lines in the POS and on the Orders page, a half and half and
 the POS and read back at the same price, a pizza changed from the Orders page, a refusal shown in
 the server's words, the edit window changing quantity and size with the recipe kept, "Add Item"
 refusing a half and half and a deal and adding a drink, the warning words with the catalogue request
-answered 404, a cashier with no change button and a 403 from the route, and the Server App's list
-and guard. It cancels every order it places and deactivates the cashier it creates.
+answered 404, a cashier with no change button and a 403 from the route, a line with an unanswered
+edit, a line with a price override, and the Server App's list and guard. It cancels every order it
+places and deactivates the cashier and the tables it creates.
 
 ### Quick buttons
 
