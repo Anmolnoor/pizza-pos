@@ -18,7 +18,7 @@ const {
   seedOwnerUser,
   api,
 } = require('./helpers/pizza-print-harness');
-const { seedPizzaMenu } = require('./helpers/pizza-fixture');
+const { seedPizzaMenu, writePizzaMenu } = require('./helpers/pizza-fixture');
 const net = require('node:net');
 const { projectKdsItem } = require('../main/db');
 const { printKOTDetailed, prepareReceipt } = require('../main/printers/thermal');
@@ -421,11 +421,7 @@ async function main() {
         assertOrThrow(warned[0].includes('menu is not loaded'), 'no menu: the log says why');
       } finally {
         console.warn = originalWarn;
-        db.prepare('DELETE FROM pizza_menu').run();
-        db.prepare('INSERT INTO pizza_menu (id, catalog, imported_at) VALUES (1, ?, ?)').run(
-          JSON.stringify(catalog),
-          new Date().toISOString(),
-        );
+        writePizzaMenu(db, JSON.stringify(catalog));
       }
     },
   });

@@ -15,7 +15,7 @@ const {
   seedManagerUser,
   api,
 } = require('./helpers/pizza-print-harness');
-const { seedPizzaMenu } = require('./helpers/pizza-fixture');
+const { seedPizzaMenu, writePizzaMenu } = require('./helpers/pizza-fixture');
 const { orderRoutes } = require('../main/routes/orders');
 const { billRoutes } = require('../main/routes/bills');
 const { refundRoutes } = require('../main/routes/refunds');
@@ -630,11 +630,7 @@ async function main() {
             ]);
             assertEqualOrThrow(plain.status, 201, `${state}: lines with no recipe still sell`);
           } finally {
-            db.prepare('DELETE FROM pizza_menu').run();
-            db.prepare('INSERT INTO pizza_menu (id, catalog, imported_at) VALUES (1, ?, ?)').run(
-              menuText,
-              new Date().toISOString(),
-            );
+            writePizzaMenu(db, menuText);
           }
         }
         const back = await createOrder([gardenLine({ modifier_selection: gardenSent })]);

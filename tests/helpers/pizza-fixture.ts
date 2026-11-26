@@ -9,6 +9,15 @@ const { seedCategory, seedProduct } = require('./test-setup');
 
 type PizzaCatalog = import('../../shared/pizza/types').PizzaCatalog;
 
+/** Writes the one `pizza_menu` row. Every pizza test that needs the row goes through here. */
+function writePizzaMenu(db: any, catalogText: string): void {
+  const row = { id: 1, catalog: catalogText, imported_at: now() };
+  const columns = Object.keys(row);
+  db.prepare(
+    `INSERT OR REPLACE INTO pizza_menu (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
+  ).run(...Object.values(row));
+}
+
 /** Seeds pizzas, the half-and-half product, deals and one plain side. Returns the catalogue. */
 function seedPizzaMenu(db: any): PizzaCatalog {
   const catalog: PizzaCatalog = parseMenuFile(require('../fixtures/pizza-sample-menu.json'));
@@ -40,10 +49,7 @@ function seedPizzaMenu(db: any): PizzaCatalog {
     );
   };
 
-  db.prepare('INSERT INTO pizza_menu (id, catalog, imported_at) VALUES (1, ?, ?)').run(
-    JSON.stringify(catalog),
-    now(),
-  );
+  writePizzaMenu(db, JSON.stringify(catalog));
   seedCategory(db, 'cat-pizzas', 'Pizzas');
   for (const pizza of catalog.pizzas) {
     pizzaProduct(`pz-${pizza.id}`, pizza.name);
@@ -64,4 +70,4 @@ function seedPizzaMenu(db: any): PizzaCatalog {
   return catalog;
 }
 
-module.exports = { seedPizzaMenu };
+module.exports = { seedPizzaMenu, writePizzaMenu };
