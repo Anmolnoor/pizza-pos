@@ -83,6 +83,11 @@ function checkedContents(db: Database.Database, lines: object, button: Fields) {
       deferStockDeduction: true,
     });
   } catch (error) {
+    // A refusal is a plain Error. A database fault is a subclass and stays a server error.
+    if ((error as Error)?.constructor !== Error) throw error;
+    // An add-on whose row is gone is named by its id, which means nothing to a cashier.
+    if (/^Add-on ".*" was not found$/.test((error as Error).message))
+      throw refusal('A dip or extra on this button is no longer on the menu. Edit the button');
     throw Object.assign(error as Error, { statusCode: 400 });
   }
   return {

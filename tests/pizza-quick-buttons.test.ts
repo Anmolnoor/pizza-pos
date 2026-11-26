@@ -404,7 +404,7 @@ async function main() {
       await refused(
         'an unknown add-on',
         pizzaButton('garden', 'large', { addons: [{ id: 'ad-nowhere', quantity: 1 }] }),
-        'Add-on "ad-nowhere" was not found',
+        'A dip or extra on this button is no longer on the menu. Edit the button',
       );
       await refused(
         'a required choice left out',
@@ -451,6 +451,12 @@ async function main() {
         change,
       );
       await refused(
+        'a change of size without the recipe in that size',
+        { variant_id: 'pz-half-and-half-medium' },
+        'The size does not match this item. Pick the size again',
+        change,
+      );
+      await refused(
         'a change to an empty label',
         { label: ' ' },
         'Give this button a name',
@@ -489,18 +495,31 @@ async function main() {
           pizzaButton('garden', 'medium', { recipe: whole('garden', ['Olives'], 'medium') }),
         );
         const small = await save(pizzaButton('classic', 'small'));
+        const deal = await save({
+          label: 'Three large',
+          color: 'amber',
+          product_id: 'dl-three-large-wings',
+          recipe: {
+            kind: 'deal',
+            v: 1,
+            dealId: 'three-large-wings',
+            pizzas: [whole('garden'), whole('island'), whole('classic')],
+            wingFlavour: 'sweet-chili',
+          },
+        });
         const names: Record<string, string> = {
           [island.id]: 'island',
           [half.id]: 'half',
           [dipped.id]: 'dipped',
           [noOlives.id]: 'noOlives',
           [small.id]: 'small',
+          [deal.id]: 'deal',
         };
         const rows = JSON.stringify(stored());
         /** The reason of every listed button that is not usable, by the names above. */
         const stale = async () => {
           const buttons = await list();
-          assertEqualOrThrow(buttons.length, 5, 'a stale button is still listed');
+          assertEqualOrThrow(buttons.length, 6, 'a stale button is still listed');
           for (const button of buttons) {
             assertEqualOrThrow(
               button.usable,
@@ -537,8 +556,9 @@ async function main() {
           {
             island: 'Island is not on the menu. Pick another item',
             half: 'Island is not on the menu. Pick another pizza',
+            deal: 'Island is not on the menu. Pick another pizza',
           },
-          'the pizza left the menu: its own button and the half and half that uses it say so',
+          'the pizza left the menu: its own button, the half and half and the deal that use it say so',
         );
 
         loadMenu((menu) => {
@@ -548,8 +568,13 @@ async function main() {
         });
         same(
           await stale(),
-          { island: NOT_AVAILABLE_LARGE, half: NOT_AVAILABLE_LARGE, dipped: NOT_AVAILABLE_LARGE },
-          'the size left the menu: every large button says so, the others stay usable',
+          {
+            island: NOT_AVAILABLE_LARGE,
+            half: NOT_AVAILABLE_LARGE,
+            dipped: NOT_AVAILABLE_LARGE,
+            deal: 'Large Pizzas & Wings is not on the menu. Pick another item',
+          },
+          'the size left the menu, and the deals in it: every large button says so, the others stay usable',
         );
 
         loadMenu((menu) => {
@@ -562,6 +587,14 @@ async function main() {
           await stale(),
           { dipped: 'Add-on "Ranch" is not available' },
           'the dip left the menu: the button that has it says so',
+        );
+
+        loadMenu();
+        db.prepare("DELETE FROM addons WHERE id = 'ad-dips-ranch'").run();
+        same(
+          await stale(),
+          { dipped: 'A dip or extra on this button is no longer on the menu. Edit the button' },
+          'the dip is gone altogether: the reason does not show its id',
         );
 
         loadMenu((menu) => {
@@ -592,6 +625,7 @@ async function main() {
           {
             half: 'The pizza menu is not loaded. Load the menu file again.',
             noOlives: 'The pizza menu is not loaded. Load the menu file again.',
+            deal: 'The pizza menu is not loaded. Load the menu file again.',
           },
           'the stored menu cannot be read: a button with a recipe says so',
         );
@@ -777,7 +811,45 @@ async function main() {
       same(QUICK_BUTTON_COLORS, names, 'a button takes exactly those colour names');
     },
 
-    'Case 9: a currency reset leaves no buttons': async () => {
+    'Case 9: a database fault is a server error, not a refusal or a reason': async () => {
+      clear();
+      loadMenu();
+      const dipped = pizzaButton('classic', 'large', {
+        addons: [{ id: 'ad-dips-ranch', quantity: 1 }],
+      });
+      await save(dipped);
+      const rows = JSON.stringify(stored());
+      const prepare = db.prepare;
+      // The add-on lookup fails inside SQLite, as it would on a damaged or locked file.
+      db.prepare = function (this: unknown, sql: string, ...rest: unknown[]) {
+        const broken = sql.includes('FROM addons LEFT JOIN');
+        return prepare.call(this, broken ? 'SELECT * FROM no_such_table' : sql, ...rest);
+      };
+      try {
+        const saved = await call(owner, 'POST', '', dipped);
+        same(
+          [saved.status, saved.data.error],
+          [500, 'Internal server error'],
+          'saving answers 500, not a refusal',
+        );
+        const listed = await call(owner, 'GET');
+        same(
+          [listed.status, listed.data.error, listed.data.buttons],
+          [500, 'Internal server error', undefined],
+          'the list answers 500, not a button marked as not usable',
+        );
+      } finally {
+        db.prepare = prepare;
+      }
+      assertEqualOrThrow(JSON.stringify(stored()), rows, 'nothing is written');
+      same(
+        (await list()).map((button) => [button.usable, button.reason]),
+        [[true, null]],
+        'with the database answering again, the button is usable',
+      );
+    },
+
+    'Case 10: a currency reset leaves no buttons': async () => {
       clear();
       await save(pizzaButton('garden', 'large'));
       await save(halfButton({ customer_id: 'cust-1' }));
