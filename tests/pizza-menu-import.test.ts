@@ -641,6 +641,22 @@ async function main() {
         'switched on again by hand with its product, Deals stays on',
       );
 
+      // A product in an active sub-category needs Deals on: the catalogue shows a product only
+      // while every category above it is on.
+      db.prepare("UPDATE products SET is_active = 0 WHERE id = 'byhand'").run();
+      db.prepare(
+        "INSERT INTO categories (id, name, slug, parent_id) VALUES ('sub-byhand', 'Specials', 'specials', 'cat-deals')",
+      ).run();
+      db.prepare(
+        "INSERT INTO products (id, category_id, name, price) VALUES ('in-sub', 'sub-byhand', 'Sample special', 9.5)",
+      ).run();
+      assertEqualOrThrow(load(menu).deactivated, 0, 'Deals stays on for its sub-category');
+      same(lines('categories', 'id', 'is_active = 0'), [], 'and nothing else is switched off');
+      db.prepare("UPDATE categories SET is_active = 0 WHERE id = 'sub-byhand'").run();
+      assertEqualOrThrow(load(menu).deactivated, 1, 'with the sub-category off, Deals goes');
+      db.prepare("DELETE FROM products WHERE id = 'in-sub'").run();
+      db.prepare("DELETE FROM categories WHERE id = 'sub-byhand'").run();
+
       db.prepare("DELETE FROM products WHERE id = 'byhand'").run();
       load(sampleMenu());
       assertEqualOrThrow(
@@ -842,6 +858,21 @@ async function main() {
         ['sd-q|ag-q-b-c'],
         'the group is still required by its own side alone',
       );
+      // A store that already holds both sides' links, from before this check, is refused too.
+      const bothLinked = getDatabase().prepare(
+        "INSERT INTO addon_group_product (product_id, addon_group_id) VALUES ('sd-q-b', 'ag-q-b-c')",
+      );
+      bothLinked.run();
+      assertEqualOrThrow(
+        refusal(menuOf([sideWith('q', 'b-c', 'x')], 'q', 'b-c')),
+        'menu: addon_groups id "ag-q-b-c" is already used under "sd-q-b", so it cannot go under "sd-q"',
+        'a reload with the other side still linked is refused, naming both sides',
+      );
+      getDatabase()
+        .prepare(
+          "DELETE FROM addon_group_product WHERE product_id = 'sd-q-b' AND addon_group_id = 'ag-q-b-c'",
+        )
+        .run();
       // A link the owner made by hand to another product is not a reason to refuse.
       getDatabase()
         .prepare(

@@ -314,9 +314,8 @@ function writeRow(
       'menu',
       `${table} id "${key.id}" is already used under "${stored[parent]}", so it cannot go under "${values[parent]}"`,
     );
-  if (stored && Object.entries(values).every(([column, value]) => stored[column] === value))
-    return 'unchanged';
-  // A side's group has no parent column: the side that first derived it is the one linked to it.
+  // A side's group has no parent column: its side is the one linked to it. Two sides whose ids
+  // spell the same group may not both be linked, whichever link came first.
   const otherSide =
     table === 'addon_group_product' &&
     (db
@@ -332,7 +331,8 @@ function writeRow(
       'menu',
       `addon_groups id "${key.addon_group_id}" is already used under "${otherSide.product_id}", so it cannot go under "${key.product_id}"`,
     );
-
+  if (stored && Object.entries(values).every(([column, value]) => stored[column] === value))
+    return 'unchanged';
   const written: Record<string, Value> = { ...values };
   for (const column of stampColumns(table, !stored)) written[column] = stamp;
   if (stored) {
@@ -424,13 +424,16 @@ export function importMenu(db: Database.Database, catalog: PizzaCatalog): Import
     for (const entry of gone) {
       const table = entry.split(':', 1)[0];
       const id = entry.slice(table.length + 1);
+      // A sub-category counts: the catalogue shows its products only while this one is on.
       const stillUsed =
         table === 'categories' &&
         db
           .prepare(
-            'SELECT 1 FROM products WHERE category_id = ? AND is_active = 1 AND deleted_at IS NULL',
+            `SELECT 1 FROM products WHERE category_id = @id AND is_active = 1 AND deleted_at IS NULL
+             UNION ALL
+             SELECT 1 FROM categories WHERE parent_id = @id AND is_active = 1 AND deleted_at IS NULL`,
           )
-          .get(id);
+          .get({ id });
       if (stillUsed) continue;
       summary.deactivated += db
         .prepare(`UPDATE ${table} SET is_active = 0, updated_at = ? WHERE id = ? AND is_active = 1`)
