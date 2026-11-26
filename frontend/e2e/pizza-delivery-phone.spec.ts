@@ -259,6 +259,13 @@ test("the delivery slip's print data for that order carries the number", async (
   await setOrdersLayout(page, 'cards');
   try {
     await capturePrints(page);
+    // Other specs leave saved printers in the shared store, and a saved printer sends the slip to
+    // the server route instead of the browser; this page is told there are none.
+    await page.route('**/api/printers', (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({ json: { printers: [] } })
+        : route.continue(),
+    );
     await setLanguage(page, 'en');
     await loginWithPassword(page, 'owner@flo.local');
     await page.goto(`${BASE}/orders`);
