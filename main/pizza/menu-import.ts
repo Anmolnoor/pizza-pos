@@ -212,7 +212,10 @@ function lastOwnedRows(db: Database.Database): string[] {
     const readable =
       Array.isArray(owned) &&
       owned.every(
-        (entry) => typeof entry === 'string' && SWITCHABLE.includes(entry.split(':', 1)[0]),
+        (entry) =>
+          typeof entry === 'string' &&
+          SWITCHABLE.includes(entry.split(':', 1)[0]) &&
+          entry.indexOf(':') < entry.length - 1,
       );
     if (readable) return owned as string[];
   } catch {

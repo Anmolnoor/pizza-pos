@@ -139,7 +139,7 @@ CREATE TABLE IF NOT EXISTS pizza_products (
 CREATE TABLE IF NOT EXISTS pizza_menu (
   id          INTEGER PRIMARY KEY CHECK (id = 1),
   catalog     TEXT NOT NULL,   -- JSON PizzaCatalog
-  owned_rows  TEXT NOT NULL,   -- JSON array of "<table>:<id>", sorted: the categories, products, variants, add-on groups and add-ons the load wrote
+  owned_rows  TEXT NOT NULL DEFAULT '[]',   -- JSON array of "<table>:<id>", sorted: the categories, products, variants, add-on groups and add-ons the load wrote
   imported_at TEXT NOT NULL
 );
 

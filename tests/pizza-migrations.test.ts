@@ -255,7 +255,7 @@ async function main() {
       [
         'id INTEGER PRIMARY KEY',
         'catalog TEXT NOT NULL',
-        'owned_rows TEXT NOT NULL',
+        "owned_rows TEXT NOT NULL DEFAULT '[]'",
         'imported_at TEXT NOT NULL',
       ],
       'pizza_menu has the contract columns',
