@@ -3,7 +3,8 @@
  * and every upstream path that compares a file against the reference schema accepts them.
  *
  * The "existing install" is a database written by unmodified upstream code, extracted with
- * `git archive` and run in a child process.
+ * `git archive` and run in a child process. UPSTREAM_VERSION is the schema version of that
+ * commit and is asserted against the fixture: change it together with UPSTREAM_COMMIT.
  *
  * Usage: node tests/run-electron-node-test.cjs tests/pizza-migrations.test.ts
  */
@@ -16,7 +17,8 @@ const path = require('node:path');
 const { execSync, spawnSync } = require('node:child_process');
 const Database = require('better-sqlite3');
 
-const UPSTREAM_COMMIT = 'b5928ec';
+const UPSTREAM_COMMIT = 'b5928ec5a0536c60d976642e5428d04b30a51e3c';
+const UPSTREAM_VERSION = 125;
 const repo = path.resolve(__dirname, '..');
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-pizza-migrations-'));
 let userData = root;
@@ -27,6 +29,12 @@ Module._load = function (request: string) {
       safeStorage: { isEncryptionAvailable: () => false },
     };
   return originalLoad.apply(this, arguments as any);
+};
+const pizzaWarnings: string[] = [];
+const realWarn = console.warn;
+console.warn = (...args: unknown[]) => {
+  if (String(args[0]).includes('pizza schema')) pizzaWarnings.push(String(args[0]));
+  realWarn(...args);
 };
 
 const {
@@ -83,6 +91,29 @@ const pizzaVersion = (db: any): number =>
           0,
       )
     : 0;
+/** Writes the pizza counter of a closed database file, as a later or a broken build would. */
+function setPizzaStamp(file: string, value: string | null): void {
+  const raw = new Database(file);
+  try {
+    raw
+      .prepare("INSERT OR REPLACE INTO _flo_meta (key, value) VALUES ('pizza_schema_version', ?)")
+      .run(value);
+  } finally {
+    raw.close();
+  }
+}
+const pizzaStampOf = (file: string): unknown => {
+  const raw = new Database(file, { readonly: true });
+  try {
+    return raw.prepare("SELECT value FROM _flo_meta WHERE key = 'pizza_schema_version'").get()
+      ?.value;
+  } finally {
+    raw.close();
+  }
+};
+const tableSql = (db: any, table: string): string =>
+  db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").get(table)?.sql ??
+  '';
 const schemaDump = (db: any): string =>
   JSON.stringify(db.prepare('SELECT type, name, sql FROM sqlite_master ORDER BY type, name').all());
 const backupsIn = (dir: string): string[] =>
@@ -132,6 +163,13 @@ const pizzaRowCounts = (db: any): number[] =>
   PIZZA_TABLES.map((table) => db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n);
 
 function buildUpstreamFixture(): { db: string; backup: string } {
+  const present = spawnSync('git', ['cat-file', '-e', `${UPSTREAM_COMMIT}^{commit}`], {
+    cwd: repo,
+  });
+  if (present.status !== 0) {
+    console.error(`needs upstream commit ${UPSTREAM_COMMIT}; fetch the full history`);
+    process.exit(1);
+  }
   const tree = path.join(root, 'upstream-tree');
   const out = path.join(root, 'upstream-out');
   fs.mkdirSync(tree);
@@ -174,10 +212,14 @@ async function main() {
 
   const upstream = buildUpstreamFixture();
   const upstreamTables: string[] = [];
-  await testCase(`0. The fixture is a database written by upstream ${UPSTREAM_COMMIT}`, () => {
+  await testCase('0. The fixture is a database written by the pinned upstream commit', () => {
     const raw = new Database(upstream.db, { readonly: true });
     try {
-      assertEqualOrThrow(raw.pragma('user_version', { simple: true }), CORE, 'upstream version');
+      assertEqualOrThrow(
+        raw.pragma('user_version', { simple: true }),
+        UPSTREAM_VERSION,
+        `it is at the schema version of ${UPSTREAM_COMMIT.slice(0, 7)}`,
+      );
       assertEqualOrThrow(hasTable(raw, '_flo_meta'), false, 'it has no _flo_meta table');
       upstreamTables.push(...getTables(raw));
       sameOrThrow(
@@ -301,6 +343,37 @@ async function main() {
       sameOrThrow(findingIds(), ['extra_table:rogue_live'], 'the health check reports it');
       getDatabase().exec('DROP TABLE rogue_live');
 
+      // A pizza_ name earns nothing: only tables the pizza list declares are accepted.
+      const pizzaRogueBackup = path.join(root, 'pizza-rogue-backup.db');
+      fs.copyFileSync(forkBackup, pizzaRogueBackup);
+      const pizzaRogue = new Database(pizzaRogueBackup);
+      pizzaRogue.exec('CREATE TABLE pizza_rogue (x TEXT)');
+      pizzaRogue.close();
+      assertEqualOrThrow(
+        isHealthyDatabaseFile(pizzaRogueBackup),
+        false,
+        'an undeclared table named pizza_* is not healthy either',
+      );
+      const pizzaRogueRestore = restoreBackup(pizzaRogueBackup);
+      assertEqualOrThrow(pizzaRogueRestore.success, false, 'restoring it is refused');
+      assertIncludesOrThrow(
+        String(pizzaRogueRestore.error),
+        'unapproved schema object table:pizza_rogue',
+        'the refusal names it',
+      );
+      getDatabase().exec('CREATE TABLE pizza_rogue_live (x TEXT)');
+      sameOrThrow(findingIds(), ['extra_table:pizza_rogue_live'], 'the health check reports it');
+      getDatabase().exec('DROP TABLE pizza_rogue_live');
+
+      const aheadBackup = path.join(root, 'ahead-backup.db');
+      fs.copyFileSync(forkBackup, aheadBackup);
+      setPizzaStamp(aheadBackup, String(PIZZA + 1));
+      assertEqualOrThrow(
+        isHealthyDatabaseFile(aheadBackup),
+        false,
+        'a file at a newer pizza version is not healthy, even with a matching schema',
+      );
+
       for (const table of PIZZA_TABLES) getDatabase().prepare(`DELETE FROM ${table}`).run();
       const restore = restoreBackup(forkBackup);
       assertEqualOrThrow(restore.success, true, `the backup restores (${restore.error})`);
@@ -315,7 +388,7 @@ async function main() {
     fs.copyFileSync(upstream.db, path.join(dirB, 'flo.db'));
     initDatabase();
     const db = getDatabase();
-    assertEqualOrThrow(getCurrentSchemaVersion(), CORE, 'the upstream version is untouched');
+    assertEqualOrThrow(getCurrentSchemaVersion(), CORE, 'user_version is the upstream version');
     sameOrThrow(
       getTables(db)
         .filter((table: string) => !upstreamTables.includes(table))
@@ -334,7 +407,7 @@ async function main() {
     const taken = backupsIn(dirB);
     sameOrThrow(
       taken.map((name) => name.replace(/^flo-backup-.*(-pre-v)/, '$1')),
-      [`-pre-v${CORE}-to-v${CORE}.db`],
+      [`-pre-v${UPSTREAM_VERSION}-to-v${CORE}.db`],
       'one pre-migration backup is taken, with -pre-v in its name',
     );
     const pre = new Database(path.join(dirB, 'backups', taken[0]), { readonly: true });
@@ -427,9 +500,25 @@ async function main() {
       tax: { gst: 5, pst: 7 },
     };
     db.prepare('INSERT INTO pizza_menu (id, catalog, imported_at) VALUES (1, ?, ?)').run(
-      JSON.stringify(catalog),
+      '{"sizes":[',
       STAMP,
     );
+    let unreadable: any;
+    await resetDatabaseForCurrencyChange('USD', 'CAD').catch((error: unknown) => {
+      unreadable = error;
+    });
+    assertEqualOrThrow(
+      unreadable?.message,
+      'The stored pizza menu is unreadable. Load the menu file again before changing currency.',
+      'an unreadable stored menu stops the reset with a message the owner can act on',
+    );
+    assertOrThrow(getDatabase() === db, 'and the database is not touched');
+    assertEqualOrThrow(
+      db.prepare("SELECT price FROM products WHERE id = 'pz-garden'").get().price,
+      18.99,
+      'prices included',
+    );
+    db.prepare('UPDATE pizza_menu SET catalog = ?').run(JSON.stringify(catalog));
     const button = db.prepare(
       `INSERT INTO pizza_quick_buttons (id, label, customer_id, product_id, addons, created_at, updated_at)
        VALUES (?, ?, ?, 'pz-garden', '[{"id":"ad-dip-ranch","price":1.5}]', ?, ?)`,
@@ -501,7 +590,7 @@ async function main() {
       assertEqualOrThrow(pizzaVersion(db), PIZZA, 'and the pizza list runs');
       sameOrThrow(
         backupsIn(dirE).map((name) => name.replace(/^flo-backup-.*(-pre-v)/, '$1')),
-        [`-pre-v${CORE}-to-v${CORE + 1}.db`],
+        [`-pre-v${UPSTREAM_VERSION}-to-v${CORE + 1}.db`],
         'with one backup for the two',
       );
       closeDatabase();
@@ -519,6 +608,21 @@ async function main() {
       db.exec('CREATE TABLE IF NOT EXISTS pizza_test_later (id TEXT PRIMARY KEY)');
       if (!columnsOf(db, 'pizza_products').includes('test_note TEXT'))
         db.exec('ALTER TABLE pizza_products ADD COLUMN test_note TEXT');
+      // Not additive, so schema repair cannot stand in for it: a rebuilt table and a backfill.
+      if (!tableSql(db, 'pizza_menu').includes("catalog <> ''"))
+        db.exec(`
+          CREATE TABLE pizza_menu_rebuilt (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            catalog TEXT NOT NULL CHECK (catalog <> ''),
+            imported_at TEXT NOT NULL
+          );
+          INSERT INTO pizza_menu_rebuilt SELECT id, catalog, imported_at FROM pizza_menu;
+          DROP TABLE pizza_menu;
+          ALTER TABLE pizza_menu_rebuilt RENAME TO pizza_menu;
+        `);
+      db.prepare(
+        "UPDATE pizza_products SET test_note = 'backfilled' WHERE test_note IS NULL",
+      ).run();
     },
   };
   const backupDirA = path.join(dirA, 'backups');
@@ -583,8 +687,12 @@ async function main() {
     );
     sameOrThrow(
       getDatabase().prepare('SELECT product_id, test_note FROM pizza_products').all(),
-      [{ product_id: 'pz-garden', test_note: null }],
-      "with the backup's rows and the later column",
+      [{ product_id: 'pz-garden', test_note: 'backfilled' }],
+      "with the backup's rows, the later column and its backfill",
+    );
+    throwsOrThrow(
+      () => getDatabase().prepare("UPDATE pizza_menu SET catalog = ''").run(),
+      'and the rebuilt table, which schema repair alone could not produce',
     );
     sameOrThrow(findingIds(), [], 'the health check reports no findings after the restore');
     closeDatabase();
@@ -653,6 +761,143 @@ async function main() {
     assertIncludesOrThrow(String(refused.error), 'pizza schema', 'and says why');
     sameOrThrow(pizzaRowCounts(getDatabase()), [1, 1, 1], 'leaving the live database as it was');
     closeDatabase();
+  });
+
+  await testCase('9. An older upstream backup at a newer pizza version is refused first', () => {
+    MIGRATIONS.push({
+      version: CORE + 1,
+      name: 'test_only_later_upstream_migration',
+      up: () => getDatabase().exec('CREATE TABLE test_later_upstream (id INTEGER PRIMARY KEY)'),
+    });
+    try {
+      const dirD = useDir('d-later-upstream');
+      initDatabase();
+      const live = getDatabase();
+      const filesBefore = backupsIn(dirD);
+      const mixedBackup = path.join(root, 'older-upstream-newer-pizza.db');
+      fs.copyFileSync(forkBackup, mixedBackup);
+      setPizzaStamp(mixedBackup, String(PIZZA + 1));
+
+      const refused = restoreBackup(mixedBackup);
+      assertEqualOrThrow(refused.success, false, 'the restore is refused');
+      assertIncludesOrThrow(String(refused.error), 'pizza schema', 'for its pizza version');
+      assertOrThrow(getDatabase() === live && live.open, 'the live database is never closed');
+      sameOrThrow(backupsIn(dirD), filesBefore, 'no recovery copy or journal is written');
+      closeDatabase();
+      initDatabase();
+      assertEqualOrThrow(getCurrentSchemaVersion(), CORE + 1, 'and the live database still opens');
+      sameOrThrow(pizzaRowCounts(getDatabase()), [1, 1, 1], 'with its rows');
+      closeDatabase();
+    } finally {
+      MIGRATIONS.pop();
+    }
+  });
+
+  await testCase(
+    '10. A missing pizza counter reads as 0; an unreadable one is not overwritten',
+    () => {
+      const dirF = useDir('f-counter');
+      const dbFile = path.join(dirF, 'flo.db');
+      // A backup made by upstream has a _flo_meta table and no pizza row.
+      fs.copyFileSync(upstream.backup, dbFile);
+      initDatabase();
+      assertEqualOrThrow(pizzaVersion(getDatabase()), PIZZA, 'no pizza row: the list runs');
+      closeDatabase();
+
+      for (const value of ['banana', '1.5', '-1', '', null]) {
+        setPizzaStamp(dbFile, value);
+        let caught: any;
+        try {
+          initDatabase();
+        } catch (error) {
+          caught = error;
+        }
+        closeDatabase();
+        assertOrThrow(
+          isSchemaVersionMismatchError(caught),
+          `a counter of ${JSON.stringify(value)} refuses to open (got: ${caught?.message ?? 'no error'})`,
+        );
+        assertEqualOrThrow(pizzaStampOf(dbFile), value, 'and is left as it was');
+      }
+      assertEqualOrThrow(isHealthyDatabaseFile(dbFile), false, 'such a file is not a healthy file');
+
+      setPizzaStamp(dbFile, String(PIZZA));
+      initDatabase();
+      sameOrThrow(findingIds(), [], 'with a readable counter it opens again');
+      closeDatabase();
+    },
+  );
+
+  await testCase('11. A pizza migration that throws leaves its counter and fails the open', () => {
+    const dirG = useDir('g-throwing');
+    const dbFile = path.join(dirG, 'flo.db');
+    fs.copyFileSync(forkBackup, dbFile);
+    MIGRATIONS.push({
+      version: CORE + 1,
+      name: 'test_only_later_upstream_migration',
+      up: () => getDatabase().exec('CREATE TABLE test_later_upstream (id INTEGER PRIMARY KEY)'),
+    });
+    const throwing = {
+      version: PIZZA + 1,
+      name: 'test_only_throwing_pizza_migration',
+      up: (db: any) => {
+        db.exec('CREATE TABLE pizza_test_half_done (id TEXT PRIMARY KEY)');
+        throw new Error('test-only pizza migration failure');
+      },
+    };
+    PIZZA_MIGRATIONS.push(throwing);
+    forgetCachedSchemas();
+    try {
+      let caught: any;
+      try {
+        initDatabase();
+      } catch (error) {
+        caught = error;
+      }
+      closeDatabase();
+      assertEqualOrThrow(
+        caught?.message,
+        'test-only pizza migration failure',
+        'opening the database fails with the migration error',
+      );
+      const raw = new Database(dbFile, { readonly: true });
+      try {
+        assertEqualOrThrow(
+          raw.pragma('user_version', { simple: true }),
+          CORE + 1,
+          'the upstream migration before it stays committed',
+        );
+        assertEqualOrThrow(pizzaVersion(raw), PIZZA, 'the pizza counter is unchanged');
+        assertEqualOrThrow(
+          hasTable(raw, 'pizza_test_half_done'),
+          false,
+          'and the half-done work is rolled back',
+        );
+      } finally {
+        raw.close();
+      }
+
+      throwing.up = (db: any) =>
+        db.exec('CREATE TABLE IF NOT EXISTS pizza_test_half_done (id TEXT PRIMARY KEY)');
+      initDatabase();
+      const db = getDatabase();
+      assertEqualOrThrow(
+        pizzaVersion(db),
+        PIZZA + 1,
+        'with the migration fixed, the next open runs it',
+      );
+      assertEqualOrThrow(hasTable(db, 'pizza_test_half_done'), true, 'and creates its table');
+      sameOrThrow(pizzaRowCounts(db), [1, 1, 1], 'with the pizza rows kept');
+      closeDatabase();
+    } finally {
+      PIZZA_MIGRATIONS.pop();
+      MIGRATIONS.pop();
+      forgetCachedSchemas();
+    }
+  });
+
+  await testCase('12. A newer pizza version is logged once, not once per probe', () => {
+    assertEqualOrThrow(pizzaWarnings.length, 1, `one warning (${pizzaWarnings.join(' | ')})`);
   });
 
   closeDatabase();

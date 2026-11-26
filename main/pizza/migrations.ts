@@ -49,16 +49,21 @@ export const PIZZA_MIGRATIONS: {
 
 const latestPizzaVersion = (): number => PIZZA_MIGRATIONS[PIZZA_MIGRATIONS.length - 1].version;
 
+/**
+ * 0 when the counter was never written. A counter that is there but is not a whole number reads
+ * as Infinity, newer than any build, so the database is refused and the value is not overwritten.
+ */
 export function getPizzaSchemaVersion(db: Database.Database): number {
   const hasMeta = db
     .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '_flo_meta'")
     .get();
   if (!hasMeta) return 0;
   const row = db.prepare('SELECT value FROM _flo_meta WHERE key = ?').get(PIZZA_VERSION_KEY) as
-    | { value: string | null }
+    | { value: unknown }
     | undefined;
-  const version = Number(row?.value);
-  return Number.isSafeInteger(version) && version > 0 ? version : 0;
+  if (!row) return 0;
+  const version = /^\d+$/.test(String(row.value)) ? Number(row.value) : Infinity;
+  return Number.isSafeInteger(version) ? version : Infinity;
 }
 
 /** The pizza version a reference schema is built at: the candidate file's own, or this build's. */
@@ -91,9 +96,22 @@ export function runPizzaMigrations(
 export function newerPizzaSchemaDetail(db: Database.Database): string | null {
   const version = getPizzaSchemaVersion(db);
   const latest = latestPizzaVersion();
-  return version > latest
+  if (version <= latest) return null;
+  return Number.isFinite(version)
     ? `Requires pizza schema v${version} (this version supports up to v${latest})`
-    : null;
+    : `Its pizza schema version cannot be read (this version supports up to v${latest})`;
+}
+
+let warnedNewerPizzaSchema = false;
+
+/** True when the database needs a newer build. The log says why, once per process. */
+export function isNewerPizzaSchema(db: Database.Database): boolean {
+  const detail = newerPizzaSchemaDetail(db);
+  if (detail && !warnedNewerPizzaSchema) {
+    warnedNewerPizzaSchema = true;
+    console.warn(`[DB] ${detail}`);
+  }
+  return detail !== null;
 }
 
 export type PizzaMenuSnapshot = Record<'products' | 'menu', Record<string, unknown>[]>;
@@ -102,14 +120,21 @@ export type PizzaMenuSnapshot = Record<'products' | 'menu', Record<string, unkno
 export function capturePizzaMenu(db: Database.Database): PizzaMenuSnapshot {
   const rows = (table: string) =>
     db.prepare(`SELECT * FROM ${table}`).all() as Record<string, unknown>[];
+  const withoutPrices = (catalog: unknown): string => {
+    try {
+      return JSON.stringify(
+        JSON.parse(String(catalog), (key, value) => (key === 'priceCents' ? 0 : value)),
+      );
+    } catch (cause) {
+      throw new Error(
+        'The stored pizza menu is unreadable. Load the menu file again before changing currency.',
+        { cause },
+      );
+    }
+  };
   return {
     products: rows('pizza_products'),
-    menu: rows('pizza_menu').map((row) => ({
-      ...row,
-      catalog: JSON.stringify(
-        JSON.parse(String(row.catalog), (key, value) => (key === 'priceCents' ? 0 : value)),
-      ),
-    })),
+    menu: rows('pizza_menu').map((row) => ({ ...row, catalog: withoutPrices(row.catalog) })),
   };
 }
 

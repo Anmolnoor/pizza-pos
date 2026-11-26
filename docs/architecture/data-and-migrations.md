@@ -105,15 +105,20 @@ A file is compared against the reference built at its own pizza version, as it i
 upstream version: `getRecoverySchemaReference` reads the candidate's `pizza_schema_version` and
 caches one reference per pair of versions. A backup taken before a later pizza migration, or made
 by upstream FloCafe with no pizza table at all, therefore passes `isHealthyDatabaseFile` and is
-listed as compatible by downgrade discovery. Restoring it brings it to the current pizza version.
-The one comparison against the current reference is `validateDirectBackup`, which runs after
-schema repair has added any missing pizza table or column to the staged copy.
+listed as compatible by downgrade discovery. Restoring it brings it to the current pizza version: a restore at the current
+upstream version runs the pizza list on its staged copy before schema repair, so
+`validateDirectBackup` compares that copy against the current reference whatever a pizza migration
+does, and an older backup is migrated after it replaces the live file.
+
+A counter that was never written reads as 0 and the whole list runs. A counter that is present but
+is not a whole number is treated as newer than any build: the database is refused as described
+under the second fail-closed rule and the value is left as it is.
 
 A currency reset recreates the database, so `capturePizzaMenu` and `restorePizzaMenu` carry the
 pizza side of the menu across with the rest of it: `pizza_products` rows whose product survives,
 and the `pizza_menu` catalogue with every `priceCents` set to 0, because those amounts are in the
-old currency. `pizza_quick_buttons` is not carried: its rows point at customers the reset erases
-and hold add-on prices in the old currency.
+old currency. `pizza_quick_buttons` is not carried, shop-wide buttons included: a button stores
+add-on prices, and those are in the old currency.
 
 ## The two fail-closed rules
 
@@ -139,8 +144,11 @@ data:
    of `PIZZA_MIGRATIONS` counts as newer in the same way: `readCanonicalMetaVersionInfo` reports
    such a database as one schema version past the supported one, so the preflight, the
    `runMigrations` guard and the replay of a retained replacement journal all treat it as a newer
-   database. The error and the recovery dialog therefore show that number, not the pizza version;
-   the log line `Requires pizza schema vA (this version supports up to vB)` names the real cause.
+   database. A pizza-version mismatch is therefore reported as the next upstream version in the
+   error, the recovery dialog and the name of the preserved file; the log line
+   `Requires pizza schema vA (this version supports up to vB)`, written once per process, names the
+   real pizza versions. `isHealthyDatabaseFile` answers false for such a file, and `restoreBackup`
+   refuses such a backup before it touches the live database.
 
    `initialize()` in [`main/index.ts`](../../main/index.ts) intercepts `SchemaVersionMismatchError`
    before the generic startup-error dialog, quiesces database access, and runs
@@ -351,7 +359,7 @@ Directory syncing is skipped on Windows, which does not support it.
 | `npm run test:sequence` | Order and bill sequence generation, repair performance, and no-reuse invariants. |
 | `npm run test:issue-278-fail-closed-db` | The missing-database guard. |
 | `npm run test:newer-db-recovery` | Newer-database startup interception, content-based backup discovery, sidecar preservation, journaled downgrade restore, and rollback. |
-| `npm run test:pizza-migrations` | The pizza migration list: a new database, a database written by upstream code, health check and restore, a later upstream migration, backups at an older and a newer pizza version, and the currency reset. |
+| `npm run test:pizza-migrations` | The pizza migration list: a new database, a database written by upstream code, health check and restore, a later upstream migration, backups at an older and a newer pizza version, a missing or unreadable counter, a migration that throws, and the currency reset. |
 
 `isHealthyDatabaseFile` is the predicate that decides whether a candidate file is usable at all. It
 probes legacy rollback-journal files read-only in place and stages WAL-mode or sidecar-accompanied

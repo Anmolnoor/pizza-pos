@@ -1863,6 +1863,7 @@ function checkHealthyDatabaseFile(
         if (schemaVersion < 1 || schemaVersion > supportedVersion) {
           return false;
         }
+        if (pizzaSchema.newerPizzaSchemaDetail(candidate)) return false;
 
         const tables = new Set(getTables(candidate));
         const schemaRef = getRecoverySchemaReference(schemaVersion, candidate);
@@ -2246,11 +2247,8 @@ function readCanonicalMetaVersionInfo(probeDb: Database.Database): {
     const appVersion =
       typeof rawAppVersion === 'string' && rawAppVersion.trim() ? rawAppVersion.trim() : null;
     // A pizza schema newer than this build is reported as a schema one past the supported one.
-    const newerPizza = pizzaSchema.newerPizzaSchemaDetail(probeDb);
-    if (newerPizza) {
-      console.warn(`[DB] ${newerPizza}`);
+    if (pizzaSchema.isNewerPizzaSchema(probeDb))
       return { schemaVersion: getLatestSupportedSchemaVersion() + 1, appVersion };
-    }
     return { schemaVersion, appVersion };
   } catch (error) {
     if (isShutdownOrMaintenanceAbortError(error) || isSqliteStorageOrOpenError(error)) {
@@ -5408,6 +5406,7 @@ function repairStagedBackupSchema(stagedPath: string, currentVersion: number): v
   try {
     stagedDb = new Database(stagedPath, { fileMustExist: true });
     if (Number(stagedDb.pragma('user_version', { simple: true })) !== currentVersion) return;
+    pizzaSchema.runPizzaMigrations(stagedDb);
     const { applySafeFixes } =
       require('./services/schema-health') as typeof import('./services/schema-health');
     const result = applySafeFixes(undefined, stagedDb);
@@ -5455,8 +5454,6 @@ function validateDirectBackup(backupPath: string, currentVersion: number): strin
     if (metadataVersion !== currentVersion || pragmaVersion !== currentVersion) {
       return `Direct restore requires matching metadata/header schema v${currentVersion}`;
     }
-    const newerPizza = pizzaSchema.newerPizzaSchemaDetail(backupDb);
-    if (newerPizza) return `Direct restore rejected: ${newerPizza}`;
 
     const integrity = backupDb.prepare('PRAGMA integrity_check').all() as {
       integrity_check: string;
@@ -6284,6 +6281,7 @@ export function restoreBackup(
     let metadataVersion = 0;
     let metadataStampPresent = false;
     let pragmaVersion = 0;
+    let newerPizza: string | null = null;
     let backupDb: Database.Database | undefined;
     let unreadableSource = false;
     try {
@@ -6299,6 +6297,7 @@ export function restoreBackup(
       metadataStampPresent = Boolean(metaRow);
       metadataVersion = metaRow ? (parseCanonicalSchemaVersion(metaRow.value) ?? 0) : 0;
       pragmaVersion = Number(backupDb.pragma('user_version', { simple: true }));
+      newerPizza = pizzaSchema.newerPizzaSchemaDetail(backupDb);
     } catch (openError) {
       if (isShutdownOrMaintenanceAbortError(openError)) {
         throw openError;
@@ -6352,14 +6351,17 @@ export function restoreBackup(
       };
     }
 
-    if (pragmaVersion > currentVersion) {
+    if (pragmaVersion > currentVersion || newerPizza) {
       return {
         success: false,
         mode: 'direct',
         backupSchemaVersion,
         currentSchemaVersion: currentVersion,
         tablesRestored: 0,
-        error: `Direct restore rejected: backup schema v${pragmaVersion} is newer than supported schema v${currentVersion}`,
+        error:
+          pragmaVersion > currentVersion
+            ? `Direct restore rejected: backup schema v${pragmaVersion} is newer than supported schema v${currentVersion}`
+            : `Direct restore rejected: ${newerPizza}`,
       };
     }
 
