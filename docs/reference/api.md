@@ -682,28 +682,52 @@ only its own rows:
 | A deal                 | A product in "Deals" at the deal price                                                                                               | `cat-deals`; `dl-<deal>`                                             |
 
 A category is written only when the menu has something to put in it, and each has its own named
-colour. A product with variants carries its lowest variant price as its own price. Rows keep the
-order of the file in `sort_order`. Prices in the stored catalogue are whole cents and are divided by
-`getCurrencyMinorUnitFactor()` of the store's currency when they are written.
+colour. The four categories have fixed ids, so a store that already has its own root category named
+"Pizzas", "Sides", "Drinks" or "Deals" gets a second one with that name. A product with variants
+carries its lowest variant price as its own price. Rows keep the order of the file in `sort_order`.
 
-The import also stores the parsed catalogue in `pizza_menu` and one `pizza_products` row per pizza,
-for the half-and-half product, and per deal.
+The menu file is priced in dollars and cents. Prices in the stored catalogue are whole cents and are
+divided by `getCurrencyMinorUnitFactor()` of the store's currency when they are written; a store
+whose currency is not counted in hundredths is refused.
 
-A row the previously loaded menu had and this one does not is switched off (`is_active = 0`) and
-counted in `deactivated`; it is not deleted, because orders point at it, and its `pizza_products` row
-stays. A later file that has the entry again switches it back on. Rows that did not come from a menu
-file are never touched. The file is the master for the columns it writes: a name or price edited in
-the back office, or a product deleted there, is put back by the next load.
+The file is the master for the columns below, and only for them. Every other column of a row, such
+as an image, a barcode or stock, is left as the back office set it.
 
-Drinks get the tax category `soda` when the menu's drinks category has `pst: true`; every other
-product gets `food`. Both are looked up in the store's active tax pack. Where the pack has no such
-category the product is left without one, which the tax engine treats as untaxed, and `untaxed` is
-`true`.
+| Row                  | Columns the file sets on every load                                                                                                                |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Category             | Name, slug, colour, sort order, active, and not deleted                                                                                            |
+| Product              | Name, description, price, category, sort order, active, and not deleted; the tax category only when the store has the one the product should carry |
+| Variant              | Name, price, sort order, and active                                                                                                                |
+| Add-on group         | Name, `is_required`, `min_selection`, `max_selection`, `allow_multiple_quantities`, and active                                                     |
+| Add-on               | Name, price, sort order, and active                                                                                                                |
+| `pizza_products` row | Menu id, kind, ingredients, and picks                                                                                                              |
 
-| Method | Path           | Authorization    | Parameters                                         | Response                                                                                                                                                                                                                                                                                                             |
-| ------ | -------------- | ---------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST` | `/menu/import` | `catalog.manage` | body: the menu file (`tax`, `sizes`, `categories`) | `{ created, updated, unchanged, deactivated, untaxed }`, counting rows. `parseMenuFile()` validates the whole file before anything is written; a file it rejects answers `400` with `{ error, path }`, where `path` names the bad entry, and writes nothing. So does a menu in which two entries derive the same id. |
-| `GET`  | `/catalog`     | `catalog.view`   | none                                               | The catalogue parsed from the last menu file loaded (`PizzaCatalog` in `shared/pizza/types.ts`, money in whole cents). `404` when no menu has been loaded.                                                                                                                                                           |
+A name or price edited in the back office is put back by the next load. So is a product deleted
+there, and a product switched off there, for example because it is sold out, is switched on again.
+A variant keeps its product and an add-on keeps its group: a menu whose derived id is already stored
+under another product or group is refused. The link from the "Dips" group to the "Pizzas" category,
+and from a side's group to its side, is created when missing and never removed.
+
+Drinks carry the tax category `soda` when the menu's drinks category has `pst: true`; every other
+product carries `food`. Both are looked up in the store's active tax pack. Where the pack has no
+such category the load does not write the product's tax category: a new product has none, which the
+tax engine treats as untaxed, a product that already has one keeps it, and `untaxed` is `true`.
+
+The load stores the parsed catalogue in `pizza_menu`, together with `owned_rows`: the sorted list of
+the categories, products, variants, add-on groups and add-ons it wrote, each as `"<table>:<id>"`. It
+also writes one `pizza_products` row per pizza, for the half-and-half product, and per deal.
+
+A row the previous load owned and this one does not is switched off (`is_active = 0`) and counted in
+`deactivated`; it is not deleted, because orders point at it, and its `pizza_products` row stays. A
+side that loses its modifier keeps the link to its add-on group; the group is switched off, so the
+side sells without the choice. A category the menu no longer uses stays on while it still holds an
+active product. A later file that has the entry again switches it back on. Rows no load owned, such
+as a product or a variant added by hand, are never touched.
+
+| Method | Path           | Authorization           | Parameters                                         | Response                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ------ | -------------- | ----------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST` | `/menu/import` | `catalog.import-export` | body: the menu file (`tax`, `sizes`, `categories`) | `{ created, updated, unchanged, deactivated, untaxed }`, counting rows. `parseMenuFile()` validates the whole file before anything is written; a file it rejects answers `400` with `{ error, path }`, where `path` names the bad entry, and writes nothing. A menu in which two entries derive the same id, or that would move a stored variant or add-on to another product or group, answers the same way with `path: 'menu'`. A store currency that is not counted in hundredths, or an unreadable `pizza_menu.owned_rows`, answers `400` with `{ error }` and writes nothing. |
+| `GET`  | `/catalog`     | `catalog.view`          | none                                               | The catalogue parsed from the last menu file loaded (`PizzaCatalog` in `shared/pizza/types.ts`, money in whole cents). `404` when no menu has been loaded.                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 ### Settings
 

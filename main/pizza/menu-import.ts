@@ -2,6 +2,7 @@
 import type Database from 'better-sqlite3';
 import { getCurrencyMinorUnitFactor } from '../countries';
 import { now } from '../db';
+import { slugForName } from '../routes/categories';
 import { getTenantCurrency } from '../services/refund';
 import { MenuError } from '../../shared/pizza/menu';
 import type { CatalogPriced, PizzaCatalog } from '../../shared/pizza/types';
@@ -19,12 +20,21 @@ export interface ImportSummary {
   updated: number;
   unchanged: number;
   deactivated: number;
-  /** True when a product was left without a tax category because the store has none to give it. */
+  /** True when the store has no `food` or `soda` tax category, so the load assigned none. */
   untaxed: boolean;
 }
 
+/** A load refused for a reason that is not in the menu file; the message is for the owner. */
+export class MenuImportError extends Error {}
+
+/** The catalogue tables a menu owns rows in; the stored `owned_rows` names rows in these only. */
 const SWITCHABLE = ['categories', 'products', 'product_variants', 'addon_groups', 'addons'];
 const LINKS = ['category_addon_groups', 'addon_group_product'];
+/** The column a derived id is tied to: a variant to its product, an add-on to its group. */
+const PARENT: Record<string, string> = {
+  product_variants: 'product_id',
+  addons: 'addon_group_id',
+};
 
 const rowId = (row: Row): string => `${row.table} ${Object.values(row.key).join('|')}`;
 
@@ -51,7 +61,7 @@ function menuRows(
     add(
       'categories',
       { id },
-      { name, slug: name.toLowerCase(), color, sort_order, is_active: 1, deleted_at: null },
+      { name, slug: slugForName(name), color, sort_order, is_active: 1, deleted_at: null },
     );
   const product = (
     id: string,
@@ -68,7 +78,8 @@ function menuRows(
         name: entry.name,
         description: entry.description || null,
         price: money(entry.priceCents),
-        tax_category_id,
+        // With no category to give, the column is left alone: the owner's own choice stays.
+        ...(tax_category_id === null ? {} : { tax_category_id }),
         sort_order,
         is_active: 1,
         deleted_at: null,
@@ -187,8 +198,29 @@ function menuRows(
     );
   });
 
-  add('pizza_menu', { id: 1 }, { catalog: JSON.stringify(catalog) });
   return rows;
+}
+
+/** The `"<table>:<id>"` entries the last load stored, or none before the first load. */
+function lastOwnedRows(db: Database.Database): string[] {
+  const stored = db.prepare('SELECT owned_rows FROM pizza_menu WHERE id = 1').get() as
+    | { owned_rows: string }
+    | undefined;
+  if (!stored) return [];
+  try {
+    const owned: unknown = JSON.parse(stored.owned_rows);
+    const readable =
+      Array.isArray(owned) &&
+      owned.every(
+        (entry) => typeof entry === 'string' && SWITCHABLE.includes(entry.split(':', 1)[0]),
+      );
+    if (readable) return owned as string[];
+  } catch {
+    // Falls through to the refusal below.
+  }
+  throw new MenuImportError(
+    'The stored menu record is unreadable (pizza_menu.owned_rows), so the menu was not loaded.',
+  );
 }
 
 /** `food` and `soda` as the store's active tax pack knows them, or null where it has no such category. */
@@ -236,6 +268,12 @@ function writeRow(
   const stored = db.prepare(`SELECT * FROM ${table} WHERE ${where}`).get(key) as
     | Record<string, unknown>
     | undefined;
+  const parent = PARENT[table];
+  if (stored && parent && stored[parent] !== values[parent])
+    throw new MenuError(
+      'menu',
+      `${table} id "${key.id}" is already used under "${stored[parent]}", so it cannot go under "${values[parent]}"`,
+    );
   if (stored && Object.entries(values).every(([column, value]) => stored[column] === value))
     return 'unchanged';
 
@@ -257,15 +295,34 @@ function writeRow(
 }
 
 /**
- * Loads a menu in one transaction. A row the last menu had and this one does not is switched
- * off, not deleted, because orders point at it; a row no menu ever had is never touched.
+ * Loads a menu in one transaction. A row the last load owned and this one does not is switched
+ * off, not deleted, because orders point at it; a row no load owned is never touched.
  */
 export function importMenu(db: Database.Database, catalog: PizzaCatalog): ImportSummary {
-  const factor = getCurrencyMinorUnitFactor(getTenantCurrency(db));
+  const currency = getTenantCurrency(db);
+  const factor = getCurrencyMinorUnitFactor(currency);
+  if (factor !== 100)
+    throw new MenuImportError(
+      `A menu file is priced in dollars and cents, and the store currency ${currency} is not counted in hundredths, so the menu was not loaded.`,
+    );
   const money = (cents: number): number => cents / factor;
   const { food, soda } = taxCategories(db);
   const tax = { food, drinks: catalog.drinksPst ? soda : food };
   const rows = menuRows(catalog, money, tax);
+  const owned = rows
+    .filter((row) => SWITCHABLE.includes(row.table))
+    .map((row) => `${row.table}:${row.key.id}`)
+    .sort();
+  rows.push({
+    table: 'pizza_menu',
+    key: { id: 1 },
+    values: { catalog: JSON.stringify(catalog), owned_rows: JSON.stringify(owned) },
+  });
+  // Categories last: one is judged after the menu's own products in it are switched off.
+  const isCategory = (entry: string): number => Number(entry.startsWith('categories:'));
+  const gone = lastOwnedRows(db)
+    .filter((entry) => !owned.includes(entry))
+    .sort((a, b) => isCategory(a) - isCategory(b));
   const summary: ImportSummary = {
     created: 0,
     updated: 0,
@@ -276,20 +333,21 @@ export function importMenu(db: Database.Database, catalog: PizzaCatalog): Import
 
   db.transaction(() => {
     const stamp = now();
-    const last = db.prepare('SELECT catalog FROM pizza_menu WHERE id = 1').get() as
-      | { catalog: string }
-      | undefined;
     for (const row of rows) summary[writeRow(db, row, stamp)] += 1;
-    if (!last) return;
-
-    const kept = new Set(rows.map(rowId));
-    for (const row of menuRows(JSON.parse(last.catalog), money, tax)) {
-      if (!SWITCHABLE.includes(row.table) || kept.has(rowId(row))) continue;
+    for (const entry of gone) {
+      const table = entry.split(':', 1)[0];
+      const id = entry.slice(table.length + 1);
+      const stillUsed =
+        table === 'categories' &&
+        db
+          .prepare(
+            'SELECT 1 FROM products WHERE category_id = ? AND is_active = 1 AND deleted_at IS NULL',
+          )
+          .get(id);
+      if (stillUsed) continue;
       summary.deactivated += db
-        .prepare(
-          `UPDATE ${row.table} SET is_active = 0, updated_at = ? WHERE id = ? AND is_active = 1`,
-        )
-        .run(stamp, row.key.id).changes;
+        .prepare(`UPDATE ${table} SET is_active = 0, updated_at = ? WHERE id = ? AND is_active = 1`)
+        .run(stamp, id).changes;
     }
   })();
   return summary;

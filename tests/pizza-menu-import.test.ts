@@ -198,8 +198,8 @@ async function main() {
         assertEqualOrThrow(denied.status, 403, 'a cashier cannot load a menu');
         assertEqualOrThrow(
           denied.data.permission,
-          'catalog.manage',
-          'the permission is catalog.manage',
+          'catalog.import-export',
+          'the permission is the bulk import one',
         );
         assertEqualOrThrow(dump(), empty, 'a refused load writes nothing');
 
@@ -218,12 +218,12 @@ async function main() {
 
     await testCase('1. Every row of the mapping table exists', () => {
       same(
-        lines('categories', 'id, name, sort_order, is_active'),
+        lines('categories', 'id, name, slug, sort_order, is_active'),
         [
-          'cat-deals|Deals|3|1',
-          'cat-drinks|Drinks|2|1',
-          'cat-pizzas|Pizzas|0|1',
-          'cat-sides|Sides|1|1',
+          'cat-deals|Deals|deals|3|1',
+          'cat-drinks|Drinks|drinks|2|1',
+          'cat-pizzas|Pizzas|pizzas|0|1',
+          'cat-sides|Sides|sides|1|1',
         ],
         'four categories, in menu order',
       );
@@ -361,9 +361,18 @@ async function main() {
         ['["Ham","Pineapple","Cheese","Tomato sauce"]'],
         'a pizza row carries its ingredients',
       );
-      const menuRows = rows('SELECT id, catalog FROM pizza_menu');
+      const menuRows = rows('SELECT id, catalog, owned_rows FROM pizza_menu');
       assertEqualOrThrow(menuRows.length, 1, 'pizza_menu has one row');
       same(JSON.parse(menuRows[0].catalog), catalog, 'holding the catalogue');
+      const owned = [
+        'addon_groups',
+        'addons',
+        'categories',
+        'product_variants',
+        'products',
+      ].flatMap((table) => lines(table, 'id').map((id) => `${table}:${id}`));
+      assertEqualOrThrow(owned.length, 58, 'the menu owns 58 catalogue rows');
+      same(JSON.parse(menuRows[0].owned_rows), owned, 'and the row lists them, sorted');
     });
 
     await testCase('2. No id repeats within any table', () => {
@@ -494,13 +503,19 @@ async function main() {
       ).run({ old: LONG_AGO });
       db.prepare(
         `INSERT INTO product_variants (id, product_id, name, price, created_at, updated_at)
-         VALUES ('byhand-one', 'byhand', 'One size', 9.5, @old, @old)`,
+         VALUES ('byhand-one', 'byhand', 'One size', 9.5, @old, @old),
+                ('byhand-xl', 'pz-garden', 'Extra large', 27, @old, @old)`,
       ).run({ old: LONG_AGO });
       const byHand = () =>
         JSON.stringify([
           rows("SELECT * FROM products WHERE id = 'byhand'"),
-          rows("SELECT * FROM product_variants WHERE product_id = 'byhand'"),
+          rows("SELECT * FROM product_variants WHERE id LIKE 'byhand-%' ORDER BY id"),
         ]);
+      assertEqualOrThrow(
+        JSON.parse(byHand())[1].length,
+        2,
+        'one variant on the hand-made product, one added to an imported pizza',
+      );
       const before = byHand();
 
       const menu = sampleMenu();
@@ -515,7 +530,7 @@ async function main() {
         'the summary counts only the rows the menu owns',
       );
       assertEqualOrThrow(byHand(), before, 'and so does the next load');
-      db.prepare("DELETE FROM product_variants WHERE product_id = 'byhand'").run();
+      db.prepare("DELETE FROM product_variants WHERE id LIKE 'byhand-%'").run();
       db.prepare("DELETE FROM products WHERE id = 'byhand'").run();
     });
 
@@ -558,6 +573,169 @@ async function main() {
       );
       assertEqualOrThrow((await post(owner, menu)).status, 400, 'the route answers 400');
       assertEqualOrThrow(dump(), before, 'and nothing is written');
+    });
+
+    await testCase('10. A tax category the owner set survives a load', () => {
+      const db = getDatabase();
+      db.prepare("UPDATE products SET tax_category_id = 'owner-rate' WHERE id = 'pz-garden'").run();
+      const menu = sampleMenu();
+      sizes(menu)[0].price = 14;
+      assertEqualOrThrow(load(menu).untaxed, true, 'the store still has no food or soda category');
+      same(
+        lines('products', 'price, tax_category_id', "id = 'pz-garden'"),
+        ['14|owner-rate'],
+        'the price follows the file and the tax category stays',
+      );
+      load(sampleMenu());
+      db.prepare("UPDATE products SET tax_category_id = NULL WHERE id = 'pz-garden'").run();
+    });
+
+    await testCase('11. A category that still holds a hand-made product stays on', () => {
+      const db = getDatabase();
+      db.prepare(
+        `INSERT INTO products (id, category_id, name, price) VALUES ('byhand', 'cat-deals', 'Sample special', 9.5)`,
+      ).run();
+      const menu = sampleMenu();
+      menu.categories.pop();
+      assertEqualOrThrow(load(menu).deactivated, 4, 'the four deals are switched off');
+      same(
+        lines('products', 'id', "is_active = 1 AND category_id = 'cat-deals'"),
+        ['byhand'],
+        'the hand-made product is all that is left in Deals',
+      );
+      same(lines('categories', 'id', 'is_active = 0'), [], 'so Deals stays on');
+
+      db.prepare("DELETE FROM products WHERE id = 'byhand'").run();
+      load(sampleMenu());
+      assertEqualOrThrow(
+        load(menu).deactivated,
+        5,
+        'with nothing else in it, Deals goes with its deals',
+      );
+      same(lines('categories', 'id', 'is_active = 0'), ['cat-deals'], 'and is switched off');
+      load(sampleMenu());
+      same(lines('categories', 'id', 'is_active = 0'), [], 'the full file switches it on again');
+    });
+
+    await testCase('12. What an earlier load owns is read from owned_rows', async () => {
+      const db = getDatabase();
+      db.prepare(`UPDATE pizza_menu SET catalog = '{"sizes":['`).run();
+      const menu = sampleMenu();
+      pizzas(menu).splice(1, 1);
+      assertEqualOrThrow(
+        load(menu).deactivated,
+        4,
+        'a load works when the stored catalogue is unreadable',
+      );
+      same(
+        lines('products', 'id', 'is_active = 0'),
+        ['pz-island'],
+        'and still switches off what left',
+      );
+      same(
+        JSON.parse(rows('SELECT catalog FROM pizza_menu')[0].catalog),
+        parseMenuFile(menu),
+        'and stores a readable catalogue again',
+      );
+
+      const good = rows('SELECT owned_rows FROM pizza_menu')[0].owned_rows;
+      const unreadable =
+        'The stored menu record is unreadable (pizza_menu.owned_rows), so the menu was not loaded.';
+      for (const bad of ['["products:pz-island"', '{"products":"pz-island"}', '["users:owner"]']) {
+        db.prepare('UPDATE pizza_menu SET owned_rows = ?').run(bad);
+        const before = dump();
+        let message = '';
+        try {
+          load(sampleMenu());
+        } catch (error: any) {
+          message = error.message;
+        }
+        assertEqualOrThrow(message, unreadable, `owned_rows ${bad} stops the load`);
+        const refused = await post(owner, sampleMenu());
+        assertEqualOrThrow(refused.status, 400, 'the route answers 400');
+        assertEqualOrThrow(refused.data.error, unreadable, 'with the same message');
+        assertEqualOrThrow(dump(), before, 'and nothing is written');
+      }
+      db.prepare('UPDATE pizza_menu SET owned_rows = ?').run(good);
+      load(sampleMenu());
+      same(lines('products', 'id', 'is_active = 0'), [], 'with the list back, the full file loads');
+    });
+
+    await testCase('13. A store whose currency is not in cents is refused', async () => {
+      const db = getDatabase();
+      const setCurrency = (code: string) =>
+        db.prepare("UPDATE settings SET value = ? WHERE key = 'currency'").run(code);
+      setCurrency('JPY');
+      try {
+        const before = dump();
+        const refused = await post(owner, sampleMenu());
+        assertEqualOrThrow(refused.status, 400, 'a yen store answers 400');
+        assertEqualOrThrow(
+          refused.data.error,
+          'A menu file is priced in dollars and cents, and the store currency JPY is not counted in hundredths, so the menu was not loaded.',
+          'and says why',
+        );
+        assertEqualOrThrow(dump(), before, 'and nothing is written');
+      } finally {
+        setCurrency('CAD');
+      }
+      assertEqualOrThrow(
+        (await post(owner, sampleMenu())).status,
+        200,
+        'the dollar store loads it',
+      );
+    });
+
+    await testCase('14. A derived id is never moved to another product or group', () => {
+      const only = (pizzaId: string, sizeId: string, side: unknown) => ({
+        ...sampleMenu(),
+        sizes: { pizza: [{ id: sizeId, label: 'Only', price: 10 }] },
+        categories: [
+          {
+            id: 'pizzas',
+            name: 'Pizzas',
+            items: [{ id: pizzaId, name: 'Only', description: '', sizes: 'pizza' }],
+          },
+          { id: 'sides', name: 'Sides', items: [side] },
+        ],
+      });
+      const sideWith = (id: string, modifierId: string, optionId: string) => ({
+        id,
+        name: 'Side',
+        price: 1,
+        modifiers: [
+          {
+            id: modifierId,
+            label: 'Kind',
+            required: true,
+            options: [{ id: optionId, label: 'One' }],
+          },
+        ],
+      });
+      const refusal = (menu: unknown): string => {
+        const before = dump();
+        let message = '';
+        try {
+          load(menu);
+        } catch (error: any) {
+          message = error.message;
+        }
+        assertEqualOrThrow(dump(), before, 'a refused menu writes nothing');
+        return message;
+      };
+
+      // Pizza a at size b-c is pz-a-b-c; the dip m-o is ad-dips-m-o in the Dips group.
+      load(only('a', 'b-c', sideWith('dip', 'kind', 'm-o')));
+      assertEqualOrThrow(
+        refusal(only('a-b', 'c', sideWith('dip', 'kind', 'm-o'))),
+        'menu: product_variants id "pz-a-b-c" is already used under "pz-a", so it cannot go under "pz-a-b"',
+        'pizza a-b at size c may not take over the variant of pizza a',
+      );
+      assertEqualOrThrow(
+        refusal(only('a', 'b-c', sideWith('dips', 'm', 'o'))),
+        'menu: addons id "ad-dips-m-o" is already used under "ag-dips", so it cannot go under "ag-dips-m"',
+        'option o of side dips, modifier m, may not take over the dip m-o',
+      );
     });
 
     closeDatabase();
@@ -625,6 +803,36 @@ async function main() {
       const flavoured = await order([{ ...wings, addons: [{ id: 'ad-wings-flavour-hot' }] }]);
       assertEqualOrThrow(flavoured.status, 201, 'wings with one flavour are accepted');
       assertEqualOrThrow(flavoured.data.order.subtotal, 12.25, 'and the flavour costs nothing');
+    });
+
+    await testCase('7e. A side that loses its modifier is still sold', async () => {
+      const pasta = { product_id: 'sd-pasta', quantity: 1 };
+      assertEqualOrThrow((await order([pasta])).status, 400, 'pasta needs its choice at first');
+      const menu = sampleMenu();
+      delete menu.categories[1].items[4].modifiers;
+      assertEqualOrThrow(
+        load(menu).deactivated,
+        3,
+        'the group and its two choices are switched off',
+      );
+      same(
+        lines('addon_groups', 'id', 'is_active = 0'),
+        ['ag-pasta-pasta-type'],
+        'the group is off',
+      );
+      same(
+        lines('addons', 'id', 'is_active = 0'),
+        ['ad-pasta-pasta-type-lasagna', 'ad-pasta-pasta-type-spaghetti'],
+        'with its choices',
+      );
+      same(
+        lines('addon_group_product', 'addon_group_id', "product_id = 'sd-pasta'"),
+        ['ag-pasta-pasta-type'],
+        'the link is kept',
+      );
+      const plain = await order([pasta]);
+      assertEqualOrThrow(plain.status, 201, 'and pasta is ordered with no choice');
+      assertEqualOrThrow(plain.data.order.subtotal, 11, 'at its price');
     });
 
     await testCase('7d. Without provincial tax on drinks, drinks carry food', () => {
