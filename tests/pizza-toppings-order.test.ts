@@ -11,6 +11,7 @@
 const {
   assertOrThrow,
   assertEqualOrThrow,
+  loadFrontend,
   runCases,
   createApp,
   startServer,
@@ -20,6 +21,32 @@ const { initDatabase, getDatabase } = require('../main/db');
 const { kdsRecipe } = require('../main/pizza/order-recipe');
 const { registerRoutes } = require('../main/routes/index');
 const sample = require('./fixtures/pizza-sample-menu.json');
+
+const frontend = loadFrontend();
+const { cartItemToOrderItem } = require('../frontend/src/lib/cart-order-item');
+const { useCartStore } = require('../frontend/src/store/cart');
+const { getPizzaCatalog, reloadPizzaCatalog } = require('../frontend/src/lib/pizza/catalog');
+const { newSheet, sheetReducer, sheetLine } = require('../frontend/src/lib/pizza/sheet-state');
+const { newDeal, dealReducer, dealLine } = require('../frontend/src/lib/pizza/deal-state');
+const {
+  customizeOne,
+  replaceCartLine,
+  sheetAddons,
+} = require('../frontend/src/lib/pizza/cart-lines');
+const { chargedAddons } = require('../frontend/src/lib/pizza/toppings');
+const {
+  buttonContents,
+  buttonLine,
+  fetchQuickButtons,
+  saveQuickButton,
+} = require('../frontend/src/lib/pizza/quick-buttons');
+const {
+  dealSentLine,
+  sentLine,
+  sentLineEdit,
+  sheetSentLine,
+  sheetSource,
+} = require('../frontend/src/lib/pizza/sent-line');
 
 const MISMATCH =
   'The toppings on this item do not match what it is charged. Remove it and add it again';
@@ -88,6 +115,50 @@ async function main() {
   });
   assertEqualOrThrow(setup.status, 200, 'first-time setup accepts the pizza profile');
   const headers = { Authorization: `Bearer ${setup.data.access_token}` };
+
+  // The POS's own API client, pointed at the test server and signed in.
+  frontend.api.defaults.baseURL = `${baseUrl}/api`;
+  frontend.api.defaults.headers.common.Authorization = headers.Authorization;
+  const cart = () => useCartStore.getState();
+  let products: any[] = [];
+  /** Reads the menu and the products the way the POS does after a menu load. */
+  const readPos = async () => {
+    await reloadPizzaCatalog();
+    products = (await frontend.api.get('/products')).data.products;
+  };
+  const productOf = (id: string) => products.find((entry) => entry.id === id);
+  const onSaleOf = (product: any) =>
+    (product.addon_groups ?? []).flatMap((group: any) => group.addons ?? []);
+  const tap = (state: object, ...actions: object[]) =>
+    actions.reduce((current, action) => sheetReducer(current, action), state) as any;
+  /** What Add or Save on the sheet hands the cart, built as `usePizzaPos` builds it. */
+  const sheetParts = (state: any) => {
+    const line = sheetLine(getPizzaCatalog(), state);
+    assertOrThrow(line.canAdd, `the sheet allows Add (${line.message})`);
+    const product = productOf(line.productId);
+    const addons = chargedAddons([], line.recipe, onSaleOf(product));
+    assertOrThrow(addons !== null, 'the POS sells the topping add-ons');
+    return {
+      product,
+      variant: product.variants.find((entry: any) => entry.id === line.variantId),
+      addons,
+      quantity: state.quantity,
+      special_instructions: state.note,
+      recipe: line.recipe,
+    };
+  };
+  const addFromSheet = (state: any) => {
+    const parts = sheetParts(state);
+    cart().addItem(parts.product, parts.quantity, parts.addons, '', parts.variant, parts.recipe);
+  };
+  const placeCart = () => createOrder(cart().items.map(cartItemToOrderItem));
+  /** What the cart charges before tax, as the POS shows it. */
+  const cartSubtotal = () => Number(cart().subtotal().toFixed(2));
+  const extraCheese = [
+    { type: 'ingredient', half: 0, name: 'Cheese' },
+    { type: 'ingredient', half: 0, name: 'Cheese' },
+  ];
+  const addBacon = { type: 'topping', half: 0, toppingId: 'bacon' };
 
   let key = 0;
   const post = (path: string, body: object) =>
@@ -493,6 +564,226 @@ async function main() {
             null,
             `${json(bad)} is not a recipe`,
           );
+      },
+
+    'Case 12: a pizza built on the sheet goes through the cart to the order with its charge':
+      async () => {
+        await readPos();
+        cart().clearCart();
+        addFromSheet(
+          tap(newSheet({ pizzaId: 'garden', sizeId: 'large' }), ...extraCheese, addBacon),
+        );
+        assertEqualOrThrow(cartSubtotal(), 27.5, 'the cart shows 23.00 + 2 x 2.25');
+        const sent = cart().items.map(cartItemToOrderItem);
+        same(
+          [
+            sent[0].addons.map((addon: any) => [addon.id, addon.quantity]),
+            sent[0].modifier_selection,
+          ],
+          [[['ad-topping', 2]], twoOnWhole],
+          'the request carries the recipe and two toppings',
+        );
+        const placed = await placeCart();
+        accepted(placed, 201, 'the order is accepted');
+        assertEqualOrThrow(placed.data.order.subtotal, cartSubtotal(), 'at what the cart showed');
+
+        cart().clearCart();
+        addFromSheet(
+          tap(
+            newSheet({ split: true, sizeId: 'large' }),
+            { type: 'pizza', half: 0, pizzaId: 'island' },
+            { type: 'pizza', half: 1, pizzaId: 'classic' },
+            addBacon,
+            { type: 'ingredient', half: 1, name: 'Cheese' },
+            { type: 'ingredient', half: 1, name: 'Cheese' },
+          ),
+        );
+        const half = await placeCart();
+        accepted(half, 201, 'a half and half with one on each half is accepted');
+        same(
+          [cartSubtotal(), half.data.order.subtotal],
+          [25.26, 25.26],
+          'the cart and the order agree on 23.00 + 2 x 1.13',
+        );
+      },
+
+    'Case 13: "Customize 1" gives one pizza of several a topping and leaves the rest plain':
+      async () => {
+        cart().clearCart();
+        const garden = productOf('pz-garden');
+        const large = garden.variants.find((entry: any) => entry.id === 'pz-garden-large');
+        cart().addItem(garden, 3, [], '', large);
+        const split = customizeOne(cart().items, cart().items[0].id);
+        const edited = sheetParts(tap(newSheet(), { type: 'load', line: split.line }, addBacon));
+        useCartStore.setState({
+          items: replaceCartLine(split.items, split.line.id, {
+            ...split.line,
+            ...edited,
+            addons: sheetAddons(split.line.addons, edited.addons),
+          }),
+        });
+        same(
+          cart().items.map((item: any) => [
+            item.quantity,
+            item.addons.map((addon: any) => [addon.id, addon.quantity]),
+          ]),
+          [
+            [2, []],
+            [1, [['ad-topping', 1]]],
+          ],
+          'two plain and one with a topping',
+        );
+        const placed = await placeCart();
+        accepted(placed, 201, 'the order is accepted');
+        assertEqualOrThrow(placed.data.order.subtotal, 71.25, '3 x 23.00 + 2.25');
+      },
+
+    'Case 14: a deal built in the configurator is charged for the toppings of its pizzas':
+      async () => {
+        const deal = getPizzaCatalog().deals.find((entry: any) => entry.id === 'three-large-wings');
+        let state = newDeal(deal);
+        for (const [index, pizzaId] of ['garden', 'island', 'classic'].entries())
+          state = dealReducer(state, {
+            type: 'pizza',
+            index,
+            action: { type: 'pizza', half: 0, pizzaId },
+          });
+        for (const action of [...extraCheese, addBacon])
+          state = dealReducer(state, { type: 'pizza', index: 0, action });
+        state = dealReducer(state, { type: 'wings', flavourId: 'hot' });
+        const { recipe } = dealLine(getPizzaCatalog(), state);
+        const product = productOf('dl-three-large-wings');
+        cart().clearCart();
+        cart().addItem(product, 1, chargedAddons([], recipe, onSaleOf(product)), '', null, recipe);
+        const placed = await placeCart();
+        accepted(placed, 201, 'the deal is accepted');
+        same(
+          [cartSubtotal(), placed.data.order.subtotal],
+          [75.75, 75.75],
+          'the cart and the order agree on 71.25 + 2 x 2.25',
+        );
+      },
+
+    'Case 15: a quick button saved from a line with toppings adds the same line, at the price of the day':
+      async () => {
+        const parts = sheetParts(
+          tap(newSheet({ pizzaId: 'garden', sizeId: 'large' }), ...extraCheese, addBacon),
+        );
+        const saved = await saveQuickButton({
+          label: 'Bacon',
+          color: 'red',
+          ...buttonContents(parts),
+        });
+        same(saved.addons, [toppings(2)], 'the button stores two toppings');
+
+        const dearer = structuredClone(sample);
+        dearer.toppings.price = 3.01;
+        accepted(await loadMenu(dearer), 200, 'a menu with a dearer topping loads');
+        await readPos();
+        const button = (await fetchQuickButtons()).find((entry: any) => entry.id === saved.id);
+        const line = buttonLine(button, products);
+        assertOrThrow(line !== null, 'the button can still be added');
+        cart().clearCart();
+        cart().addItem(
+          line.product,
+          1,
+          line.addons,
+          line.special_instructions,
+          line.variant,
+          line.recipe,
+        );
+        const placed = await placeCart();
+        accepted(placed, 201, 'a tap is accepted');
+        same(
+          [cartSubtotal(), placed.data.order.subtotal],
+          [29.02, 29.02],
+          'two toppings at 3.01 each, in the cart and on the order',
+        );
+        accepted(await loadMenu(sample), 200, 'the sample loads again');
+        await readPos();
+      },
+
+    'Case 16: a cart line held across a menu load that changes the topping price still agrees':
+      async () => {
+        cart().clearCart();
+        addFromSheet(tap(newSheet({ pizzaId: 'garden', sizeId: 'large' }), ...extraCheese));
+        const dearer = structuredClone(sample);
+        dearer.toppings.price = 4;
+        accepted(await loadMenu(dearer), 200, 'the topping price changes under the cart');
+        const placed = await placeCart();
+        accepted(placed, 201, 'the line is accepted: its add-on count is the recipe');
+        assertEqualOrThrow(
+          placed.data.order.subtotal,
+          27,
+          'and the server charges the price of now',
+        );
+        accepted(await loadMenu(sample), 200, 'the sample loads again');
+        await readPos();
+      },
+
+    'Case 17: a sent pizza and a sent deal changed on the screen keep their add-ons with the recipe':
+      async () => {
+        const order = (await createOrder([gardenLine()])).data.order;
+        const read = async (orderId: number) =>
+          (await api(baseUrl, `/api/orders/${orderId}`, { headers })).data.order.items.filter(
+            (item: any) => item.status === 'pending',
+          );
+        const [sold] = await read(order.id);
+        const was = sentLine(sold);
+        const state = tap(
+          newSheet(),
+          { type: 'load', line: sheetSource(was) },
+          ...extraCheese,
+          addBacon,
+        );
+        const body = sentLineEdit(
+          sold,
+          sheetSentLine(was, sheetLine(getPizzaCatalog(), state), state),
+        );
+        const changed = await api(baseUrl, `/api/orders/${order.id}/items/${sold.id}/edit`, {
+          method: 'PATCH',
+          headers: { ...headers, 'Idempotency-Key': `pizza-toppings-${++key}` },
+          body,
+        });
+        accepted(changed, 200, 'the changed pizza is accepted');
+        const [now] = await read(order.id);
+        same(
+          [now.addons.map((addon: any) => [addon.id, addon.price, addon.quantity]), now.subtotal],
+          [[['ad-topping', 2.25, 2]], 27.5],
+          'and is charged two toppings',
+        );
+
+        const plainDeal = threeLarge(whole('garden'));
+        const dealOrder = (
+          await createOrder([
+            {
+              product_id: 'dl-three-large-wings',
+              quantity: 1,
+              modifier_selection: plainDeal,
+              addons: [halfToppings(1)],
+            },
+          ])
+        ).data.order;
+        const [soldDeal] = await read(dealOrder.id);
+        const dealBody = sentLineEdit(
+          soldDeal,
+          dealSentLine(sentLine(soldDeal), threeLarge(twoOnWhole)),
+        );
+        const dealChanged = await api(
+          baseUrl,
+          `/api/orders/${dealOrder.id}/items/${soldDeal.id}/edit`,
+          {
+            method: 'PATCH',
+            headers: { ...headers, 'Idempotency-Key': `pizza-toppings-${++key}` },
+            body: dealBody,
+          },
+        );
+        accepted(dealChanged, 200, 'the changed deal is accepted');
+        assertEqualOrThrow(
+          (await read(dealOrder.id))[0].subtotal,
+          76.88,
+          'and is charged 71.25 + 2 x 2.25 + 1.13',
+        );
       },
   });
 }

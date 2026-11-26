@@ -9,14 +9,27 @@ import type {
   TicketLines,
 } from '../../../../shared/pizza/types';
 import type { CartItem, Product } from '@/lib/types';
+import { toppingCounts } from '../../../../shared/pizza/toppings';
 import { cartLineUnitPrice } from '../cart-price';
 import { lineRecipe, PIZZA_PRODUCT_PREFIX as PRODUCT_PREFIX } from './line-recipe';
+import { toppingCharges, toppingPrices, toppingTotal, type ToppingPrices } from './toppings';
 
-/** One side of the sheet: the pizza picked there and the ingredients taken off it. */
+/** One side of the sheet: the pizza picked there, and what is taken off it, made extra and added. */
 export interface SheetHalf {
   pizzaId: string | null;
   removed: string[];
+  /** Ingredient names the customer wants more of. */
+  extra: string[];
+  /** Ids of the menu's toppings put on this side. */
+  added: string[];
 }
+
+const emptyHalf = (pizzaId: string | null = null): SheetHalf => ({
+  pizzaId,
+  removed: [],
+  extra: [],
+  added: [],
+});
 
 export interface SheetState {
   sizeId: string | null;
@@ -42,8 +55,10 @@ export type SheetAction =
   | { type: 'size'; sizeId: string }
   | { type: 'split'; split: boolean }
   | { type: 'pizza'; half: 0 | 1; pizzaId: string }
-  /** Takes an ingredient off that half, or puts it back. */
+  /** One tap on an ingredient of that half: normal, then off, then extra, then normal again. */
   | { type: 'ingredient'; half: 0 | 1; name: string }
+  /** Puts one of the menu's toppings on that half, or takes it off again. */
+  | { type: 'topping'; half: 0 | 1; toppingId: string }
   | { type: 'cook'; cook: CookNote | null }
   | { type: 'cut'; cut: CutNote | null }
   | { type: 'dip'; dipId: string; count: number }
@@ -58,7 +73,9 @@ export interface SheetLine {
   productId: string | null;
   variantId: string | null;
   dips: { addonId: string; name: string; priceCents: number; quantity: number }[];
-  /** The size price plus the dips, for one pizza; null until a size is picked. */
+  /** The topping add-ons one pizza carries for its extras and added toppings. */
+  toppings: { id: string; quantity: number }[];
+  /** The size price plus the dips, without toppings, for one pizza; null until a size is picked. */
   unitPriceCents: number | null;
   printsAs: TicketLines | null;
   canAdd: boolean;
@@ -78,10 +95,7 @@ export function newSheet(
   return {
     sizeId: start.sizeId ?? null,
     split: start.split ?? false,
-    halves: [
-      { pizzaId: start.pizzaId ?? null, removed: [] },
-      { pizzaId: null, removed: [] },
-    ],
+    halves: [emptyHalf(start.pizzaId), emptyHalf()],
     cook: null,
     cut: null,
     dips: {},
@@ -102,7 +116,12 @@ function sheetOf(line: SheetSourceLine): SheetState | null {
     split: Boolean(recipe?.halves),
   });
   parts.forEach((part, index) => {
-    sheet.halves[index] = { pizzaId: part.pizzaId, removed: [...part.removed] };
+    sheet.halves[index] = {
+      pizzaId: part.pizzaId,
+      removed: [...part.removed],
+      extra: [...(part.extra ?? [])],
+      added: [...(part.added ?? [])],
+    };
   });
   for (const addon of line.addons) {
     if (addon.id.startsWith(DIP_PREFIX))
@@ -131,17 +150,27 @@ export function sheetReducer(state: SheetState, action: SheetAction): SheetState
       return { ...state, split: action.split };
     case 'pizza': {
       const half = state.halves[action.half];
-      return withHalf(state, action.half, {
-        pizzaId: action.pizzaId,
-        removed: half.pizzaId === action.pizzaId ? half.removed : [],
-      });
+      return half.pizzaId === action.pizzaId
+        ? state
+        : withHalf(state, action.half, emptyHalf(action.pizzaId));
     }
     case 'ingredient': {
       const half = state.halves[action.half];
-      const removed = half.removed.includes(action.name)
-        ? half.removed.filter((name) => name !== action.name)
-        : [...half.removed, action.name];
-      return withHalf(state, action.half, { ...half, removed });
+      const without = (names: string[]) => names.filter((name) => name !== action.name);
+      const wasRemoved = half.removed.includes(action.name);
+      const wasExtra = half.extra.includes(action.name);
+      return withHalf(state, action.half, {
+        ...half,
+        removed: wasRemoved || wasExtra ? without(half.removed) : [...half.removed, action.name],
+        extra: wasRemoved ? [...half.extra, action.name] : without(half.extra),
+      });
+    }
+    case 'topping': {
+      const half = state.halves[action.half];
+      const added = half.added.includes(action.toppingId)
+        ? half.added.filter((id) => id !== action.toppingId)
+        : [...half.added, action.toppingId];
+      return withHalf(state, action.half, { ...half, added });
     }
     case 'cook':
       return { ...state, cook: action.cook };
@@ -164,7 +193,14 @@ export function sheetReducer(state: SheetState, action: SheetAction): SheetState
 /** The pizza the sheet holds as it stands, finished or not: what `validateRecipe` is asked about. */
 export function sheetDraft(state: SheetState): unknown {
   const [first, second] = state.halves.map((half) =>
-    half.pizzaId === null ? null : { pizzaId: half.pizzaId, removed: half.removed },
+    half.pizzaId === null
+      ? null
+      : {
+          pizzaId: half.pizzaId,
+          removed: half.removed,
+          ...(half.extra.length > 0 ? { extra: half.extra } : {}),
+          ...(half.added.length > 0 ? { added: half.added } : {}),
+        },
   );
   return {
     kind: 'pizza',
@@ -212,6 +248,7 @@ export function sheetLine(catalog: PizzaCatalog, state: SheetState, columns = 42
     productId,
     variantId: pizza && `${productId}-${pizza.sizeId}`,
     dips,
+    toppings: toppingCharges(pizza),
     unitPriceCents: size
       ? size.priceCents + dips.reduce((sum, dip) => sum + dip.priceCents * dip.quantity, 0)
       : null,
@@ -221,10 +258,11 @@ export function sheetLine(catalog: PizzaCatalog, state: SheetState, columns = 42
   };
 }
 
-/** What a line of an order already placed was sold at: one pizza without add-ons, and each dip by its menu id. */
+/** What a line of an order already placed was sold at: one pizza without add-ons, each dip by its menu id, and its toppings. */
 export interface SoldPrices {
   price: number;
   dips: Record<string, number>;
+  toppings?: Partial<ToppingPrices>;
 }
 
 /** What the sheet shows as money, in the currency's own units. */
@@ -233,9 +271,11 @@ export interface SheetQuote {
   sizes: Record<string, number>;
   /** What one of each dip costs, by the dip's menu id. */
   dips: Record<string, number>;
-  /** One pizza at the size chosen, without its dips; null until a size is chosen. */
+  /** What one topping on a whole pizza and one on a half cost; null for one the POS does not sell. */
+  toppings: ToppingPrices;
+  /** One pizza at the size chosen, without its dips and toppings; null until a size is chosen. */
   pizza: number | null;
-  /** One of the line: the pizza and its dips. */
+  /** One of the line: the pizza, its dips and its toppings; null while a price it needs is not known. */
   unit: number | null;
   /** True when the line keeps a price set by hand, whatever size is chosen. */
   kept: boolean;
@@ -244,7 +284,9 @@ export interface SheetQuote {
 /**
  * What the cart charges for the pizza the sheet holds, by the cart's own rule:
  * the size variant of the POS product, at its online price when `online`, the
- * product's dips, and a line's price override in place of the size price.
+ * product's dips and topping add-ons, and a line's price override in place of
+ * the size price. A topping has no price in the menu the browser holds, so it
+ * is quoted only from the product's add-ons.
  * Until a pizza is chosen the half-and-half product stands in, because every
  * pizza costs its size price. Anything the product list does not sell, and a
  * sheet given no list, is quoted from the menu. `sold` is given for a line of
@@ -287,11 +329,14 @@ export function sheetQuote(
     (sum, [dipId, count]) => sum + (dips[dipId] ?? 0) * count,
     0,
   );
+  const toppings = toppingPrices(product, sold?.toppings);
+  const toppingsTotal = toppingTotal(toppingCounts(sheetDraft(state) as PizzaRecipe), toppings);
   return {
     sizes,
     dips,
+    toppings,
     pizza,
-    unit: pizza === null ? null : pizza + dipTotal,
+    unit: pizza === null || toppingsTotal === null ? null : pizza + dipTotal + toppingsTotal,
     kept: Boolean(override),
   };
 }

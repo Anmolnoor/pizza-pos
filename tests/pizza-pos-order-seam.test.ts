@@ -431,7 +431,13 @@ async function main() {
       const { stored, line } = await openStoredLine(placed.order.id);
       const plain = saveFromSheet(
         line.id,
-        tapped(newSheet(), { type: 'load', line }, { type: 'ingredient', half: 0, name: 'Olives' }),
+        // Off, then extra, then back to normal.
+        tapped(
+          newSheet(),
+          { type: 'load', line },
+          { type: 'ingredient', half: 0, name: 'Olives' },
+          { type: 'ingredient', half: 0, name: 'Olives' },
+        ),
       );
       assertEqualOrThrow(
         plain.recipe,

@@ -10,6 +10,40 @@ const { RecipeError, validateRecipe, recipeKey } = require('../shared/pizza/reci
 const { toppingCounts } = require('../shared/pizza/toppings');
 const { ticketLines } = require('../shared/pizza/ticket');
 const sample = require('./fixtures/pizza-sample-menu.json');
+const {
+  newSheet,
+  sheetReducer,
+  sheetLine,
+  sheetQuote,
+} = require('../frontend/src/lib/pizza/sheet-state');
+const {
+  newDeal,
+  dealReducer,
+  dealLine,
+  dealQuote,
+} = require('../frontend/src/lib/pizza/deal-state');
+const { sheetAddons } = require('../frontend/src/lib/pizza/cart-lines');
+const { lineRecipe } = require('../frontend/src/lib/pizza/line-recipe');
+const {
+  sentLine,
+  sentLineEdit,
+  sentLineReprices,
+  sheetSentLine,
+  sheetSource,
+  soldPrices,
+  dealSentLine,
+} = require('../frontend/src/lib/pizza/sent-line');
+const {
+  buttonContents,
+  buttonLine,
+  buttonPrice,
+} = require('../frontend/src/lib/pizza/quick-buttons');
+const {
+  chargedAddons,
+  handPickedGroups,
+  toppingCharges,
+  toppingPrices,
+} = require('../frontend/src/lib/pizza/toppings');
 
 const same = (actual: unknown, expected: unknown, message: string) =>
   assertEqualOrThrow(JSON.stringify(actual), JSON.stringify(expected), message);
@@ -19,6 +53,66 @@ const part = (pizzaId: string, more: object = {}) => ({ pizzaId, removed: [], ..
 const pizza = (parts: object) => ({ kind: 'pizza', v: 1, sizeId: 'large', ...parts });
 const whole = (pizzaId: string, more: object = {}) => pizza({ whole: part(pizzaId, more) });
 const halves = (first: object, second: object) => pizza({ halves: [first, second] });
+
+/** Applies actions in order, as taps on the sheet would. */
+const tap = (state: object, ...actions: object[]) =>
+  actions.reduce((current, action) => sheetReducer(current, action), state) as any;
+const olives = { type: 'ingredient', half: 0, name: 'Olives' };
+const choose = (half: number, pizzaId: string) => ({ type: 'pizza', half, pizzaId });
+const topping = (half: number, toppingId: string) => ({ type: 'topping', half, toppingId });
+const threeLarge = {
+  kind: 'deal',
+  v: 1,
+  dealId: 'three-large-wings',
+  pizzas: [
+    whole('garden', { extra: ['Cheese', 'Onions'] }),
+    halves(part('island', { added: ['bacon', 'feta'] }), part('plain', { added: ['feta'] })),
+    whole('classic'),
+  ],
+  wingFlavour: 'hot',
+};
+
+/** POS products as `GET /products` lists them: size variants and the add-on groups linked to them. */
+const addon = (id: string, addon_group_id: string, name: string, price: number) => ({
+  id,
+  addon_group_id,
+  name,
+  price,
+});
+const addonGroups = [
+  { id: 'ag-dips', name: 'Dips', addons: [addon('ad-dips-ranch', 'ag-dips', 'Ranch', 1.25)] },
+  {
+    id: 'ag-toppings',
+    name: 'Toppings',
+    addons: [
+      addon('ad-topping', 'ag-toppings', 'Topping', 2.25),
+      addon('ad-topping-half', 'ag-toppings', 'Half topping', 1.13),
+    ],
+  },
+];
+const pizzaProduct = (id: string, name: string) => ({
+  id,
+  name,
+  price: 15,
+  variants: [{ id: `${id}-large`, name: 'Large', price: 23 }],
+  addon_groups: addonGroups,
+});
+const gardenProduct = pizzaProduct('pz-garden', 'Garden');
+const halfProduct = pizzaProduct('pz-half-and-half', 'Half & Half');
+const dealProduct = {
+  id: 'dl-three-large-wings',
+  name: 'Large Pizzas & Wings',
+  price: 71.25,
+  addon_groups: addonGroups,
+};
+const cartLine = (productId: string, recipe: object) => ({
+  product: { id: productId },
+  variant: { id: `${productId}-large` },
+  quantity: 1,
+  addons: [],
+  special_instructions: '',
+  recipe,
+});
 
 function menuRejected(change: (menu: any) => void, expectedPath: string, message: string) {
   const menu = structuredClone(sample);
@@ -419,5 +513,372 @@ runCases('Pizza toppings', {
       ['ADD BACON'],
       'the id, upper-cased',
     );
+  },
+
+  'Case 14: an ingredient cycles normal, NO, EXTRA, normal': () => {
+    const start = newSheet({ pizzaId: 'garden', sizeId: 'large' });
+    same(start.halves[0], { pizzaId: 'garden', removed: [], extra: [], added: [] }, 'normal');
+    const once = tap(start, olives);
+    same([once.halves[0].removed, once.halves[0].extra], [['Olives'], []], 'one tap: NO');
+    const twice = tap(once, olives);
+    same([twice.halves[0].removed, twice.halves[0].extra], [[], ['Olives']], 'two taps: EXTRA');
+    same(tap(twice, olives), start, 'three taps: normal again');
+    same(start.halves[0].extra, [], 'the state given is not changed');
+
+    const split = tap(
+      newSheet({ split: true, sizeId: 'large' }),
+      choose(0, 'garden'),
+      choose(1, 'garden'),
+    );
+    const oneHalf = tap(
+      split,
+      { type: 'ingredient', half: 1, name: 'Cheese' },
+      { type: 'ingredient', half: 1, name: 'Cheese' },
+    );
+    same(
+      [oneHalf.halves[0].extra, oneHalf.halves[1].extra],
+      [[], ['Cheese']],
+      'each half cycles on its own',
+    );
+    const line = sheetLine(catalog(), oneHalf);
+    assertOrThrow(line.canAdd, `halves that differ only by an extra are allowed (${line.message})`);
+    assertEqualOrThrow(
+      sheetLine(catalog(), split).message,
+      'Both halves are the same. Choose a whole pizza instead',
+      'and without it they are the same',
+    );
+  },
+
+  'Case 15: a topping is added to a pizza or a half and taken off again': () => {
+    const start = newSheet({ pizzaId: 'island', sizeId: 'large' });
+    const added = tap(start, topping(0, 'bacon'), topping(0, 'feta'));
+    same(added.halves[0].added, ['bacon', 'feta'], 'two toppings added');
+    same(tap(added, topping(0, 'bacon')).halves[0].added, ['feta'], 'one taken off');
+    same(tap(added, topping(0, 'bacon'), topping(0, 'feta')), start, 'both off: as it started');
+
+    const split = tap(
+      newSheet({ split: true, sizeId: 'large' }),
+      choose(0, 'island'),
+      choose(1, 'classic'),
+      topping(1, 'bacon'),
+    );
+    same([split.halves[0].added, split.halves[1].added], [[], ['bacon']], 'on one half only');
+
+    const other = tap(added, { type: 'ingredient', half: 0, name: 'Ham' }, choose(0, 'garden'));
+    same(
+      other.halves[0],
+      { pizzaId: 'garden', removed: [], extra: [], added: [] },
+      'another pizza starts with nothing changed',
+    );
+    same(tap(added, choose(0, 'island')), added, 'the same pizza chosen again keeps everything');
+  },
+
+  'Case 16: a plain pizza with only an extra or an added topping has a recipe': () => {
+    const plain = newSheet({ pizzaId: 'garden', sizeId: 'large' });
+    assertEqualOrThrow(sheetLine(catalog(), plain).recipe, null, 'a plain pizza has none');
+    same(sheetLine(catalog(), plain).toppings, [], 'and no topping to charge');
+
+    const extra = sheetLine(catalog(), tap(plain, olives, olives));
+    same(extra.recipe, whole('garden', { extra: ['Olives'] }), 'an extra alone is a recipe');
+    same(extra.toppings, [{ id: 'ad-topping', quantity: 1 }], 'charged as one topping');
+    same(extra.printsAs.detailLines, ['EXTRA OLIVES'], 'and printed');
+    const added = sheetLine(catalog(), tap(plain, topping(0, 'bacon')));
+    same(added.recipe, whole('garden', { added: ['bacon'] }), 'so is an added topping alone');
+    assertEqualOrThrow(lineRecipe(whole('garden')), null, 'lineRecipe: plain is no recipe');
+    assertOrThrow(lineRecipe(whole('garden', { extra: ['Olives'] })), 'lineRecipe: an extra is');
+    assertOrThrow(lineRecipe(whole('garden', { added: ['bacon'] })), 'lineRecipe: a topping is');
+
+    const halfLine = sheetLine(
+      catalog(),
+      tap(
+        newSheet({ split: true, sizeId: 'large' }),
+        choose(0, 'island'),
+        choose(1, 'classic'),
+        topping(0, 'bacon'),
+        { type: 'ingredient', half: 1, name: 'Cheese' },
+        { type: 'ingredient', half: 1, name: 'Cheese' },
+      ),
+    );
+    same(halfLine.toppings, [{ id: 'ad-topping-half', quantity: 2 }], 'halves: two half toppings');
+    same(
+      toppingCharges(threeLarge),
+      [
+        { id: 'ad-topping', quantity: 2 },
+        { id: 'ad-topping-half', quantity: 3 },
+      ],
+      'a deal: both kinds',
+    );
+  },
+
+  'Case 17: a cart line with extras and toppings loads into the sheet and saves back the same':
+    () => {
+      const recipe = pizza({
+        whole: part('garden', { removed: ['Olives'], extra: ['Cheese'], added: ['bacon'] }),
+      });
+      const loaded = sheetReducer(newSheet(), {
+        type: 'load',
+        line: cartLine('pz-garden', recipe),
+      });
+      same(
+        loaded.halves[0],
+        { pizzaId: 'garden', removed: ['Olives'], extra: ['Cheese'], added: ['bacon'] },
+        'the chips the line was saved with',
+      );
+      same(sheetLine(catalog(), loaded).recipe, recipe, 'saved unchanged it is the same recipe');
+
+      const stale = sheetReducer(newSheet(), {
+        type: 'load',
+        line: cartLine('pz-garden', whole('garden', { added: ['mushrooms'] })),
+      });
+      assertEqualOrThrow(
+        sheetLine(catalog(), stale).message,
+        'Garden already has Mushrooms. Choose extra Mushrooms instead',
+        'a topping the pizza now has is refused in words',
+      );
+    },
+
+  'Case 18: the sheet quotes toppings at the add-on prices of the POS product': () => {
+    const two = tap(
+      newSheet({ pizzaId: 'garden', sizeId: 'large' }),
+      olives,
+      olives,
+      topping(0, 'bacon'),
+    );
+    const quote = sheetQuote(catalog(), two, [gardenProduct, halfProduct], false);
+    same(quote.toppings, { whole: 2.25, half: 1.13 }, 'one topping and one half topping');
+    assertEqualOrThrow(quote.unit, 27.5, 'a large with two toppings: 23.00 + 2 x 2.25');
+
+    const eachHalf = tap(
+      newSheet({ split: true, sizeId: 'large' }),
+      choose(0, 'island'),
+      choose(1, 'classic'),
+      topping(0, 'bacon'),
+      topping(1, 'feta'),
+    );
+    assertEqualOrThrow(
+      sheetQuote(catalog(), eachHalf, [gardenProduct, halfProduct], false).unit.toFixed(2),
+      '25.26',
+      'one on each half: 23.00 + 2 x 1.13, as the sheet shows it',
+    );
+
+    const unsold = sheetQuote(catalog(), two, undefined, false);
+    same(unsold.toppings, { whole: null, half: null }, 'no price without the POS product');
+    assertEqualOrThrow(unsold.unit, null, 'and so no total to promise');
+    assertEqualOrThrow(
+      sheetQuote(catalog(), newSheet({ pizzaId: 'garden', sizeId: 'large' }), undefined, false)
+        .unit,
+      23,
+      'a pizza without toppings is still quoted from the menu',
+    );
+
+    const sold = { price: 21, dips: {}, toppings: { whole: 2, half: 1 } };
+    assertEqualOrThrow(
+      sheetQuote(catalog(), two, [gardenProduct], false, null, sold).unit,
+      25,
+      'a sold line is quoted at what its toppings were sold for: 21.00 + 2 x 2.00',
+    );
+    same(
+      toppingPrices({ addon_groups: [] }, undefined),
+      { whole: null, half: null },
+      'a product without the add-ons has no topping price',
+    );
+  },
+
+  'Case 19: a line carries the topping add-ons its recipe derives, at the POS prices': () => {
+    const onSale = gardenProduct.addon_groups.flatMap((group: any) => group.addons);
+    const ranch = { ...onSale[0], quantity: 2 };
+    const recipe = whole('garden', { extra: ['Cheese'], added: ['bacon'] });
+    same(
+      chargedAddons([ranch], recipe, onSale).map((addon: any) => [
+        addon.id,
+        addon.price,
+        addon.quantity,
+      ]),
+      [
+        ['ad-dips-ranch', 1.25, 2],
+        ['ad-topping', 2.25, 2],
+      ],
+      'the dips stay and two toppings are added',
+    );
+    const stale = [ranch, { ...onSale[1], quantity: 5 }, { ...onSale[2], quantity: 1 }];
+    same(
+      chargedAddons(stale, whole('garden', { extra: ['Cheese'] }), onSale).map((addon: any) => [
+        addon.id,
+        addon.quantity,
+      ]),
+      [
+        ['ad-dips-ranch', 2],
+        ['ad-topping', 1],
+      ],
+      'whatever topping add-ons the line had are replaced',
+    );
+    same(
+      chargedAddons(stale, null, onSale).map((addon: any) => addon.id),
+      ['ad-dips-ranch'],
+      'a plain pizza carries none',
+    );
+    assertEqualOrThrow(
+      chargedAddons([], recipe, [onSale[0]]),
+      null,
+      'null when the POS does not sell the add-on, so nothing is added uncharged',
+    );
+    same(
+      sheetAddons(stale, [{ ...onSale[1], quantity: 1 }]).map((addon: any) => [
+        addon.id,
+        addon.quantity,
+      ]),
+      [['ad-topping', 1]],
+      'the sheet replaces the dips and the toppings of the line it saves',
+    );
+    same(
+      handPickedGroups(gardenProduct.addon_groups).map((group: any) => group.id),
+      ['ag-dips'],
+      "upstream's add-on window is not offered the toppings group",
+    );
+  },
+
+  'Case 20: a deal pizza takes extras and toppings, and the deal is quoted with them': () => {
+    const deal = catalog().deals.find((entry: any) => entry.id === 'three-large-wings');
+    const opened = newDeal(deal, threeLarge);
+    same(
+      opened.pizzas[0].halves[0],
+      { pizzaId: 'garden', removed: [], extra: ['Cheese', 'Onions'], added: [] },
+      'a stored deal loads its extras',
+    );
+    same(dealLine(catalog(), opened).recipe, threeLarge, 'and saves back the same recipe');
+
+    let state = newDeal(deal);
+    for (const [index, pizzaId] of ['garden', 'island', 'classic'].entries())
+      state = dealReducer(state, { type: 'pizza', index, action: choose(0, pizzaId) });
+    state = dealReducer(state, { type: 'pizza', index: 0, action: olives });
+    state = dealReducer(state, { type: 'pizza', index: 0, action: olives });
+    state = dealReducer(state, { type: 'pizza', index: 1, action: topping(0, 'bacon') });
+    state = dealReducer(state, { type: 'wings', flavourId: 'hot' });
+    const line = dealLine(catalog(), state);
+    same(line.tabs[0].lines, ['1) LARGE GARDEN', '   EXTRA OLIVES'], 'the tab prints the extra');
+    assertEqualOrThrow(line.tabs[0].summary, 'Garden · EXTRA OLIVES', 'and its summary says it');
+    assertEqualOrThrow(line.tabs[1].summary, 'Island · ADD BACON', 'an added topping too');
+    same(
+      toppingCharges(line.recipe),
+      [{ id: 'ad-topping', quantity: 2 }],
+      'two toppings to charge',
+    );
+
+    const quote = dealQuote(deal, dealProduct, null, state);
+    same(
+      [quote.price, quote.toppings, quote.unit],
+      [71.25, { whole: 2.25, half: 1.13 }, 75.75],
+      'the deal price plus 2 x 2.25',
+    );
+    assertEqualOrThrow(dealQuote(deal, dealProduct).unit, 71.25, 'a deal with none is its price');
+    assertEqualOrThrow(
+      dealQuote(deal, { price: 71.25 }, null, state).unit,
+      null,
+      'no total while the topping price is not known',
+    );
+  },
+
+  'Case 21: a sent line saved from the sheet or the configurator carries the add-ons of its recipe':
+    () => {
+      const sold = {
+        id: 41,
+        product_id: 'pz-garden',
+        variant_id: 'pz-garden-large',
+        quantity: 1,
+        unit_price: 23,
+        edit_version: 3,
+        addons: [
+          { id: 'ad-dips-ranch', name: 'Ranch', price: 1.25, quantity: 1 },
+          { id: 'ad-topping', name: 'Topping', price: 2, quantity: 1 },
+        ],
+        modifier_selection: whole('garden', { extra: ['Cheese'] }),
+      };
+      same(soldPrices(sold).toppings, { whole: 2, half: null }, 'what its topping was sold for');
+      const was = sentLine(sold);
+      const opened = sheetReducer(newSheet(), { type: 'load', line: sheetSource(was) });
+      same(opened.halves[0].extra, ['Cheese'], 'the sheet opens on the extra');
+
+      const save = (state: any) => sheetSentLine(was, sheetLine(catalog(), state), state);
+      same(sentLineEdit(sold, save(opened)), null, 'saved unchanged, nothing is sent');
+      const noOlives = save(tap(opened, olives));
+      assertOrThrow(!sentLineReprices(was, noOlives), 'a removal beside it keeps the sold prices');
+      same(
+        sentLineEdit(sold, noOlives).replacement.addons.map((addon: any) => [
+          addon.id,
+          addon.quantity,
+        ]),
+        [
+          ['ad-dips-ranch', 1],
+          ['ad-topping', 1],
+        ],
+        'and the same add-ons',
+      );
+      const withBacon = save(tap(opened, topping(0, 'bacon')));
+      assertOrThrow(sentLineReprices(was, withBacon), 'another topping prices the line again');
+      const edit = sentLineEdit(sold, withBacon);
+      same(
+        edit.replacement.addons.map((addon: any) => [addon.id, addon.quantity]),
+        [
+          ['ad-dips-ranch', 1],
+          ['ad-topping', 2],
+        ],
+        'with two toppings charged',
+      );
+      same(
+        edit.replacement.modifier_selection,
+        whole('garden', { extra: ['Cheese'], added: ['bacon'] }),
+        'for the recipe that has two',
+      );
+      const plain = save(tap(opened, { type: 'ingredient', half: 0, name: 'Cheese' }));
+      same(
+        sentLineEdit(sold, plain).replacement.addons.map((addon: any) => addon.id),
+        ['ad-dips-ranch'],
+        'made plain, the topping add-on goes',
+      );
+
+      const soldDeal = {
+        id: 42,
+        product_id: 'dl-three-large-wings',
+        quantity: 1,
+        unit_price: 71.25,
+        edit_version: 1,
+        addons: [],
+        modifier_selection: {
+          ...threeLarge,
+          pizzas: [whole('garden'), whole('island'), whole('classic')],
+        },
+      };
+      const changed = dealSentLine(sentLine(soldDeal), threeLarge);
+      same(
+        changed.addons.map((addon: any) => [addon.id, addon.quantity]),
+        [
+          ['ad-topping', 2],
+          ['ad-topping-half', 3],
+        ],
+        'a deal saved with toppings on its pizzas carries both add-ons',
+      );
+      assertOrThrow(sentLineReprices(sentLine(soldDeal), changed), 'which prices it again');
+    },
+
+  'Case 22: a quick button keeps the topping add-ons with the recipe': () => {
+    const onSale = gardenProduct.addon_groups.flatMap((group: any) => group.addons);
+    const recipe = whole('garden', { extra: ['Cheese'], added: ['bacon'] });
+    const line = {
+      product: gardenProduct,
+      variant: gardenProduct.variants[0],
+      addons: chargedAddons([], recipe, onSale),
+      special_instructions: '',
+      recipe,
+    };
+    const contents = buttonContents(line);
+    same(contents.addons, [{ id: 'ad-topping', quantity: 2 }], 'the button stores the add-ons');
+    same(contents.recipe, recipe, 'beside the recipe');
+    const tapped = buttonLine({ ...contents, usable: true, note: null }, [gardenProduct]);
+    same(
+      tapped.addons.map((addon: any) => [addon.id, addon.price, addon.quantity]),
+      [['ad-topping', 2.25, 2]],
+      'a tap adds them at the price of the day',
+    );
+    assertEqualOrThrow(buttonPrice(tapped), 27.5, 'so the tile shows 23.00 + 2 x 2.25');
   },
 });

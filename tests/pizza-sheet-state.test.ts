@@ -38,8 +38,8 @@ const EMPTY = {
   sizeId: null,
   split: false,
   halves: [
-    { pizzaId: null, removed: [] },
-    { pizzaId: null, removed: [] },
+    { pizzaId: null, removed: [], extra: [], added: [] },
+    { pizzaId: null, removed: [], extra: [], added: [] },
   ],
   cook: null,
   cut: null,
@@ -47,6 +47,8 @@ const EMPTY = {
   note: '',
   quantity: 1,
 };
+/** One side of the sheet with a pizza chosen and nothing changed on it. */
+const untouched = (pizzaId: string) => ({ pizzaId, removed: [], extra: [], added: [] });
 const largeGarden = () => newSheet({ pizzaId: 'garden', sizeId: 'large' });
 const largeHalves = () =>
   after(
@@ -89,12 +91,12 @@ runCases('pizza-sheet-state', {
     same(newSheet(), EMPTY, 'an empty sheet');
     same(
       newSheet({ pizzaId: 'garden' }),
-      { ...EMPTY, halves: [{ pizzaId: 'garden', removed: [] }, EMPTY.halves[1]] },
+      { ...EMPTY, halves: [untouched('garden'), EMPTY.halves[1]] },
       'Customize on a tile: the pizza, no size yet',
     );
     same(
       largeGarden(),
-      { ...EMPTY, sizeId: 'large', halves: [{ pizzaId: 'garden', removed: [] }, EMPTY.halves[1]] },
+      { ...EMPTY, sizeId: 'large', halves: [untouched('garden'), EMPTY.halves[1]] },
       'a size button on a tile: the pizza and the size',
     );
     same(
@@ -113,6 +115,7 @@ runCases('pizza-sheet-state', {
         productId: 'pz-garden',
         variantId: 'pz-garden-large',
         dips: [],
+        toppings: [],
         unitPriceCents: 2300,
         printsAs: { heading: 'LARGE GARDEN', detailLines: [] },
         canAdd: true,
@@ -138,10 +141,10 @@ runCases('pizza-sheet-state', {
     );
 
     const island = after(start, { type: 'pizza', half: 0, pizzaId: 'island' });
-    same(island.halves, [{ pizzaId: 'island', removed: [] }, EMPTY.halves[1]], 'the first pizza');
+    same(island.halves, [untouched('island'), EMPTY.halves[1]], 'the first pizza');
     same(
       after(start, { type: 'pizza', half: 1, pizzaId: 'classic' }).halves,
-      [EMPTY.halves[0], { pizzaId: 'classic', removed: [] }],
+      [EMPTY.halves[0], untouched('classic')],
       'the second half',
     );
 
@@ -152,10 +155,16 @@ runCases('pizza-sheet-state', {
       ['Ham', 'Pineapple'],
       'a second ingredient',
     );
+    const extraHam = after(noHam, { type: 'ingredient', half: 0, name: 'Ham' });
     same(
-      after(noHam, { type: 'ingredient', half: 0, name: 'Ham' }).halves[0].removed,
-      [],
-      'a second tap puts the ingredient back',
+      [extraHam.halves[0].removed, extraHam.halves[0].extra],
+      [[], ['Ham']],
+      'a second tap makes the ingredient extra',
+    );
+    same(
+      after(extraHam, { type: 'ingredient', half: 0, name: 'Ham' }).halves[0],
+      untouched('island'),
+      'a third tap puts the ingredient back',
     );
     same(
       after(noHam, { type: 'ingredient', half: 1, name: 'Ham' }).halves[0].removed,
@@ -169,7 +178,7 @@ runCases('pizza-sheet-state', {
     );
     same(
       after(noHam, { type: 'pizza', half: 0, pizzaId: 'garden' }).halves[0],
-      { pizzaId: 'garden', removed: [] },
+      untouched('garden'),
       'picking another pizza drops the removals of the old one',
     );
 
@@ -429,7 +438,7 @@ runCases('pizza-sheet-state', {
       {
         ...EMPTY,
         sizeId: 'medium',
-        halves: [{ pizzaId: 'classic', removed: [] }, EMPTY.halves[1]],
+        halves: [untouched('classic'), EMPTY.halves[1]],
         dips: { ranch: 1 },
       },
       'a plain pizza line, which has no recipe, loads from its product and variant',

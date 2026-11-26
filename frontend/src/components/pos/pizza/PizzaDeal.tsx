@@ -15,7 +15,7 @@ import {
   type DealState,
   type DealTab,
 } from '@/lib/pizza/deal-state';
-import type { SheetAction } from '@/lib/pizza/sheet-state';
+import type { SheetAction, SoldPrices } from '@/lib/pizza/sheet-state';
 import type { Product } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { dealPickCount } from '@shared/pizza/recipe';
@@ -71,6 +71,7 @@ export default function PizzaDeal({
   deal,
   product,
   priceOverride,
+  soldPrices,
   initial,
   editing,
   quantity,
@@ -81,9 +82,14 @@ export default function PizzaDeal({
   catalog: PizzaCatalog;
   deal: CatalogDeal;
   /** The POS product the deal is sold as, which the price is quoted from; without it the menu's price shows. */
-  product?: Pick<Product, 'price'>;
+  product?: Pick<Product, 'price' | 'addon_groups'>;
   /** The price set by hand on the cart line the configurator changes, which that line keeps. */
   priceOverride?: { price: number } | null;
+  /**
+   * For a line of an order already placed: what it was sold at while saving the deal with
+   * `counts` toppings keeps those prices, and null once saving prices it again.
+   */
+  soldPrices?: (counts: { whole: number; half: number }) => SoldPrices | null;
   initial: DealState;
   /** True when the configurator changes a line already in the cart. */
   editing: boolean;
@@ -109,8 +115,10 @@ export default function PizzaDeal({
   const missing = line.tabs.flatMap((tab, index) => (tab.done ? [] : [index]));
   const open = line.tabs[state.tab];
   // What the cart charges, so the configurator and the order agree.
-  const quote = dealQuote(deal, product, priceOverride);
-  const total = fmt(quote.price * quantity);
+  const asSold = soldPrices?.(dealQuote(deal, product, priceOverride, state).counts);
+  const quote = dealQuote(deal, product, priceOverride, state, asSold);
+  // Toppings the POS cannot price leave no total to promise.
+  const total = quote.unit === null ? '—' : fmt(quote.unit * quantity);
   const flavours = catalog.sides.find((side) => side.id === 'wings')?.modifier?.options ?? [];
 
   // Pizza tabs come first, so a pizza's place among the tabs is its number in the deal.
