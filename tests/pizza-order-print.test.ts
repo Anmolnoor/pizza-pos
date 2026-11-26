@@ -550,6 +550,36 @@ async function main() {
         );
       },
 
+    'Case 4c: the print test gets a sample ticket the server owns, never an order': async () => {
+      usePrinter(PRINTERS[0]);
+      const placed = await placedOrder([
+        {
+          product_id: 'pz-garden',
+          variant_id: 'pz-garden-large',
+          quantity: 1,
+          modifier_selection: whole('garden', ['Olives']),
+        },
+      ]);
+      // With an order's id and lines beside the flag, the order is still not read.
+      for (const body of [
+        { sample: true },
+        { sample: true, orderId: placed.order.id, items: placed.order.items },
+        { sample: true, orderId: 987654 },
+      ]) {
+        const sent = await post('/api/printers/print-kot', { stationName: 'Kitchen', ...body });
+        assertEqualOrThrow(sent.status, 200, 'the sample ticket is sent');
+        const ticket = (await capture.lastJob()).join('\n');
+        assertOrThrow(/2x\s+Sample Item/.test(ticket), 'it prints the sample item');
+        assertOrThrow(ticket.includes('TEST-001'), 'under the sample order number');
+        assertOrThrow(
+          !ticket.includes('Garden') && !ticket.includes('NO OLIVES'),
+          'and nothing of a real order',
+        );
+      }
+      const live = await post('/api/printers/print-kot', { stationName: 'Kitchen' });
+      assertEqualOrThrow(live.status, 400, 'without the flag, an order id is still required');
+    },
+
     'Case 5: a stored recipe still prints after the menu has changed under it': async () => {
       const placed = await placedOrder([
         {
