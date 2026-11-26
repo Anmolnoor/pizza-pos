@@ -1491,7 +1491,7 @@ router.post(
         !sample && Array.isArray(items)
           ? new Set(items.map((item: any) => String(item?.id)))
           : null;
-      const printable = (item: any) =>
+      const printable = (item: { status?: unknown }) =>
         isKotItemPending(item.status) && !isTerminalItemStatus(item.status);
       const kotSourceItems = orderItems.filter(
         (item: any) => (!requestedIds || requestedIds.has(String(item.id))) && printable(item),
