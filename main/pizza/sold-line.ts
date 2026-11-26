@@ -1,5 +1,7 @@
 /** A sold pizza or deal line whose recipe or note changes keeps the money it was sold at. */
 import type Database from 'better-sqlite3';
+import type { TaxResult } from '../services/tax';
+import { checkLineRecipe } from './order-recipe';
 
 type Addon = { id?: unknown; quantity?: unknown } | null | undefined;
 
@@ -38,15 +40,44 @@ export function changesRecipeOnly(
   );
 }
 
-/** Gives the line that replaced a sold one the sold line's tax, when both are worth the same. */
-export function carrySoldTax(
+const parsed = (text: unknown): unknown => {
+  try {
+    return typeof text === 'string' ? JSON.parse(text) : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Turns a recipe-only replacement into the sold line with a new recipe or note: the size, unit
+ * price and item discount are copied from the saved row, never worked out again. A recipe that
+ * differs from the saved one is checked against the menu; the saved one is not, so a pizza the
+ * menu has since lost can still take a note.
+ */
+export function carrySoldLine(
   db: Database.Database,
-  soldId: number | bigint | string,
-  newId: number | bigint | string,
+  line: { product_id: string; modifier_selection?: unknown },
+  soldRow: object,
 ): void {
-  db.prepare(
-    `UPDATE order_items SET (tax_amount, tax_breakdown, tax_snapshot, tax_type, total) =
-       (SELECT tax_amount, tax_breakdown, tax_snapshot, tax_type, total FROM order_items WHERE id = @sold)
-     WHERE id = @new AND subtotal = (SELECT subtotal FROM order_items WHERE id = @sold)`,
-  ).run({ sold: soldId, new: newId });
+  const sold = soldRow as Record<string, unknown>;
+  if (JSON.stringify(line.modifier_selection ?? null) !== (sold.modifier_selection ?? 'null')) {
+    checkLineRecipe(db, [line], line, (sold.variant_id as string | null) ?? undefined);
+  }
+  Object.assign(line, {
+    variant_id: sold.variant_id,
+    variant_selection: parsed(sold.variant_selection),
+    unit_price: sold.unit_price,
+    discount_amount: Number(sold.discount_amount) || 0,
+  });
+}
+
+/** The tax a saved line was sold with, in the shape the tax engine answers. */
+export function soldTax(soldRow: object): TaxResult {
+  const sold = soldRow as Record<string, unknown>;
+  return {
+    tax_amount: Number(sold.tax_amount) || 0,
+    tax_breakdown: (parsed(sold.tax_breakdown) as TaxResult['tax_breakdown'] | null) ?? [],
+    tax_type: typeof sold.tax_type === 'string' ? sold.tax_type : 'none',
+    tax_snapshot: parsed(sold.tax_snapshot) as TaxResult['tax_snapshot'],
+  };
 }

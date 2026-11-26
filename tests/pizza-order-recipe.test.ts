@@ -682,6 +682,186 @@ async function main() {
         }
       },
 
+    'Case 6h: a recipe or note change copies the saved discount, add-ons and stock as they are':
+      async () => {
+        db.prepare(
+          "INSERT INTO addon_groups (id, name, allow_multiple_quantities, max_selection) VALUES ('ag-dips', 'Dips', 1, NULL)",
+        ).run();
+        db.prepare(
+          "INSERT INTO addons (id, addon_group_id, name, price, is_active, track_inventory, stock_quantity) VALUES ('ad-dips-ranch', 'ag-dips', 'Ranch', 1.5, 1, 1, 10)",
+        ).run();
+        db.prepare(
+          "INSERT INTO addon_group_product (product_id, addon_group_id) VALUES ('pz-garden', 'ag-dips')",
+        ).run();
+        const dips = [{ id: 'ad-dips-ranch', quantity: 2 }];
+        const createdH = await createOrder([
+          gardenLine({ modifier_selection: gardenSent }),
+          gardenLine({ modifier_selection: gardenSent, addons: dips }),
+        ]);
+        assertEqualOrThrow(createdH.status, 201, `the order is accepted: ${createdH.data.error}`);
+        const order = createdH.data.order;
+        const [plain, dipped] = liveRows(order.id);
+        const money = (line: any) =>
+          JSON.stringify([line.unit_price, line.discount_amount, line.subtotal]);
+        const live = (index: number) => liveRows(order.id)[index];
+
+        // 10% off 23.00 is 2.30; the owner then sets the price to 10.00 and the 2.30 stays.
+        const discounted = await post(`/api/orders/${order.id}/items/${plain.id}/discount`, {
+          discount_type: 'percentage',
+          discount_value: 10,
+        });
+        assertEqualOrThrow(discounted.status, 200, 'the first line gets 10% off');
+        const overridden = await patch(`/api/orders/${order.id}/items/${plain.id}/price`, {
+          price: 10,
+          reason: 'Regular customer',
+        });
+        assertEqualOrThrow(overridden.status, 200, 'and then a price of 10.00');
+        assertEqualOrThrow(money(live(0)), '[10,2.3,7.7]', 'it stands at 10.00 less 2.30');
+        const noted = await edit(order.id, plain.id, {
+          replacement: gardenLine({ special_instructions: 'Ring the bell' }),
+        });
+        assertEqualOrThrow(noted.status, 200, 'note only: accepted');
+        const afterNote = liveRows(order.id).find(
+          (line) => line.special_instructions === 'Ring the bell',
+        );
+        assertEqualOrThrow(money(afterNote), '[10,2.3,7.7]', 'note only: the 2.30 is not reworked');
+
+        // A menu load retires the dip the second pizza was sold with.
+        db.prepare("UPDATE addons SET is_active = 0 WHERE id = 'ad-dips-ranch'").run();
+        try {
+          const other = liveRows(order.id).find((line) => line.id === dipped.id);
+          const removal = await edit(order.id, other.id, {
+            replacement: gardenLine({
+              modifier_selection: whole('garden', ['Olives']),
+              addons: dips,
+            }),
+          });
+          assertEqualOrThrow(removal.status, 200, 'retired dip: a recipe change is accepted');
+          const changed = liveRows(order.id).find(
+            (line) => line.modifier_selection === stored(whole('garden', ['Olives'])),
+          );
+          assertEqualOrThrow(
+            money(changed),
+            '[23,0,26]',
+            'retired dip: 23.00 and two dips at 1.50',
+          );
+          assertEqualOrThrow(
+            JSON.stringify(
+              db
+                .prepare(
+                  'SELECT addon_id, addon_name, price, quantity FROM order_item_addons WHERE order_item_id = ?',
+                )
+                .all(changed.id),
+            ),
+            JSON.stringify([
+              { addon_id: 'ad-dips-ranch', addon_name: 'Ranch', price: 1.5, quantity: 2 },
+            ]),
+            'retired dip: the dips are on the new line as they were sold',
+          );
+          assertEqualOrThrow(
+            (
+              db
+                .prepare("SELECT stock_quantity FROM addons WHERE id = 'ad-dips-ranch'")
+                .get() as any
+            ).stock_quantity,
+            8,
+            'retired dip: the two dips stay out of stock, counted once',
+          );
+          const bad = await edit(order.id, changed.id, {
+            replacement: gardenLine({
+              modifier_selection: whole('garden', ['Anchovies']),
+              addons: dips,
+            }),
+          });
+          assertEqualOrThrow(bad.status, 400, 'retired dip: a recipe the menu refuses is refused');
+          const more = await edit(order.id, changed.id, {
+            replacement: gardenLine({
+              modifier_selection: whole('garden', ['Olives']),
+              addons: [{ id: 'ad-dips-ranch', quantity: 3 }],
+            }),
+          });
+          assertEqualOrThrow(
+            more.status,
+            400,
+            'retired dip: one more of it is a new sale, refused',
+          );
+        } finally {
+          db.prepare("UPDATE addons SET is_active = 1 WHERE id = 'ad-dips-ranch'").run();
+        }
+      },
+
+    'Case 6i: a note change on a retired pizza is accepted; a new recipe for it is checked':
+      async () => {
+        const order = (
+          await createOrder([
+            { product_id: 'pz-island', variant_id: 'pz-island-large', quantity: 1 },
+            {
+              product_id: 'pz-island',
+              variant_id: 'pz-island-large',
+              quantity: 1,
+              modifier_selection: whole('island', ['Ham']),
+            },
+          ])
+        ).data.order;
+        const [bare, withRecipe] = liveRows(order.id);
+        const islandLine = (extra: object) => ({
+          product_id: 'pz-island',
+          variant_id: 'pz-island-large',
+          quantity: 1,
+          ...extra,
+        });
+        // A menu load without Island: the product and its sizes are off, the menu has no such pizza.
+        const without = {
+          ...catalog,
+          pizzas: catalog.pizzas.filter((p: any) => p.id !== 'island'),
+        };
+        const retire = (active: number) => {
+          db.prepare("UPDATE products SET is_active = ? WHERE id = 'pz-island'").run(active);
+          db.prepare(
+            "UPDATE product_variants SET is_active = ? WHERE product_id = 'pz-island'",
+          ).run(active);
+        };
+        retire(0);
+        writePizzaMenu(db, JSON.stringify(without));
+        try {
+          const noted = await edit(order.id, bare.id, {
+            replacement: islandLine({ special_instructions: 'Back door' }),
+          });
+          assertEqualOrThrow(noted.status, 200, 'no recipe: the note change is accepted');
+          const kept = await edit(order.id, withRecipe.id, {
+            replacement: islandLine({
+              special_instructions: 'Ring the bell',
+              modifier_selection: whole('island', ['Ham']),
+            }),
+          });
+          assertEqualOrThrow(
+            kept.status,
+            200,
+            'same recipe sent back: the note change is accepted',
+          );
+          const line = liveRows(order.id).find(
+            (row) => row.special_instructions === 'Ring the bell',
+          );
+          assertEqualOrThrow(
+            line.modifier_selection,
+            stored(whole('island', ['Ham'])),
+            'and the recipe it was sold with stays',
+          );
+          const changed = await edit(order.id, line.id, {
+            replacement: islandLine({ modifier_selection: whole('island', ['Pineapple']) }),
+          });
+          assertEqualOrThrow(changed.status, 400, 'a new recipe is checked against the menu');
+          assertEqualOrThrow(
+            changed.data.error,
+            'That pizza is not on the menu. Pick another pizza',
+            'and refused, because the menu no longer has the pizza',
+          );
+        } finally {
+          retire(1);
+          writePizzaMenu(db, JSON.stringify(catalog));
+        }
+      },
+
     'Case 6g: an edit key reused with a cleared recipe instead of a kept one is a conflict':
       async () => {
         const order = (await createOrder([gardenLine({ modifier_selection: gardenSent })])).data

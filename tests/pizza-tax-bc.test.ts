@@ -419,6 +419,10 @@ async function main() {
       assertEqualOrThrow(sold.status, 201, 'the pizza is sold');
       assertEqualOrThrow(taxLines(sold.data.order.tax_breakdown), 'GST 5% 1.15', 'with GST only');
 
+      // A line sold before amounts were rounded holds a subtotal that is not whole cents.
+      db.prepare('UPDATE order_items SET subtotal = 22.999999999999996 WHERE order_id = ?').run(
+        sold.data.order.id,
+      );
       // The product moves to another tax category after the sale.
       db.prepare("UPDATE products SET tax_category_id = 'soda' WHERE id = ?").run(productId);
       let edits = 0;

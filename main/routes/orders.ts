@@ -87,7 +87,7 @@ import {
 } from '../services/item-price-override';
 import { notifyKdsUpdate, notifyOrderUpdated } from '../services/kds';
 import { checkLineRecipe, keepStoredRecipe } from '../pizza/order-recipe';
-import { carrySoldTax, changesRecipeOnly } from '../pizza/sold-line';
+import { carrySoldLine, changesRecipeOnly, soldTax } from '../pizza/sold-line';
 import { cloudSync } from '../services/cloud-sync';
 import {
   validateOrderNotes,
@@ -1081,6 +1081,8 @@ function insertOrderItems(
     preserveSelections?: boolean;
     /** Scheduled orders defer product/add-on/recipe stock depletion until release. */
     deferStockDeduction?: boolean;
+    /** A recipe-only edit keeps the tax its line was sold with; the catalog is not consulted. */
+    soldTax?: ReturnType<typeof calculateItemTax>;
   },
 ): (number | bigint)[] {
   const { tenantInfo, customer, isOnlineOrder, actorUserId } = context;
@@ -1192,7 +1194,8 @@ function insertOrderItems(
       getCurrencyFractionDigits(getTenantCurrency()),
     );
 
-    const taxResult = calculateItemTax(tenantInfo, product, itemSubtotal, customer);
+    const taxResult =
+      context.soldTax ?? calculateItemTax(tenantInfo, product, itemSubtotal, customer);
     const itemTotal =
       itemSubtotal + (taxResult.tax_type === 'inclusive' ? 0 : taxResult.tax_amount);
     const itemTaxSnapshotJson = taxResult.tax_snapshot
@@ -6897,7 +6900,7 @@ router.patch(
           let newItem: OrderItemInput;
           const recipeOnly = !hasQuantity && changesRecipeOnly(db, replacement, oldItem, oldAddons);
           const preserveUnitPrice = hasQuantity || recipeOnly;
-          const preserveStoredSelections = hasQuantity && newQuantity < oldQuantity;
+          const preserveStoredSelections = recipeOnly || (hasQuantity && newQuantity < oldQuantity);
           if (hasQuantity) {
             const lineQuantity = isStartedQuantityIncrease
               ? Number((newQuantity - oldQuantity).toFixed(6))
@@ -6921,7 +6924,7 @@ router.patch(
           } else {
             newItem = { ...replacement };
             keepStoredRecipe(newItem, oldItem);
-            if (recipeOnly) newItem.unit_price = oldItem.unit_price;
+            if (recipeOnly) carrySoldLine(db, newItem, oldItem);
           }
 
           if (isStartedQuantityIncrease) {
@@ -6946,7 +6949,7 @@ router.patch(
               // A reduction needs no extra units, so the stored selections stay
               // authoritative even when the catalog has since disabled the sold
               // variant or add-on; their held stock scales with the line.
-              const heldRatio = newQuantity / oldQuantity;
+              const heldRatio = recipeOnly ? 1 : newQuantity / oldQuantity;
               newItem.addons = oldAddons.map((addon) => ({
                 id: addon.addon_id ?? undefined,
                 name: addon.addon_name,
@@ -6992,7 +6995,7 @@ router.patch(
           const carriedDiscountDetails = preserveUnitPrice
             ? getAppliedItemDiscountDetails(db, oldItem.id)
             : null;
-          if (preserveUnitPrice) {
+          if (preserveUnitPrice && !recipeOnly) {
             const itemBaseTotal = lineSubtotal(
               Number(newItem.unit_price),
               Number(newItem.quantity),
@@ -7020,10 +7023,10 @@ router.patch(
             preserveUnitPrice,
             preserveSelections: preserveStoredSelections,
             deferStockDeduction: deferUnreleased,
+            soldTax: recipeOnly ? soldTax(oldItem) : undefined,
           });
           newItemId = insertedId;
           if (preserveUnitPrice) carryPriceOverride(db, oldItem.id, insertedId);
-          if (recipeOnly) carrySoldTax(db, oldItem.id, insertedId);
           if (
             carriedDiscountDetails &&
             Number(newItem.discount_amount || 0) > 0 &&
