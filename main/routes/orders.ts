@@ -1119,7 +1119,7 @@ function insertOrderItems(
       allowInactive: !!context.preserveSelections,
       allowUnselected: !!context.preserveSelections,
     });
-    if (!context.preserveSelections) checkLineRecipe(db, item, variant?.id);
+    if (!context.preserveSelections) checkLineRecipe(db, items, item, variant?.id);
     let unitPrice = context.preserveUnitPrice
       ? Number(item.unit_price)
       : variant
@@ -2457,7 +2457,7 @@ router.post(
           // Validate quantity and price
           validateProductQuantity(product, quantity);
           const variant = resolveOrderItemVariant(db, product, item, isOnlineOrder);
-          checkLineRecipe(db, item, variant?.id);
+          checkLineRecipe(db, items, item, variant?.id);
           let unitPrice = variant
             ? variantUnitPrice(variant, isOnlineOrder)
             : parseFloat(product.price);

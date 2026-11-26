@@ -1,8 +1,9 @@
 /**
  * The recipe on an order line, on the server print paths and the kitchen
- * display: the kitchen ticket and the classic and compact receipts print the
- * recipe's detail lines under FloCafe's own item heading, wrapped for the
- * printer's real column count, and a restricted station's item carries the recipe.
+ * display: the kitchen ticket and the classic, compact and merchant-template
+ * receipts print the recipe's detail lines under FloCafe's own item heading,
+ * wrapped for the printer's real column count; a recipe that cannot be printed
+ * leaves a warning line; and a restricted station's item carries the recipe.
  *
  * Run: npm run test:pizza-order-print
  */
@@ -23,10 +24,16 @@ const { projectKdsItem } = require('../main/db');
 const { printKOTDetailed, prepareReceipt } = require('../main/printers/thermal');
 const { orderRoutes } = require('../main/routes/orders');
 const { billRoutes } = require('../main/routes/bills');
-const { getEffectiveOrderItems } = require('../main/routes/printers');
+const { getEffectiveOrderItems, printerRoutes } = require('../main/routes/printers');
+const {
+  activateMerchantPrintTemplate,
+  createMerchantPrintTemplate,
+} = require('../main/services/merchant-print-templates');
+const { serializeBillTemplateSelection } = require('../main/services/print-templates');
 const { ticketLines } = require('../shared/pizza/ticket');
 
 const INDENT = '   ';
+const NOT_PRINTED = `${INDENT}RECIPE NOT PRINTED - CHECK ORDER`;
 const whole = (pizzaId: string, removed: string[] = []) => ({
   kind: 'pizza',
   v: 1,
@@ -134,8 +141,21 @@ async function main() {
   const owner = seedOwnerUser(db);
   const catalog = seedPizzaMenu(db);
   const { baseUrl } = await startServer(
-    createApp({ '/api/orders': orderRoutes, '/api/bills': billRoutes }),
+    createApp({
+      '/api/orders': orderRoutes,
+      '/api/bills': billRoutes,
+      '/api/printers': printerRoutes,
+    }),
   );
+  const template = createMerchantPrintTemplate(
+    {
+      name: 'Recipe lines',
+      payload: require('./fixtures/merchant-templates/golden-receipt-v1.json'),
+    },
+    owner.userId,
+  );
+  activateMerchantPrintTemplate(template.id, owner.userId);
+  const merchant = serializeBillTemplateSelection({ source: 'merchant', id: template.id });
   const capture = await startCapturePrinter();
   db.prepare(
     `INSERT INTO printers (id, name, connection_type, ip_address, port, is_default)
@@ -153,26 +173,35 @@ async function main() {
     const bill = (await post('/api/bills/generate', { order_id: order.id })).data.bill;
     return { order, bill };
   }
-  /** The ticket and both receipts for one stored printer configuration, as printed rows. */
-  async function printAll(placed: { order: any; bill: any }, printer: (typeof PRINTERS)[number]) {
+  /** Stores a paper width and text size on the printer the server prints to. */
+  function usePrinter(printer: (typeof PRINTERS)[number]) {
     db.prepare('UPDATE printers SET paper_width = ?, text_size = ?').run(
       printer.paper_width,
       printer.text_size,
     );
-    const stored = db.prepare("SELECT * FROM printers WHERE id = 'capture'").get();
+    return db.prepare("SELECT * FROM printers WHERE id = 'capture'").get();
+  }
+  /** The ticket and the three receipts for one stored printer configuration, as printed rows. */
+  async function printAll(placed: { order: any; bill: any }, printer: (typeof PRINTERS)[number]) {
+    const stored = usePrinter(printer);
     const ticket = await printKOTDetailed(placed.order, placed.order.items, 'Kitchen', false, {
       ...stored,
     });
     assertOrThrow(ticket.ok, `${printer.label}: the kitchen ticket is sent`);
-    const receipt = (template: string) => {
-      const prepared = prepareReceipt(placed.order, placed.bill, business, template);
+    const receipt = (selection: string) => {
+      const prepared = prepareReceipt(placed.order, placed.bill, business, selection);
       assertEqualOrThrow(prepared.columns, printer.columns, `${printer.label}: layout columns`);
+      assertOrThrow(
+        !prepared.warnings.some((warning: any) => warning.field === 'bill_template'),
+        `${printer.label}: the selected template is the one rendered`,
+      );
       return rows(prepared.data);
     };
     return {
       'kitchen ticket': await capture.lastJob(),
       'classic receipt': receipt('classic'),
       'compact receipt': receipt('compact'),
+      'merchant receipt': receipt(merchant),
     };
   }
 
@@ -304,6 +333,100 @@ async function main() {
         'the projected item carries the recipe',
       );
       assertOrThrow(!('unit_price' in projected), 'and still no price');
+
+      // Some kitchen display routes hand the stored text over unparsed.
+      const text = JSON.stringify(half);
+      assertEqualOrThrow(
+        projectKdsItem({ ...order.items[0], modifier_selection: text }, true).modifier_selection,
+        text,
+        'a recipe still stored as text is carried as it is',
+      );
+      for (const other of [{ kind: 'note', price: 5 }, '{"kind":"note"}', 'not json', null]) {
+        assertEqualOrThrow(
+          projectKdsItem({ ...order.items[0], modifier_selection: other }, true).modifier_selection,
+          null,
+          `anything that is not a recipe is projected as null: ${JSON.stringify(other)}`,
+        );
+      }
+    },
+
+    'Case 4: a recipe that cannot be printed leaves a warning line on the ticket': async () => {
+      const line = (productId: string, recipe: object) => ({
+        product_id: `pz-${productId}`,
+        variant_id: `pz-${productId}-large`,
+        quantity: 1,
+        modifier_selection: recipe,
+      });
+      const placed = await placedOrder([
+        line('garden', whole('garden', ['Olives'])),
+        line('classic', whole('classic', ['Pepperoni'])),
+        line('island', whole('island', ['Ham'])),
+      ]);
+      const warned: string[] = [];
+      const originalWarn = console.warn;
+      console.warn = (...args: unknown[]) => warned.push(args.map(String).join(' '));
+      try {
+        // The print route prints the items the client sends; two of these are malformed.
+        usePrinter(PRINTERS[0]);
+        const [garden, classic, island] = placed.order.items;
+        const sent = await post('/api/printers/print-kot', {
+          orderId: placed.order.id,
+          stationName: 'Kitchen',
+          items: [
+            {
+              ...garden,
+              modifier_selection: {
+                ...garden.modifier_selection,
+                whole: { pizzaId: 'garden', removed: 'Olives' },
+              },
+            },
+            { ...classic, modifier_selection: { kind: 'pizza' } },
+            island,
+          ],
+        });
+        assertEqualOrThrow(sent.status, 200, 'client items: the ticket is sent');
+        const ticket = await capture.lastJob();
+        assertEqualOrThrow(
+          ticket.filter((row) => row === NOT_PRINTED).length,
+          2,
+          'client items: each unreadable recipe leaves the warning line',
+        );
+        assertOrThrow(ticket.includes(`${INDENT}NO HAM`), 'client items: the good recipe prints');
+        assertOrThrow(!ticket.join('\n').includes('NO OLIVES'), 'client items: nothing is guessed');
+        // A raster-capable printer renders the ticket twice, so each is logged at least once.
+        for (const item of [garden, classic]) {
+          assertOrThrow(
+            warned.some((entry) => entry.includes(`order item ${item.id}:`)),
+            `client items: the log names order item ${item.id}`,
+          );
+        }
+        assertOrThrow(
+          !warned.some((entry) => entry.includes(`order item ${island.id}:`)),
+          'client items: the good recipe is not logged',
+        );
+
+        // The stored menu is gone: no recipe can be written out.
+        warned.length = 0;
+        db.prepare('DELETE FROM pizza_menu').run();
+        const documents = await printAll(placed, PRINTERS[0]);
+        for (const [name, printed] of Object.entries(documents)) {
+          assertEqualOrThrow(
+            printed.filter((row) => row === NOT_PRINTED).length,
+            3,
+            `no menu, ${name}: every recipe line carries the warning`,
+          );
+          assertOrThrow(printed.join('\n').includes('Garden'), `no menu, ${name}: items print`);
+        }
+        assertOrThrow(warned.length >= 3, 'no menu: the failure is logged');
+        assertOrThrow(warned[0].includes('menu is not loaded'), 'no menu: the log says why');
+      } finally {
+        console.warn = originalWarn;
+        db.prepare('DELETE FROM pizza_menu').run();
+        db.prepare('INSERT INTO pizza_menu (id, catalog, imported_at) VALUES (1, ?, ?)').run(
+          JSON.stringify(catalog),
+          new Date().toISOString(),
+        );
+      }
     },
   });
 }

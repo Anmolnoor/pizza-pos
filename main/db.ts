@@ -27,6 +27,7 @@ import {
 } from './countries';
 import { clearInMemoryRevokedTokens, clearUserAuthCache } from './middleware/security';
 import * as pizzaSchema from './pizza/migrations';
+import { kdsRecipe } from './pizza/order-recipe';
 import { clearJWTSecretCache } from './security/jwt-secret';
 import { instrumentDatabase } from './services/db-timing';
 
@@ -12015,7 +12016,6 @@ export function projectKdsItem(item: any, restricted: boolean): any {
     'quantity',
     'status',
     'special_instructions',
-    'modifier_selection',
     'created_at',
     'updated_at',
     'order_number',
@@ -12028,6 +12028,7 @@ export function projectKdsItem(item: any, restricted: boolean): any {
   const projected = Object.fromEntries(
     allowedFields.filter((field) => field in item).map((field) => [field, item[field]]),
   );
+  projected.modifier_selection = kdsRecipe(item);
   if (Array.isArray(item.addons)) {
     projected.addons = item.addons.map((addon: any) => {
       const safeAddon: Record<string, any> = {};

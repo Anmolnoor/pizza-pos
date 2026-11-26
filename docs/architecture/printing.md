@@ -242,24 +242,29 @@ spaces; no text is dropped or truncated. The backend renderers pass each line th
 text. The HTML ticket renders each line with `white-space: pre-wrap`.
 
 On the backend ESC/POS paths, a pizza or deal line gets its detail lines from the recipe in its
-`modifier_selection`. `renderKotViaDocument`, `renderClassicReceiptViaDocument`, and
-`renderCompactReceiptViaDocument` pass the order's items through `withRecipeDetailLines(items,
-columns)` in `main/pizza/order-recipe.ts` before they build print data. For an item that holds a
-recipe, it reads the catalogue from `pizza_menu` and sets `detailLines` to
+`modifier_selection`. `renderKotViaDocument`, `renderClassicReceiptViaDocument`,
+`renderCompactReceiptViaDocument`, and `renderMerchantReceiptViaDocument` pass the order's items
+through `withRecipeDetailLines(items, columns)` in `main/pizza/order-recipe.ts` before they build
+print data. It reads the catalogue from `pizza_menu` once per call and, for each item that holds a
+recipe, checks the recipe with `validateRecipe()` and sets `detailLines` to
 `ticketLines(catalog, recipe, columns).detailLines` (`shared/pizza/ticket.ts`), replacing any lines
 the item carried. `columns` is the renderer's own layout width, the value `resolvePrinterContext()`
 returns after [text size](#text-size) is applied, so an extra large printer gets lines wrapped for
 half the paper's characters. `ticketLines` keeps every line within that width less the three-space
 indent, so `detailLineRows()` prints each one as given and the nesting of halves and deal pizzas
-survives. The item heading stays the product name and variant. An item with no recipe, or with one
-that cannot be read, keeps the `detailLines` it carried.
+survives. The item heading stays the product name and variant. An item with no recipe keeps the
+`detailLines` it carried.
+
+A recipe that cannot be written out never prints as a bare item. When the recipe does not pass the
+stored menu (a malformed recipe among the items a client sent to the print route, or a pizza,
+ingredient, or deal the menu no longer has), or the `pizza_menu` row is missing or unreadable, the
+item's detail lines are the single line `RECIPE NOT PRINTED - CHECK ORDER` and the cause is logged
+with the order item id.
 
 The detailed receipt (`buildDetailedReceiptBytes`), the tax bill, compliance line templates, the
 browser HTML receipt (`web-print.ts`), the delivery slip, the payment ticket slip, and the kitchen
-display do not print detail lines. Merchant-template receipts (`document-merchant.ts`) print the
-lines an item carries but do not fill them from a recipe. `tests/pizza-print-detail-lines.test.ts`
-covers the paths that print detail lines, and `tests/pizza-order-print.test.ts` covers the lines
-written from a recipe.
+display do not print detail lines. `tests/pizza-print-detail-lines.test.ts` covers the paths that
+print detail lines, and `tests/pizza-order-print.test.ts` covers the lines written from a recipe.
 
 ### Customer contact on kitchen tickets
 

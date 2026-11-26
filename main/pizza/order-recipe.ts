@@ -6,21 +6,38 @@ import { ticketLines } from '../../shared/pizza/ticket';
 import type { OrderLineRecipe, PizzaCatalog } from '../../shared/pizza/types';
 
 const WRONG_ITEM = 'The recipe is for a different item. Remove it and add it again';
+const NOT_PRINTED = 'RECIPE NOT PRINTED - CHECK ORDER';
 
-function isRecipe(value: unknown): value is OrderLineRecipe {
+type Line = { modifier_selection?: unknown } | null | undefined;
+
+/** The pizza or deal recipe a line holds, parsed if it is still stored text; nothing else counts. */
+function recipeOf(line: Line): OrderLineRecipe | undefined {
+  let value = line?.modifier_selection;
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return undefined;
+    }
+  }
   const kind = (value as { kind?: unknown } | null)?.kind;
-  return kind === 'pizza' || kind === 'deal';
+  return kind === 'pizza' || kind === 'deal' ? (value as OrderLineRecipe) : undefined;
 }
 
 function readCatalog(db: Database.Database): PizzaCatalog {
-  const row = db.prepare('SELECT catalog FROM pizza_menu WHERE id = 1').get() as {
-    catalog: string;
-  };
-  return JSON.parse(row.catalog);
+  try {
+    const row = db.prepare('SELECT catalog FROM pizza_menu WHERE id = 1').get();
+    return JSON.parse((row as { catalog: string }).catalog);
+  } catch {
+    throw Object.assign(new Error('The pizza menu is not loaded. Load the menu file again.'), {
+      statusCode: 503,
+    });
+  }
 }
 
 function agreedRecipe(
   db: Database.Database,
+  catalog: () => PizzaCatalog,
   productId: string,
   variantId: string | undefined,
   raw: unknown,
@@ -29,7 +46,7 @@ function agreedRecipe(
     .prepare('SELECT menu_id, kind FROM pizza_products WHERE product_id = ?')
     .get(productId) as { menu_id: string; kind: 'pizza' | 'half-and-half' | 'deal' } | undefined;
   if (!product) {
-    if (isRecipe(raw))
+    if (recipeOf({ modifier_selection: raw }))
       throw new RecipeError(
         'This item does not take a pizza or deal recipe. Remove it and add it again',
       );
@@ -41,7 +58,7 @@ function agreedRecipe(
     throw new RecipeError(product.kind === 'deal' ? 'Pick what goes in this deal' : pickHalves);
   }
 
-  const recipe = validateRecipe(readCatalog(db), raw);
+  const recipe = validateRecipe(catalog(), raw);
   if (recipe.kind === 'deal') {
     if (product.kind !== 'deal' || recipe.dealId !== product.menu_id)
       throw new RecipeError(WRONG_ITEM);
@@ -60,48 +77,83 @@ function agreedRecipe(
   return recipe;
 }
 
+const requestCatalogs = new WeakMap<object, PizzaCatalog>();
+
 /**
  * Checks the recipe on an incoming order line against the menu and the line's own product and
  * variant, and leaves it normalised in `modifier_selection`. A refusal is a `RecipeError`
- * answered with 400. A product that is not a pizza or a deal keeps what it sent.
+ * answered with 400; a menu that cannot be read answers 503. A product that is not a pizza or a
+ * deal keeps what it sent. `lines` is the request's list: its lines share one read of the menu.
  */
 export function checkLineRecipe(
   db: Database.Database,
+  lines: object,
   line: { product_id: string; modifier_selection?: unknown },
   variantId: string | undefined,
 ): void {
+  const catalog = () => {
+    if (!requestCatalogs.has(lines)) requestCatalogs.set(lines, readCatalog(db));
+    return requestCatalogs.get(lines) as PizzaCatalog;
+  };
   try {
-    line.modifier_selection = agreedRecipe(db, line.product_id, variantId, line.modifier_selection);
+    line.modifier_selection = agreedRecipe(
+      db,
+      catalog,
+      line.product_id,
+      variantId,
+      line.modifier_selection,
+    );
   } catch (error) {
     throw error instanceof RecipeError ? Object.assign(error, { statusCode: 400 }) : error;
   }
 }
 
-/** A replacement that sends no recipe keeps the one stored on the line, while the product stays. */
+/**
+ * A replacement that leaves `modifier_selection` out keeps the recipe stored on the line it
+ * replaces, while the product stays. A kept pizza recipe takes the size of the new variant.
+ */
 export function keepStoredRecipe(
-  replacement: { product_id?: unknown; modifier_selection?: unknown },
-  stored: { product_id: string; modifier_selection?: string | null },
+  replacement: { product_id?: unknown; variant_id?: unknown; modifier_selection?: unknown },
+  stored: { product_id: string; modifier_selection?: unknown },
 ): void {
-  if (replacement.modifier_selection == null && replacement.product_id === stored.product_id)
-    replacement.modifier_selection = JSON.parse(stored.modifier_selection ?? 'null');
+  if (replacement.modifier_selection !== undefined) return;
+  if (replacement.product_id !== stored.product_id) return;
+  const recipe = recipeOf(stored);
+  if (!recipe) return;
+  if (recipe.kind === 'pizza' && typeof replacement.variant_id === 'string')
+    recipe.sizeId = replacement.variant_id.trim().slice(stored.product_id.length + 1);
+  replacement.modifier_selection = recipe;
+}
+
+/** What a restricted kitchen display station gets: the line's recipe as stored, or null. */
+export function kdsRecipe(line: Line): unknown {
+  return recipeOf(line) ? line?.modifier_selection : null;
 }
 
 /**
  * Order items with `detailLines` written from each line's recipe, for a printer laying out
- * `columns` characters. A line with no recipe, or one that cannot be read, is left as it is.
+ * `columns` characters. A recipe that does not pass the stored menu is logged and prints one
+ * warning line, so a ticket never drops a recipe silently. A line with no recipe is left alone.
  */
 export function withRecipeDetailLines<T>(items: T, columns: number): T {
-  if (!Array.isArray(items)) return items;
+  if (!Array.isArray(items) || !items.some(recipeOf)) return items;
   let catalog: PizzaCatalog | undefined;
+  let menuError: unknown;
+  try {
+    catalog = readCatalog(getDatabase());
+  } catch (error) {
+    menuError = error;
+  }
   return items.map((item) => {
+    const recipe = recipeOf(item);
+    if (!recipe) return item;
+    let detailLines = [NOT_PRINTED];
     try {
-      const raw = item?.modifier_selection;
-      const recipe = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      if (!isRecipe(recipe)) return item;
-      catalog ??= readCatalog(getDatabase());
-      return { ...item, detailLines: ticketLines(catalog, recipe, columns).detailLines };
-    } catch {
-      return item;
+      if (!catalog) throw menuError;
+      detailLines = ticketLines(catalog, validateRecipe(catalog, recipe), columns).detailLines;
+    } catch (error) {
+      console.warn(`[Pizza] Recipe not printed for order item ${item.id}:`, error);
     }
+    return { ...item, detailLines };
   }) as T;
 }

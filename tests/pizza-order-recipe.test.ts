@@ -128,10 +128,10 @@ async function main() {
   const stored = (recipe: object) => JSON.stringify(recipe);
 
   /** Posts an order that must be refused, and checks that it left nothing behind. */
-  async function refused(label: string, item: object, message: string) {
+  async function refused(label: string, item: object, message: string, status = 400) {
     const before = [count('orders'), count('order_items')];
     const response = await createOrder([gardenLine(), item]);
-    assertEqualOrThrow(response.status, 400, `${label}: refused with 400`);
+    assertEqualOrThrow(response.status, status, `${label}: refused with ${status}`);
     assertEqualOrThrow(response.data.error, message, `${label}: the message says what to do`);
     assertEqualOrThrow(
       JSON.stringify([count('orders'), count('order_items')]),
@@ -163,10 +163,19 @@ async function main() {
           modifier_selection: deal('pasta-night', [], { pops: { cola: 3 } }),
         }),
       ];
-      const response = await createOrder(sent);
+      const prepare = db.prepare;
+      let menuReads = 0;
+      db.prepare = function (this: unknown, sql: string, ...rest: unknown[]) {
+        if (sql.includes('FROM pizza_menu')) menuReads += 1;
+        return prepare.call(this, sql, ...rest);
+      };
+      const response = await createOrder(sent).finally(() => {
+        db.prepare = prepare;
+      });
       assertEqualOrThrow(response.status, 201, 'the order is accepted');
       const items = response.data.order.items;
       assertEqualOrThrow(items.length, sent.length, 'every line is on the order');
+      assertEqualOrThrow(menuReads, 1, 'the stored menu is read once for the whole request');
 
       assertEqualOrThrow(
         row(items[0].id).modifier_selection,
@@ -273,6 +282,23 @@ async function main() {
           'This item does not take a pizza or deal recipe. Remove it and add it again',
         );
         await refused(
+          'a deal recipe on a product that is not a pizza',
+          {
+            product_id: 'sd-green-salad',
+            quantity: 1,
+            modifier_selection: deal('pasta-night', [], { pops: { cola: 3 } }),
+          },
+          'This item does not take a pizza or deal recipe. Remove it and add it again',
+        );
+        await refused(
+          'a deal line that sends a variant',
+          dealLine('pasta-night', {
+            variant_id: 'pz-garden-large',
+            modifier_selection: deal('pasta-night', [], { pops: { cola: 3 } }),
+          }),
+          'Variant "Large" is not an option for Pasta Night',
+        );
+        await refused(
           'a recipe larger than the core allows',
           gardenLine({ modifier_selection: whole('garden', [], { padding: 'x'.repeat(20_001) }) }),
           UNREADABLE,
@@ -371,6 +397,7 @@ async function main() {
       );
 
       const standing = live()[0].id;
+      const untouched = [count('order_items'), editVersion(order.id, standing)];
       const bad = await edit(order.id, standing, {
         replacement: gardenLine({ modifier_selection: whole('garden', ['Anchovies']) }),
       });
@@ -381,15 +408,10 @@ async function main() {
         'with the recipe message',
       );
       assertEqualOrThrow(live()[0].id, standing, 'and the line it would replace still stands');
-
-      const resized = await edit(order.id, standing, {
-        replacement: gardenLine({ variant_id: 'pz-garden-medium' }),
-      });
-      assertEqualOrThrow(resized.status, 400, 'no recipe and another size: refused');
       assertEqualOrThrow(
-        resized.data.error,
-        'The size does not match this item. Pick the size again',
-        'because the kept recipe is for the old size',
+        JSON.stringify([count('order_items'), editVersion(order.id, standing)]),
+        JSON.stringify(untouched),
+        'the refusal adds no line and leaves the edit version alone',
       );
 
       const other = await edit(order.id, standing, {
@@ -401,6 +423,117 @@ async function main() {
         'null',
         'and does not carry the pizza recipe over',
       );
+    },
+
+    'Case 6b: a replacement that changes the size keeps the recipe at the new size': async () => {
+      const order = (
+        await createOrder([
+          gardenLine({ modifier_selection: gardenSent }),
+          halfLine({ modifier_selection: halfSent }),
+        ])
+      ).data.order;
+      const [garden, half] = liveRows(order.id);
+
+      const medium = await edit(order.id, garden.id, {
+        replacement: gardenLine({ variant_id: 'pz-garden-medium' }),
+      });
+      assertEqualOrThrow(medium.status, 200, 'whole pizza: the size change is accepted');
+      const mediumRow = liveRows(order.id).find((line) => line.product_id === 'pz-garden');
+      assertEqualOrThrow(mediumRow.variant_id, 'pz-garden-medium', 'whole pizza: new variant');
+      assertEqualOrThrow(mediumRow.unit_price, 19, 'whole pizza: charged the new size price');
+      assertEqualOrThrow(
+        mediumRow.modifier_selection,
+        stored({ ...gardenStored, sizeId: 'medium' }),
+        'whole pizza: the removals are kept and the recipe says medium',
+      );
+
+      const small = await edit(order.id, half.id, {
+        replacement: halfLine({ variant_id: 'pz-half-and-half-small' }),
+      });
+      assertEqualOrThrow(small.status, 200, 'half and half: the size change is accepted');
+      const smallRow = liveRows(order.id).find((line) => line.product_id === 'pz-half-and-half');
+      assertEqualOrThrow(
+        smallRow.modifier_selection,
+        stored({ ...halfStored, sizeId: 'small' }),
+        'half and half: both halves are kept and the recipe says small',
+      );
+    },
+
+    'Case 6c: only an absent field keeps the recipe; an explicit null clears it': async () => {
+      const order = (
+        await createOrder([
+          gardenLine({ modifier_selection: gardenSent }),
+          halfLine({ modifier_selection: halfSent }),
+          dealLine('pasta-night', {
+            modifier_selection: deal('pasta-night', [], { pops: { cola: 3 } }),
+          }),
+          { product_id: 'sd-green-salad', quantity: 1, modifier_selection: { kind: 'note' } },
+        ])
+      ).data.order;
+      const [garden, half, pasta, salad] = liveRows(order.id);
+      const lineOf = (productId: string) =>
+        liveRows(order.id).find((line) => line.product_id === productId);
+
+      const cleared = await edit(order.id, garden.id, {
+        replacement: gardenLine({ modifier_selection: null }),
+      });
+      assertEqualOrThrow(cleared.status, 200, 'plain pizza: an explicit null is accepted');
+      assertEqualOrThrow(
+        lineOf('pz-garden').modifier_selection,
+        'null',
+        'plain pizza: an explicit null clears the recipe',
+      );
+
+      const halfNull = await edit(order.id, half.id, {
+        replacement: halfLine({ modifier_selection: null }),
+      });
+      assertEqualOrThrow(halfNull.status, 400, 'half and half: an explicit null is refused');
+      assertEqualOrThrow(halfNull.data.error, 'Pick the two halves', 'as any missing recipe is');
+      const dealNull = await edit(order.id, pasta.id, {
+        replacement: dealLine('pasta-night', { modifier_selection: null }),
+      });
+      assertEqualOrThrow(dealNull.status, 400, 'deal: an explicit null is refused');
+      assertEqualOrThrow(dealNull.data.error, 'Pick what goes in this deal', 'with its message');
+      const dealKept = await edit(order.id, pasta.id, {
+        replacement: dealLine('pasta-night', { quantity: 2 }),
+      });
+      assertEqualOrThrow(dealKept.status, 200, 'deal: an absent field is accepted');
+      assertEqualOrThrow(
+        lineOf('dl-pasta-night').modifier_selection,
+        stored(deal('pasta-night', [], { pops: { cola: 3 } })),
+        'deal: an absent field keeps the recipe',
+      );
+
+      // A line that is not a pizza behaves as upstream: a replacement stores what it sends.
+      const saladEdit = await edit(order.id, salad.id, {
+        replacement: { product_id: 'sd-green-salad', quantity: 2 },
+      });
+      assertEqualOrThrow(saladEdit.status, 200, 'other product: the replacement is accepted');
+      assertEqualOrThrow(
+        lineOf('sd-green-salad').modifier_selection,
+        'null',
+        'other product: what it carried is not kept',
+      );
+    },
+
+    'Case 6d: a quantity increase is refused once the pizza has left the menu': async () => {
+      const order = (await createOrder([gardenLine({ modifier_selection: gardenSent })])).data
+        .order;
+      const [line] = liveRows(order.id);
+      const without = { ...catalog, pizzas: catalog.pizzas.filter((p: any) => p.id !== 'garden') };
+      db.prepare('UPDATE pizza_menu SET catalog = ?').run(JSON.stringify(without));
+      try {
+        const more = await edit(order.id, line.id, { quantity: 2 });
+        assertEqualOrThrow(more.status, 400, 'the increase is refused');
+        assertEqualOrThrow(
+          more.data.error,
+          'That pizza is not on the menu. Pick another pizza',
+          'with the recipe message',
+        );
+        assertEqualOrThrow(liveRows(order.id)[0].id, line.id, 'and the line still stands');
+      } finally {
+        db.prepare('UPDATE pizza_menu SET catalog = ?').run(JSON.stringify(catalog));
+      }
     },
 
     'Case 7: a void and a refund keep the recipe on both lines': async () => {
@@ -465,6 +598,48 @@ async function main() {
       );
       assertEqualOrThrow(row(without.id).modifier_selection, 'null', 'nothing is stored for none');
     },
+
+    'Case 9: with no readable menu, pizza recipes answer 503 and other lines still sell':
+      async () => {
+        const menuText = JSON.stringify(catalog);
+        const notLoaded = 'The pizza menu is not loaded. Load the menu file again.';
+        const states: Record<string, () => void> = {
+          'row missing': () => db.prepare('DELETE FROM pizza_menu').run(),
+          'unreadable JSON': () => db.prepare("UPDATE pizza_menu SET catalog = '{not json'").run(),
+        };
+        for (const [state, apply] of Object.entries(states)) {
+          apply();
+          try {
+            await refused(
+              `${state}, pizza with a recipe`,
+              gardenLine({ modifier_selection: gardenSent }),
+              notLoaded,
+              503,
+            );
+            await refused(
+              `${state}, deal`,
+              dealLine('pasta-night', {
+                modifier_selection: deal('pasta-night', [], { pops: { cola: 3 } }),
+              }),
+              notLoaded,
+              503,
+            );
+            const plain = await createOrder([
+              { product_id: 'sd-green-salad', quantity: 1 },
+              gardenLine(),
+            ]);
+            assertEqualOrThrow(plain.status, 201, `${state}: lines with no recipe still sell`);
+          } finally {
+            db.prepare('DELETE FROM pizza_menu').run();
+            db.prepare('INSERT INTO pizza_menu (id, catalog, imported_at) VALUES (1, ?, ?)').run(
+              menuText,
+              new Date().toISOString(),
+            );
+          }
+        }
+        const back = await createOrder([gardenLine({ modifier_selection: gardenSent })]);
+        assertEqualOrThrow(back.status, 201, 'with the menu back, the recipe is accepted again');
+      },
   });
 }
 

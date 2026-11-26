@@ -89,6 +89,9 @@ incoming line of `POST /api/orders`, `POST /api/orders/:id/items`, and
   recipe's `sizeId`. `whole` names the pizza product's own menu id and never appears on the
   half-and-half product; `halves` appears only there. `dealId` is the deal product's menu id.
 - A refusal answers `400` with the recipe's message as `error`, and the transaction writes nothing.
+- The catalogue is read once per request, and only when a line carries a recipe to check. When the
+  `pizza_menu` row is missing or is not valid JSON, such a line answers `503` with "The pizza menu
+  is not loaded. Load the menu file again." Lines without a recipe are not affected.
 - A recipe never changes a price. The unit price is the variant's or product's catalog price, as
   for any other line.
 
@@ -96,13 +99,18 @@ Later changes to the line keep the recipe:
 
 - A quantity reduction copies the stored recipe without checking it again. A quantity increase and
   a replacement check it against the current menu.
-- A replacement that sends no `modifier_selection` keeps the recipe stored on the line it replaces
-  when the product is unchanged (`keepStoredRecipe()`). The kept recipe still has to agree with the
-  replacement's variant, so a replacement that changes the size has to send the recipe.
+- A replacement that leaves `modifier_selection` out keeps the recipe stored on the line it
+  replaces when the product is unchanged (`keepStoredRecipe()`). A kept pizza recipe takes its
+  `sizeId` from the replacement's variant, so changing the size keeps the removals and halves. The
+  kept recipe is then checked like any other.
+- A replacement that sends `modifier_selection: null` sends no recipe: it clears the recipe of a
+  pizza product, and is refused on the half-and-half product and on a deal.
+- A replacement by another product does not carry the recipe over, and a line whose
+  `modifier_selection` is not a recipe is replaced by exactly what the request sends.
 - The adjustment rows a void and an item refund write copy the line's `modifier_selection`.
 
-Kitchen display payloads carry `modifier_selection` for restricted stations as well as
-unrestricted ones (`projectKdsItem()` in `main/db.ts`).
+Restricted kitchen display payloads carry a line's recipe: `projectKdsItem()` in `main/db.ts`
+projects `modifier_selection` when it holds a pizza or deal recipe and as `null` otherwise.
 
 ## Scheduled orders and kitchen release
 
