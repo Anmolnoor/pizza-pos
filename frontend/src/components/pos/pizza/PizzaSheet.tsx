@@ -1,6 +1,6 @@
 'use client';
 
-import { useReducer, useState } from 'react';
+import { useId, useReducer, useState } from 'react';
 import { Minus, Plus, X } from 'lucide-react';
 import { useTranslations } from 'use-intl';
 import { Button } from '@/components/ui/button';
@@ -220,6 +220,7 @@ export default function PizzaSheet({
   editing,
   onSave,
   onClose,
+  returnFocus,
 }: {
   catalog: PizzaCatalog;
   initial: SheetState;
@@ -227,6 +228,8 @@ export default function PizzaSheet({
   editing: boolean;
   onSave: (line: SheetLine, state: SheetState) => void;
   onClose: () => void;
+  /** Where the focus goes on close when the control that opened the sheet is gone. */
+  returnFocus: () => HTMLElement | null;
 }) {
   const t = useTranslations('pizza');
   const tCommon = useTranslations('common');
@@ -236,6 +239,7 @@ export default function PizzaSheet({
   const [state, dispatch] = useReducer(sheetReducer, initial);
   // The dialog has no trigger of its own, so it hands the focus back to whatever opened it.
   const [opener] = useState(() => document.activeElement as HTMLElement | null);
+  const messageId = useId();
   const line = sheetLine(catalog, state);
   const size = catalog.sizes.find((entry) => entry.id === state.sizeId);
   const total = line.unitPriceCents === null ? '—' : money(line.unitPriceCents * state.quantity);
@@ -250,7 +254,7 @@ export default function PizzaSheet({
         onInteractOutside={(event) => event.preventDefault()}
         onCloseAutoFocus={(event) => {
           event.preventDefault();
-          opener?.focus();
+          (opener?.isConnected ? opener : returnFocus())?.focus();
         }}
         className="flex max-h-[calc(100dvh-1.5rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[1100px]"
       >
@@ -410,16 +414,16 @@ export default function PizzaSheet({
             ))}
           </dl>
           <div className="ms-auto flex items-center gap-3">
-            {line.message && (
-              <p
-                role="status"
-                data-testid="pizza-sheet-message"
-                className="max-w-56 text-end text-sm font-semibold text-red-700 dark:text-red-300"
-              >
-                {line.message}
-              </p>
-            )}
+            <p
+              id={messageId}
+              role="status"
+              data-testid="pizza-sheet-message"
+              className="max-w-56 text-end text-sm font-semibold text-red-700 dark:text-red-300"
+            >
+              {line.message}
+            </p>
             <Button
+              aria-describedby={messageId}
               disabled={!line.canAdd}
               onClick={() => onSave(line, state)}
               className="h-12 min-w-48 bg-brand px-6 text-base font-bold text-white hover:bg-brand-hover"

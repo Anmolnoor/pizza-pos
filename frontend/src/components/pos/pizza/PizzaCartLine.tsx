@@ -24,6 +24,16 @@ export function PizzaLineDetails({ item }: { item: CartItem }) {
   ));
 }
 
+/** The Edit button of a pizza line on screen, where the focus goes after the sheet changed that line. */
+export function pizzaLineEditButton(lineId: string | null): HTMLElement | null {
+  const buttons = document.querySelectorAll<HTMLElement>('[data-pizza-line-edit]');
+  return (
+    [...buttons].find(
+      (button) => button.dataset.pizzaLineEdit === lineId && button.offsetParent !== null,
+    ) ?? null
+  );
+}
+
 /** The 48 px action row of a pizza line: quantity, "Customize 1" on a line of several, Edit. */
 export function PizzaLineActions({
   item,
@@ -55,7 +65,12 @@ export function PizzaLineActions({
             {t('customizeOne')}
           </button>
         )}
-        <button type="button" className={ACTION} onClick={() => onEdit(item)}>
+        <button
+          type="button"
+          className={ACTION}
+          data-pizza-line-edit={item.id}
+          onClick={() => onEdit(item)}
+        >
           {tCommon('edit')}
         </button>
       </div>

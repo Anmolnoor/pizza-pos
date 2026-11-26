@@ -2,13 +2,11 @@ import {
   test,
   expect,
   request as playwrightRequest,
-  type APIRequestContext,
-  type APIResponse,
   type Locator,
   type Page,
 } from '@playwright/test';
-import fs from 'node:fs';
 import path from 'node:path';
+import { clearPizzaMenu, loadSampleMenu, sampleMenu } from './helpers/pizza-menu';
 import { getE2eToken, loginWithPassword, setLanguage } from './helpers/test-auth';
 import { E2E_BASE_URL as BASE } from './helpers/urls';
 
@@ -19,66 +17,16 @@ import { E2E_BASE_URL as BASE } from './helpers/urls';
  */
 
 const ownerHeaders = { Authorization: `Bearer ${getE2eToken()}` };
-const MENU_CATEGORIES = ['cat-pizzas', 'cat-sides', 'cat-drinks', 'cat-deals'];
-
-/* oxlint-disable-next-line typescript/no-explicit-any -- the menu file is read as plain JSON */
-function sampleMenu(): any {
-  return JSON.parse(
-    fs.readFileSync(path.resolve(__dirname, '../../tests/fixtures/pizza-sample-menu.json'), 'utf8'),
-  );
-}
-
-async function loadSampleMenu(
-  request: APIRequestContext,
-  menu: unknown = sampleMenu(),
-  base = BASE,
-): Promise<void> {
-  const response = await request.post(`${base}/api/pizza/menu/import`, {
-    headers: ownerHeaders,
-    data: menu,
-  });
-  expect(response.status(), await response.text()).toBe(200);
-}
-
-/**
- * Leaves the POS as upstream's for the specs that follow: loads the sample
- * with every item taken out, then deletes the four menu categories and what
- * is left in them. Every step runs whatever the others did.
- */
-async function clearPizzaMenu(request: APIRequestContext, base = BASE): Promise<void> {
-  const failures: string[] = [];
-  const step = async (name: string, allowed: number[], run: () => Promise<APIResponse>) => {
-    try {
-      const response = await run();
-      if (!allowed.includes(response.status()))
-        failures.push(`${name}: ${response.status()} ${await response.text()}`);
-    } catch (error) {
-      failures.push(`${name}: ${String(error)}`);
-    }
-  };
-  const menu = sampleMenu();
-  const emptied = {
-    ...menu,
-    categories: menu.categories.map((category: object) => ({ ...category, items: [] })),
-  };
-  // The load comes first: every load writes "Pizzas" and "Half & Half" back as active.
-  await step('load the emptied menu', [200], () =>
-    request.post(`${base}/api/pizza/menu/import`, { headers: ownerHeaders, data: emptied }),
-  );
-  for (const id of MENU_CATEGORIES)
-    await step(`delete ${id}`, [200, 404], () =>
-      request.delete(`${base}/api/categories/${id}?action=delete_all`, { headers: ownerHeaders }),
-    );
-  expect(failures, 'the pizza menu is cleared').toEqual([]);
-}
 
 const menu = sampleMenu();
+const itemsOf = (categoryId: string) =>
+  menu.categories.find((category) => category.id === categoryId)!.items;
 const sizePrice = (id: string): number =>
-  menu.sizes.pizza.find((size: { id: string }) => size.id === id).price;
+  (menu.sizes as { pizza: { id: string; price: number }[] }).pizza.find((size) => size.id === id)!
+    .price;
 const LARGE = sizePrice('large');
-const DIP = menu.categories
-  .find((category: { id: string }) => category.id === 'sides')
-  .items.find((side: { id: string }) => side.id === 'dip').price;
+const DIP = itemsOf('sides').find((side) => side.id === 'dip')!.price!;
+const A_DEAL = itemsOf('deals')[0].name as string;
 const money = (amount: number) => new RegExp(amount.toFixed(2).replace('.', '\\.'));
 
 /** Screenshots are saved only when a folder outside the checkout is named. */
@@ -201,7 +149,7 @@ test.describe('with the sample menu loaded', () => {
     await page.goto(`${BASE}/orders`);
     const response = await catalog;
     expect(response.status()).toBe(200);
-    expect((await response.json()).pizzas).toHaveLength(menu.categories[0].items.length);
+    expect((await response.json()).pizzas).toHaveLength(itemsOf('pizzas').length);
   });
 
   test('categories are blocks and one tap on Large adds a plain large pizza', async ({ page }) => {
@@ -211,7 +159,7 @@ test.describe('with the sample menu loaded', () => {
       'aria-pressed',
       'true',
     );
-    await expect(page.getByTestId('pizza-tile')).toHaveCount(menu.categories[0].items.length);
+    await expect(page.getByTestId('pizza-tile')).toHaveCount(itemsOf('pizzas').length);
 
     await tile(page, 'Garden').getByRole('button', { name: /Large/ }).click();
     await expect(cartLines(page)).toHaveCount(1);
@@ -258,6 +206,7 @@ test.describe('with the sample menu loaded', () => {
     const add = sheet.getByRole('button', { name: /^Add to order/ });
     await expect(add).toBeDisabled();
     await expect(sheet.getByTestId('pizza-sheet-message')).toHaveText('Pick the first half');
+    await expect(add).toHaveAccessibleDescription('Pick the first half');
 
     await sheet
       .getByRole('group', { name: '1st half' })
@@ -272,7 +221,9 @@ test.describe('with the sample menu loaded', () => {
 
     await second.getByRole('button', { name: 'Olives', exact: true }).click();
     await expect(add).toBeEnabled();
-    await expect(sheet.getByTestId('pizza-sheet-message')).toHaveCount(0);
+    await expect(sheet.getByTestId('pizza-sheet-message')).toHaveText('');
+    await expect(sheet.getByTestId('pizza-sheet-message')).toHaveRole('status');
+    await expect(add).toHaveAccessibleDescription('');
   });
 
   test('"Customize 1" splits a 2x line, and closing the sheet puts it back', async ({ page }) => {
@@ -289,6 +240,8 @@ test.describe('with the sample menu loaded', () => {
     await expect(sheet).toBeHidden();
     await expect(cartLines(page)).toHaveCount(1);
     await expect(quantity(cartLines(page).first())).toHaveText('2');
+    // The button that opened the sheet went with the split, so the line's Edit takes the focus.
+    await expect(cartLines(page).first().getByRole('button', { name: 'Edit' })).toBeFocused();
 
     await cartLines(page).first().getByRole('button', { name: 'Customize 1' }).click();
     await expect(
@@ -303,6 +256,7 @@ test.describe('with the sample menu loaded', () => {
     await expect(details(cartLines(page).nth(0))).toHaveCount(0);
     await expect(quantity(cartLines(page).nth(1))).toHaveText('1');
     await expect(details(cartLines(page).nth(1))).toHaveText(['NO OLIVES']);
+    await expect(cartLines(page).nth(1).getByRole('button', { name: 'Edit' })).toBeFocused();
     await expect(cartLines(page).nth(1).getByRole('button', { name: 'Customize 1' })).toHaveCount(
       0,
     );
@@ -322,6 +276,39 @@ test.describe('with the sample menu loaded', () => {
     await expect(cartLines(page)).toHaveCount(1);
     await expect(quantity(cartLines(page).first())).toHaveText('2');
     await expect(details(cartLines(page).first())).toHaveCount(0);
+    await expect(cartLines(page).first().getByRole('button', { name: 'Edit' })).toBeFocused();
+  });
+
+  test('leaving the POS with a "Customize 1" sheet open puts the line back', async ({ page }) => {
+    // The cart outlives the POS page only across navigation inside the app.
+    await page.getByRole('link', { name: 'Orders', exact: true }).click();
+    await page.waitForURL(/\/orders/);
+    await page.getByRole('link', { name: 'POS', exact: true }).click();
+    await expect(page.getByTestId('pizza-category-blocks')).toBeVisible();
+
+    const large = tile(page, 'Garden').getByRole('button', { name: /Large/ });
+    await large.click();
+    await large.click();
+    await cartLines(page).first().getByRole('button', { name: 'Customize 1' }).click();
+    await expect(sheetOf(page)).toBeVisible();
+    await expect(cartLines(page)).toHaveCount(2);
+
+    await page.goBack();
+    await page.waitForURL(/\/orders/);
+    await expect(page.getByTestId('pos-product-grid')).toHaveCount(0);
+    await page.getByRole('link', { name: 'POS', exact: true }).click();
+    await expect(page.getByTestId('pizza-category-blocks')).toBeVisible();
+    await expect(sheetOf(page)).toHaveCount(0);
+    await expect(cartLines(page)).toHaveCount(1);
+    await expect(quantity(cartLines(page).first())).toHaveText('2');
+  });
+
+  test('a deal cannot be added until its screen exists', async ({ page }) => {
+    await page.getByTestId('pizza-category-blocks').getByRole('button', { name: 'Deals' }).click();
+    await page.getByTestId('pos-product-card').filter({ hasText: A_DEAL }).click();
+    await expect(page.getByText('Deals cannot be added from this screen yet.')).toBeVisible();
+    await expect(cartLines(page)).toHaveCount(0);
+    await expect(sheetOf(page)).toHaveCount(0);
   });
 
   test('an order paid in cash stores each recipe the sheet built', async ({ page }) => {
