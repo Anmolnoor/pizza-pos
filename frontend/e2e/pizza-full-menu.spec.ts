@@ -14,6 +14,10 @@ import { E2E_BASE_URL as BASE } from './helpers/urls';
  * The pizza screens with a full-size menu: 26 pizzas and 8 deals, grown from
  * the made-up sample here. Every spec shares one database, so this one loads
  * the menu itself, cancels the order it places and clears the menu when it ends.
+ *
+ * How many tiles fit depends on the rows of category blocks above them, four
+ * blocks to a row. So the page is given the shop's categories as a shop with
+ * only its menu has them, whatever other specs left in the database.
  */
 
 const VIEW = { width: 1180, height: 820 };
@@ -68,7 +72,23 @@ test.afterAll(async () => {
   }
 });
 
+const MENU_CATEGORIES = ['cat-pizzas', 'cat-sides', 'cat-drinks', 'cat-deals'];
+/** Categories a shop made besides its menu, added to the answer after the menu's four. */
+let otherCategories: { id: string; name: string }[] = [];
+
 test.beforeEach(async ({ page }) => {
+  await page.route(
+    (url) => url.pathname === '/api/categories',
+    async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      const menu = body.categories.filter((entry: { id: string }) =>
+        MENU_CATEGORIES.includes(entry.id),
+      );
+      const others = otherCategories.map((entry) => ({ ...menu[0], ...entry, children: [] }));
+      await route.fulfill({ response, json: { ...body, categories: [...menu, ...others] } });
+    },
+  );
   await loginWithPassword(page, 'owner@flo.local');
   await setLanguage(page, 'en');
   await page.goto(`${BASE}/pos`);
@@ -90,18 +110,21 @@ const measured = (name: string, value: number) => {
 const halfTile = (page: Page): Locator => page.getByTestId('pizza-half-tile');
 const dealTiles = (page: Page): Locator => page.getByTestId('pos-product-card');
 
-/** How many of these lie wholly inside the viewport. */
+/** How many of these lie wholly inside the viewport and inside every scrolling box around them. */
 const whollyVisible = (tiles: Locator): Promise<number> =>
   tiles.evaluateAll(
     (elements) =>
       elements.filter((element) => {
         const box = element.getBoundingClientRect();
-        return (
-          box.top >= 0 &&
-          box.left >= 0 &&
-          box.bottom <= window.innerHeight &&
-          box.right <= window.innerWidth
-        );
+        const inside = (frame: { top: number; left: number; bottom: number; right: number }) =>
+          box.top >= frame.top &&
+          box.left >= frame.left &&
+          box.bottom <= frame.bottom &&
+          box.right <= frame.right;
+        const frames = [{ top: 0, left: 0, bottom: window.innerHeight, right: window.innerWidth }];
+        for (let up = element.parentElement; up; up = up.parentElement)
+          if (getComputedStyle(up).overflowY !== 'visible') frames.push(up.getBoundingClientRect());
+        return frames.every(inside);
       }).length,
   );
 
@@ -210,7 +233,33 @@ test('the pizza list is at most about two screens', async ({ page }) => {
     .evaluate((element) => ({ content: element.scrollHeight, room: element.clientHeight }));
   measured('pizza list height', content);
   measured('pizza list room', room);
-  expect(content / room).toBeLessThanOrEqual(2.1);
+  // Nine rows of three tiles under the Half & Half row, each row about 100 px.
+  expect(content, 'the list is as long as nine rows of tiles').toBeLessThanOrEqual(1000);
+  expect(content / room, 'screens of list, for a shop with only its menu').toBeLessThanOrEqual(2.1);
+});
+
+test.describe('a shop with two more categories than its menu', () => {
+  test.beforeAll(() => {
+    otherCategories = [
+      { id: 'sample-extra-1', name: 'Sample Extras' },
+      { id: 'sample-extra-2', name: 'Sample Desserts' },
+    ];
+  });
+  test.afterAll(() => {
+    otherCategories = [];
+  });
+
+  test('a third row of category blocks leaves nine pizzas on a screen', async ({ page }) => {
+    await expect(page.getByTestId('pizza-category-blocks').getByRole('button')).toHaveCount(9);
+    const visible = await whollyVisible(page.getByTestId('pizza-tile'));
+    measured('pizza tiles wholly visible with nine category blocks', visible);
+    expect(visible).toBe(9);
+    expect(await whollyVisible(halfTile(page))).toBe(1);
+    const room = await page
+      .getByTestId('pos-catalog-scroll')
+      .evaluate((element) => element.clientHeight);
+    measured('pizza list room with nine category blocks', room);
+  });
 });
 
 test('a long name is shown whole, on two lines at most', async ({ page }) => {

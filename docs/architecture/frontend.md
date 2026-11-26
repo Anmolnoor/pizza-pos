@@ -671,7 +671,10 @@ twelve pizzas show without scrolling, that the list is about two screens long, t
 shows whole on two lines, that with both halves chosen in the sheet and on a deal's pizza tab the
 ingredient chips of both are on screen and Change brings the list back, that the Deals category
 shows all eight deals with their descriptions, and that the kitchen display's lines for a deal end
-with `INCLUDES:`.
+with `INCLUDES:`. How many tiles fit depends on the rows of category blocks above them, four blocks
+to a row, so the spec answers the page's category request with the menu's four categories only,
+which with All, Dips and Quick Buttons make two rows. One case adds two more categories: the ninth
+block starts a third row, and nine pizzas show without scrolling.
 
 ### Quick buttons
 
