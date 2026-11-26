@@ -6,6 +6,7 @@ import { useTranslations } from 'use-intl';
 import { customizeOne, replaceCartLine, sheetAddons } from '@/lib/pizza/cart-lines';
 import { holdPizzaCatalog } from '@/lib/pizza/catalog';
 import { PIZZA_PRODUCT_PREFIX } from '@/lib/pizza/line-recipe';
+import { standardPrices } from '@/lib/pizza/pizza-home';
 import { newSheet, sheetReducer, type SheetLine, type SheetState } from '@/lib/pizza/sheet-state';
 import { chargedAddons } from '@/lib/pizza/toppings';
 import type { CartItem, Category, Product } from '@/lib/types';
@@ -19,7 +20,7 @@ import { SmallItemBlocks, useSmallItems, type SmallItemsPos } from './SmallItems
 import { usePizzaCatalog, usePizzaMenuRefresh } from './usePizzaCatalog';
 import { PizzaDealDialog, usePizzaDeal } from './usePizzaDeal';
 import { QuickButtonsArea } from './QuickButtons';
-import { useQuickButtonSheet } from './useQuickButtons';
+import { useOnlineOrder, useQuickButtonSheet } from './useQuickButtons';
 
 const HALF_AND_HALF = `${PIZZA_PRODUCT_PREFIX}half-and-half`;
 const PIZZAS_CATEGORY = 'cat-pizzas';
@@ -80,6 +81,7 @@ export function usePizzaPos(
   const quick = useQuickButtonSheet();
   const small = useSmallItems(catalog, products);
   const sentLineOpen = useSentLineOpen();
+  const online = useOnlineOrder();
   const [session, setSession] = useState<Session | null>(null);
   usePizzaMenuRefresh(
     Boolean(session || deal.session || quick.dialogOpen || sentLineOpen),
@@ -134,6 +136,7 @@ export function usePizzaPos(
   const menuPizza = (product: Product) =>
     catalog.pizzas.find((pizza) => PIZZA_PRODUCT_PREFIX + pizza.id === product.id);
   const sizeOf = (product: Product, variantId: string) => variantId.slice(product.id.length + 1);
+  const standard = standardPrices(products.filter(menuPizza), online);
 
   const save = (line: SheetLine, state: SheetState, asButton = false) => {
     const product = products.find((entry) => entry.id === line.productId);
@@ -213,6 +216,7 @@ export function usePizzaPos(
           <HalfAndHalfTile
             key={product.id}
             product={product}
+            standard={standard}
             inCart={inCart}
             disabled={disabled}
             fmt={fmt}
@@ -228,6 +232,7 @@ export function usePizzaPos(
           key={product.id}
           product={product}
           number={pizza.number}
+          standard={standard}
           inCart={inCart}
           disabled={disabled}
           fmt={fmt}

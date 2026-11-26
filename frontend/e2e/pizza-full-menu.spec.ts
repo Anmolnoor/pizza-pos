@@ -15,9 +15,9 @@ import { E2E_BASE_URL as BASE } from './helpers/urls';
  * the made-up sample here. Every spec shares one database, so this one loads
  * the menu itself, cancels the order it places and clears the menu when it ends.
  *
- * How many tiles fit depends on the rows of category blocks above them, four
- * blocks to a row. So the page is given the shop's categories as a shop with
- * only its menu has them, whatever other specs left in the database.
+ * How many tiles fit depends on the rows of category blocks above them, which
+ * wrap as their names need. So the page is given the shop's categories as a
+ * shop with only its menu has them, whatever other specs left in the database.
  */
 
 const VIEW = { width: 1180, height: 820 };
@@ -293,11 +293,11 @@ test.describe('a shop with two more categories than its menu', () => {
     otherCategories = [];
   });
 
-  test('a third row of category blocks leaves nine pizzas on a screen', async ({ page }) => {
+  test('nine category blocks still leave nine pizzas on a screen', async ({ page }) => {
     await expect(page.getByTestId('pizza-category-blocks').getByRole('button')).toHaveCount(9);
     const visible = await whollyVisible(page.getByTestId('pizza-tile'));
     measured('pizza tiles wholly visible with nine category blocks', visible);
-    expect(visible).toBe(9);
+    expect(visible).toBeGreaterThanOrEqual(9);
     expect(await whollyVisible(halfTile(page))).toBe(1);
     const room = await page
       .getByTestId('pos-catalog-scroll')
