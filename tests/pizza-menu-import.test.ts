@@ -565,14 +565,27 @@ async function main() {
         },
       ];
       const before = dump();
-      let message = '';
-      try {
-        load(menu);
-      } catch (error: any) {
-        message = error.message;
-      }
+      const refusal = (run: () => unknown): string => {
+        try {
+          run();
+        } catch (error: any) {
+          return error.message;
+        }
+        return '';
+      };
       assertEqualOrThrow(
-        message,
+        refusal(() => load(menu)),
+        'menu: pizza "a" in size "b-c" and pizza "a-b" in size "c" would both get the id "pz-a-b-c"; change one of those ids',
+        'the parser refuses pizza a at size b-c beside pizza a-b at size c',
+      );
+      // A catalogue that reaches the import some other way is refused there too.
+      const catalog = parseMenuFile({
+        ...menu,
+        categories: [{ ...menu.categories[0], items: [menu.categories[0].items[0]] }],
+      });
+      catalog.pizzas.push({ ...catalog.pizzas[0], id: 'a-b' });
+      assertEqualOrThrow(
+        refusal(() => importMenu(getDatabase(), catalog)),
         'menu: two entries map to product_variants id "pz-a-b-c"',
         'pizza a at size b-c and pizza a-b at size c cannot both be pz-a-b-c',
       );
@@ -609,6 +622,24 @@ async function main() {
         'the hand-made product is all that is left in Deals',
       );
       same(lines('categories', 'id', 'is_active = 0'), [], 'so Deals stays on');
+
+      // The file is loaded again while the product is still there, so the load before the
+      // product goes is one that no longer wrote Deals.
+      assertEqualOrThrow(load(menu).deactivated, 0, 'a second load of that file changes nothing');
+      db.prepare("UPDATE products SET is_active = 0 WHERE id = 'byhand'").run();
+      assertEqualOrThrow(
+        load(menu).deactivated,
+        1,
+        'once the hand-made product is off, the next load switches Deals off',
+      );
+      same(lines('categories', 'id', 'is_active = 0'), ['cat-deals'], 'and only Deals');
+      db.prepare("UPDATE products SET is_active = 1 WHERE id = 'byhand'").run();
+      db.prepare("UPDATE categories SET is_active = 1 WHERE id = 'cat-deals'").run();
+      assertEqualOrThrow(
+        load(menu).deactivated,
+        0,
+        'switched on again by hand with its product, Deals stays on',
+      );
 
       db.prepare("DELETE FROM products WHERE id = 'byhand'").run();
       load(sampleMenu());
@@ -741,6 +772,92 @@ async function main() {
         'menu: addons id "ad-dips-m-o" is already used under "ag-dips", so it cannot go under "ag-dips-m"',
         'option o of side dips, modifier m, may not take over the dip m-o',
       );
+    });
+
+    await testCase('14b. Every kind of derived id stays with the entry it was made for', () => {
+      const sideWith = (id: string, modifierId: string, optionId: string) => ({
+        id,
+        name: 'Side',
+        price: 1,
+        modifiers: [
+          {
+            id: modifierId,
+            label: 'Kind',
+            required: true,
+            options: [{ id: optionId, label: 'One' }],
+          },
+        ],
+      });
+      const menuOf = (sides: unknown[], drinkId: string, variantId: string) => ({
+        ...sampleMenu(),
+        categories: [
+          sampleMenu().categories[0],
+          { id: 'sides', name: 'Sides', items: sides },
+          {
+            id: 'drinks',
+            name: 'Drinks',
+            variants: [{ id: variantId, label: 'Only', price: 1 }],
+            items: [{ id: drinkId, name: 'Only' }],
+          },
+        ],
+      });
+      const refusal = (menu: unknown): string => {
+        const before = dump();
+        let message = '';
+        try {
+          load(menu);
+        } catch (error: any) {
+          message = error.message;
+        }
+        assertEqualOrThrow(dump(), before, 'a refused menu writes nothing');
+        return message;
+      };
+      const plain = { id: 'q', name: 'Plain side', price: 1 };
+
+      // Side q with modifier b-c is the group ag-q-b-c with the choice ad-q-b-c-x; drink q in
+      // variant b-c is dr-q-b-c.
+      load(menuOf([sideWith('q', 'b-c', 'x')], 'q', 'b-c'));
+      assertEqualOrThrow(
+        refusal(menuOf([plain, sideWith('q-b', 'c', 'x')], 'q', 'b-c')),
+        'menu: addon_groups id "ag-q-b-c" is already used under "sd-q", so it cannot go under "sd-q-b"',
+        'side q-b with modifier c may not take over the group of side q',
+      );
+      assertEqualOrThrow(
+        refusal(menuOf([sideWith('q-b', 'c', 'x')], 'q', 'b-c')),
+        'menu: addon_groups id "ag-q-b-c" is already used under "sd-q", so it cannot go under "sd-q-b"',
+        'nor when side q has left the menu',
+      );
+      assertEqualOrThrow(
+        refusal(menuOf([sideWith('q', 'b', 'c-x')], 'q', 'b-c')),
+        'menu: addons id "ad-q-b-c-x" is already used under "ag-q-b-c", so it cannot go under "ag-q-b"',
+        'option c-x of modifier b may not take over option x of modifier b-c',
+      );
+      assertEqualOrThrow(
+        refusal(menuOf([sideWith('q', 'b-c', 'x')], 'q-b', 'c')),
+        'menu: product_variants id "dr-q-b-c" is already used under "dr-q", so it cannot go under "dr-q-b"',
+        'drink q-b in variant c may not take over the variant of drink q',
+      );
+      same(
+        lines('addon_group_product', 'product_id, addon_group_id', "addon_group_id = 'ag-q-b-c'"),
+        ['sd-q|ag-q-b-c'],
+        'the group is still required by its own side alone',
+      );
+      // A link the owner made by hand to another product is not a reason to refuse.
+      getDatabase()
+        .prepare(
+          "INSERT INTO addon_group_product (product_id, addon_group_id) VALUES ('sd-wings', 'ag-q-b-c')",
+        )
+        .run();
+      assertEqualOrThrow(
+        refusal(menuOf([sideWith('q', 'b-c', 'x')], 'q', 'b-c')),
+        '',
+        'the same menu loads again with a hand-made link in place',
+      );
+      getDatabase()
+        .prepare(
+          "DELETE FROM addon_group_product WHERE product_id = 'sd-wings' AND addon_group_id = 'ag-q-b-c'",
+        )
+        .run();
     });
 
     await testCase('16. A row no load made is never taken over', async () => {

@@ -316,6 +316,22 @@ function writeRow(
     );
   if (stored && Object.entries(values).every(([column, value]) => stored[column] === value))
     return 'unchanged';
+  // A side's group has no parent column: the side that first derived it is the one linked to it.
+  const otherSide =
+    table === 'addon_group_product' &&
+    (db
+      .prepare(
+        `SELECT product_id FROM addon_group_product
+         WHERE addon_group_id = @addon_group_id AND product_id <> @product_id
+           AND product_id LIKE 'sd-%'
+           AND substr(@addon_group_id, 1, length(product_id) + 1) = 'ag-' || substr(product_id, 4) || '-'`,
+      )
+      .get(key) as { product_id: string } | undefined);
+  if (otherSide)
+    throw new MenuError(
+      'menu',
+      `addon_groups id "${key.addon_group_id}" is already used under "${otherSide.product_id}", so it cannot go under "${key.product_id}"`,
+    );
 
   const written: Record<string, Value> = { ...values };
   for (const column of stampColumns(table, !stored)) written[column] = stamp;
@@ -364,7 +380,9 @@ export function importMenu(db: Database.Database, catalog: PizzaCatalog): Import
   });
   // Categories last: one is judged after the menu's own products in it are switched off.
   const isCategory = (entry: string): number => Number(entry.startsWith('categories:'));
-  const gone = previous
+  // A category is judged again by every load: one kept on for a hand-made product is switched
+  // off by the load after that product goes, however many loads lie between.
+  const gone = [...new Set([...previous, ...ownedBefore.filter(isCategory)])]
     .filter((entry) => ownedBefore.includes(entry) && !owned.includes(entry))
     .sort((a, b) => isCategory(a) - isCategory(b));
   const summary: ImportSummary = {
