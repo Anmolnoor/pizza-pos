@@ -415,6 +415,80 @@ test.describe('a sent pizza and a sent deal', () => {
     expect(stored.total).toBe(order.total);
   });
 
+  test('a topping added to a sent half and half and to a sent deal is charged on the line', async ({
+    page,
+  }) => {
+    /** The line as the server stores it, with its add-ons. */
+    const storedLine = async (orderId: number, productId: string) => {
+      const read = await api.get(`${BASE}/api/orders/${orderId}`, { headers: ownerHeaders });
+      const { order: stored } = await read.json();
+      return stored.items.find(
+        (item: { product_id: string; status: string }) =>
+          item.product_id === productId && item.status === 'pending',
+      );
+    };
+    const charged = (item: { addons: { id: string; price: number; quantity: number }[] }) =>
+      item.addons.map((addon) => [addon.id, addon.quantity]);
+    const priceOf = (item: { addons: { id: string; price: number }[] }, id: string) =>
+      Number(item.addons.find((addon) => addon.id === id)!.price);
+
+    const order = await placeOrder();
+    await signIn(page);
+    const cart = await reopenInPos(page, order);
+    await sentLines(cart).first().getByRole('button', { name: 'Change pizza' }).click();
+    const sheet = page.getByRole('dialog', { name: 'Pizza' });
+    const second = sheet.getByRole('group', { name: '2nd half' });
+    await second.getByRole('button', { name: 'Add a topping' }).click();
+    await second
+      .getByRole('group', { name: 'Toppings' })
+      .getByRole('button', { name: 'Bacon' })
+      .click();
+    await expect(sheet.getByTestId('pizza-topping-price')).toHaveText([/^1 half topping/]);
+    await sheet.getByRole('button', { name: /^Save/ }).click();
+    await expect(sheet).toBeHidden();
+    await expect(detailsOf(sentLines(cart).filter({ hasText: '1ST: GARDEN' }))).toHaveText([
+      '1ST: GARDEN',
+      '  NO OLIVES',
+      '2ND: CLASSIC PEPPERONI',
+      '  ADD BACON',
+    ]);
+    const half = await storedLine(order.id, 'pz-half-and-half');
+    expect(recipeOf(half)).toEqual({
+      ...HALVES,
+      halves: [HALVES.halves[0], { pizzaId: 'classic', removed: [], added: ['bacon'] }],
+    });
+    expect(charged(half)).toEqual([['ad-topping-half', 1]]);
+    expect(Number(half.unit_price)).toBe(LARGE);
+    expect(Number(half.subtotal).toFixed(2)).toBe(
+      (LARGE + priceOf(half, 'ad-topping-half')).toFixed(2),
+    );
+
+    await sentLines(cart)
+      .filter({ hasText: 'POP: 2 COLA' })
+      .getByRole('button', { name: 'Change deal' })
+      .click();
+    const dialog = page.getByRole('dialog', { name: COMBO.name as string });
+    const panel = dialog.getByRole('tabpanel');
+    await panel.getByRole('button', { name: 'Olives', exact: true }).click();
+    await panel.getByRole('button', { name: 'NO Olives' }).click();
+    await expect(panel.getByRole('button', { name: /^EXTRA Olives/ })).toBeVisible();
+    await expect(dialog.getByTestId('pizza-topping-price')).toHaveText([/^1 topping/]);
+    await dialog.getByRole('button', { name: /^Save/ }).click();
+    await expect(dialog).toBeHidden();
+    await expect(detailsOf(sentLines(cart).filter({ hasText: 'POP: 2 COLA' }))).toHaveText([
+      '1) LARGE GARDEN',
+      '   EXTRA OLIVES',
+      'POP: 2 COLA',
+      ...COMBO_INCLUDES,
+    ]);
+    const deal = await storedLine(order.id, 'dl-large-combo');
+    expect(charged(deal)).toEqual([['ad-topping', 1]]);
+    expect(Number(deal.unit_price)).toBe(COMBO.price);
+    expect(Number(deal.subtotal).toFixed(2)).toBe(
+      ((COMBO.price as number) + priceOf(deal, 'ad-topping')).toFixed(2),
+    );
+  });
+
   test('a sent pizza is changed from the Orders page too', async ({ page }) => {
     const order = await placeOrder();
     await signIn(page);
