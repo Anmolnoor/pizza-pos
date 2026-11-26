@@ -39,52 +39,31 @@ function privateBackupDir(dataDir) {
 /** The backup timer's schedule and its period; the health check allows one period between backups. */
 const BACKUP_TIMER = { onCalendar: 'daily', periodHours: 24 };
 
-function hasDied(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return false;
-  } catch (error) {
-    return error.code === 'ESRCH';
-  }
-}
+let heldLock;
 
 /**
- * Lets one backup or restore at a time work on a data folder, across processes: a lock file made
- * with the exclusive flag, holding the process id, removed when the process exits. A lock whose
- * process has died, or that was made before the last boot, is taken over.
+ * The kernel's lock on a small SQLite file in the data folder, held until this process ends
+ * however it ends. The service and a backup hold it shared, so they run side by side; a restore
+ * holds it exclusive, so it runs alone and the service cannot open the database meanwhile. A
+ * command that cannot have it stops at once.
  */
-function maintenanceLock(dataDir) {
-  const lockPath = path.join(dataDir, '.headless-maintenance.lock');
-  const busy = (holder) =>
-    new Error(
-      `Another backup or restore (process ${holder}) is working on ${dataDir}. Wait for it to finish. If none is running, delete ${lockPath} and ${lockPath}.stale`,
-    );
-  const take = () => fs.writeFileSync(lockPath, String(process.pid), { flag: 'wx' });
+function dataLock(dataDir, mode) {
+  const Database = require('better-sqlite3');
+  const lock = new Database(path.join(dataDir, 'headless-lock.db'), { timeout: 0 });
   try {
-    take();
+    if (mode === 'exclusive') lock.exec('BEGIN EXCLUSIVE');
+    else lock.exec('BEGIN; SELECT count(*) FROM sqlite_master');
   } catch (error) {
-    if (error.code !== 'EEXIST') throw error;
-    let holder = 'unknown';
-    try {
-      holder = fs.readFileSync(lockPath, 'utf8');
-      const beforeBoot = fs.statSync(lockPath).mtimeMs < Date.now() - os.uptime() * 1000;
-      if (!beforeBoot && !hasDied(Number(holder))) throw busy(holder);
-      // Only one process can make the link, and it removes only the lock it judged stale.
-      const claim = `${lockPath}.stale`;
-      fs.linkSync(lockPath, claim);
-      try {
-        if (fs.readFileSync(claim, 'utf8') !== holder) throw busy('unknown');
-        fs.unlinkSync(lockPath);
-        take();
-      } finally {
-        fs.rmSync(claim, { force: true });
-      }
-    } catch (raced) {
-      throw raced.code === 'EEXIST' || raced.code === 'ENOENT' ? busy(holder) : raced;
-    }
+    lock.close();
+    if (error.code !== 'SQLITE_BUSY') throw error;
+    throw new Error(
+      mode === 'exclusive'
+        ? `${dataDir} is in use by the POS, a backup or another restore. Stop the POS first (systemctl --user stop pizza-pos.service), let a backup finish, then try again`
+        : `A restore is replacing the database in ${dataDir}. Try again when it has finished`,
+    );
   }
-  process.on('exit', () => fs.rmSync(lockPath, { force: true }));
+  // Kept for the life of the process: a connection that is collected gives the lock up.
+  heldLock = lock;
 }
 
 function timestamp() {
@@ -161,6 +140,25 @@ async function onlineCopy(sourcePath, targetPath) {
   fsync(targetPath);
 }
 
+/** One checked backup of the live database in the backup folder; returns its path. */
+async function takeBackup(dataDir) {
+  const dir = privateBackupDir(dataDir);
+  const finalPath = path.join(dir, `pizza-pos-${timestamp()}.db`);
+  const partialPath = path.join(dir, `.${path.basename(finalPath)}.partial`);
+  try {
+    await onlineCopy(path.join(dataDir, 'flo.db'), partialPath);
+    if (!appModule('main/db').isHealthyDatabaseFile(partialPath)) {
+      throw new Error('The copy failed the app health check (integrity, foreign keys or schema)');
+    }
+    if (fs.existsSync(finalPath)) throw new Error(`Refusing to overwrite ${finalPath}`);
+    fs.renameSync(partialPath, finalPath);
+    fsync(dir);
+  } finally {
+    fs.rmSync(partialPath, { force: true });
+  }
+  return finalPath;
+}
+
 function main(run) {
   run().then(
     () => process.exit(0),
@@ -176,7 +174,8 @@ module.exports = {
   config,
   BACKUP_NAME,
   BACKUP_TIMER,
-  maintenanceLock,
+  dataLock,
+  takeBackup,
   backupDir,
   privateBackupDir,
   timestamp,

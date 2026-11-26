@@ -47,8 +47,8 @@ void runCases('Pizza headless kit: unit files', [
       assertIncludesOrThrow(service, `EnvironmentFile=${envFile}\n`, 'service: environment file');
       assertIncludesOrThrow(
         service,
-        `ExecStart=${node} ${path.join(repoRoot, 'dev-server.js')}\n`,
-        'service: absolute Node runs dev-server.js',
+        `ExecStart=${node} ${path.join(kitDir, 'serve.cjs')}\n`,
+        'service: absolute Node runs the launcher that holds the data folder lock',
       );
       assertIncludesOrThrow(
         service,

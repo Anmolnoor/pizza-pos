@@ -41,15 +41,21 @@ function checkBackups(dataDir) {
     .map((name) => ({ name, mtime: fs.statSync(path.join(dir, name)).mtimeMs }))
     .sort((a, b) => b.mtime - a.mtime)[0];
   const limit = `(limit ${MAX_BACKUP_AGE_HOURS} h)`;
-  const found = newest
-    ? `newest ${newest.name} is ${hoursSince(newest.mtime).toFixed(1)} h old`
-    : `no pizza-pos-*.db backup in ${dir}`;
-  if (newest && hoursSince(newest.mtime) <= MAX_BACKUP_AGE_HOURS) {
+  // A date ahead of the clock is no proof of a recent backup: after a clock rollback it hides one
+  // that is missing.
+  const recent = (hours) => hours >= 0 && hours <= MAX_BACKUP_AGE_HOURS;
+  const age = newest ? hoursSince(newest.mtime) : Infinity;
+  const found = !newest
+    ? `no pizza-pos-*.db backup in ${dir}`
+    : age < 0
+      ? `newest ${newest.name} is dated in the future, by ${(-age).toFixed(1)} h`
+      : `newest ${newest.name} is ${age.toFixed(1)} h old`;
+  if (recent(age)) {
     console.log(`ok   backups: ${found} ${limit}`);
     return true;
   }
   const storeAge = storeAgeHours(dataDir);
-  if (storeAge <= MAX_BACKUP_AGE_HOURS) {
+  if (recent(storeAge)) {
     console.log(
       `ok   backups: ${found}; the store is ${storeAge.toFixed(1)} h old, so its first daily backup is not due ${limit}`,
     );

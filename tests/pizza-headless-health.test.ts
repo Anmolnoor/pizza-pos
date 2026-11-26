@@ -23,10 +23,10 @@ import {
 } from './helpers/headless';
 
 /** Makes the store look as if it was set up long ago: its settings carry an old date. */
-function ageStore(env: HeadlessEnv) {
+function ageStore(env: HeadlessEnv, date = '2000-01-01 00:00:00') {
   const db = new Database(liveDbPath(env), { timeout: 5000 });
   try {
-    db.prepare("UPDATE settings SET updated_at = '2000-01-01 00:00:00'").run();
+    db.prepare('UPDATE settings SET updated_at = ?').run(date);
   } finally {
     db.close();
   }
@@ -119,6 +119,33 @@ void runCases('Pizza headless kit: fixed-port health check', [
           0,
           `health passes once a backup exists: ${backed.output}`,
         );
+      } finally {
+        await server.stop();
+      }
+    },
+  ],
+  [
+    'a backup or a store dated in the future does not count as recent',
+    async () => {
+      const env = await headlessEnv({ BACKUP_KEEP: '3' });
+      const server = await startHeadless(env);
+      try {
+        // After a clock rollback, what was written before it looks newer than now.
+        ageStore(env, '2999-01-01 00:00:00');
+        const futureStore = await runKit('health.cjs', [], env);
+        console.log(futureStore.output);
+        assertOrThrow(futureStore.status !== 0, 'a store dated in the future is not a new store');
+        assertIncludesOrThrow(futureStore.stderr, 'FAIL backups:', 'the backup check fails');
+
+        ageStore(env);
+        const backup = await runKit('backup.cjs', [], env);
+        assertEqualOrThrow(backup.status, 0, `backup exits 0: ${backup.output}`);
+        const ahead = new Date(Date.now() + 3 * 3600 * 1000);
+        fs.utimesSync(backup.stdout.trim().split('\n').pop()!, ahead, ahead);
+        const futureBackup = await runKit('health.cjs', [], env);
+        console.log(futureBackup.output);
+        assertOrThrow(futureBackup.status !== 0, 'a backup dated in the future is not recent');
+        assertIncludesOrThrow(futureBackup.stderr, 'dated in the future', 'and the line says so');
       } finally {
         await server.stop();
       }
