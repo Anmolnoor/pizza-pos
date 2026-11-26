@@ -145,8 +145,9 @@ export function tileCount(items: CartItem[], item: SmallItemTile): number {
 }
 
 /**
- * True when the product grid's dialog would refuse one more: a size with none
- * left, or a tracked dip the order already holds all of.
+ * True when a tap must not add one more: a size with none left, or a tracked
+ * dip the whole order already holds all of. The product grid's dialog counts a
+ * dip against one line only, so this is the stricter of the two.
  */
 export function tileSoldOut(item: SmallItemTile, inOrder: number): boolean {
   if (item.variant && isVariantSoldOut(item.variant)) return true;
@@ -167,4 +168,26 @@ export function touchedLine(before: CartItem[], after: CartItem[]): string | nul
 /** True when the pizza line `lineId` hides its action row: the order is long and it was not the last touched. */
 export function foldsActions(items: CartItem[], touched: string | null, lineId: string): boolean {
   return items.length > UNFOLDED_LINES && lineId !== touched;
+}
+
+/**
+ * The category whose block opens the popup in place of its own products: the
+ * drinks' category, and only while every product sold in it is on a tile in
+ * every size it has. Otherwise something would be out of reach behind the
+ * popup, so the block stays a plain category. The dip's category keeps its
+ * block either way; the Dips block is an extra one.
+ */
+export function popupCategory(rows: SmallItemRow[], products: Product[]): string | null {
+  const tiles = rows.filter((entry) => entry.kind === 'drinks').flatMap((entry) => entry.tiles);
+  const categoryId = tiles[0]?.product.category_id ?? null;
+  if (categoryId === null) return null;
+  const onTile = (product: Product, variant: ProductVariant) =>
+    tiles.some((entry) => entry.product.id === product.id && entry.variant?.id === variant.id);
+  const covered = products
+    .filter((product) => product.category_id === categoryId && product.is_active !== false)
+    .every((product) => {
+      const sizes = activeVariants(product.variants);
+      return sizes.length > 0 && sizes.every((size) => onTile(product, size));
+    });
+  return covered ? categoryId : null;
 }

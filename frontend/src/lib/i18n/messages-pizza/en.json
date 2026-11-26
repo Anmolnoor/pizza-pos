@@ -125,6 +125,7 @@
   "sizeOf": "{pizza}, {size}, {price}",
   "smallItemsHint": "Tap a tile to add one. It goes straight into the order.",
   "smallItemsTitle": "Dips & drinks",
+  "soldOut": "Sold out",
   "wholeOrHalf": "Whole or half and half",
   "wholePizza": "Whole pizza"
 }

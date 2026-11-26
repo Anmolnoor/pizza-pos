@@ -5,7 +5,6 @@ import {
   useEffect,
   useId,
   useMemo,
-  useRef,
   useState,
   type MouseEvent,
   type ReactNode,
@@ -17,6 +16,7 @@ import { create } from 'zustand';
 import { useFormatCurrency } from '@/hooks/useFormatCurrency';
 import {
   foldsActions,
+  popupCategory,
   smallItemRows,
   tileAdd,
   tileCount,
@@ -41,6 +41,8 @@ const PRODUCT_AREA = '[data-testid="pos-product-grid"]';
 interface SmallItemsState {
   /** The popup's rows, worked out where the POS page's product list is. */
   rows: SmallItemRow[];
+  /** The category whose block opens the popup, besides the Dips block; null when none does. */
+  opens: string | null;
   /** The cart line a tile just added to, until the order changes again. */
   added: string | null;
   /** The cart line last added or changed: its action row stays unfolded. */
@@ -49,6 +51,7 @@ interface SmallItemsState {
 
 const useSmallItemsStore = create<SmallItemsState>(() => ({
   rows: [],
+  opens: null,
   added: null,
   touched: null,
 }));
@@ -84,7 +87,10 @@ export function useSmallItems(catalog: PizzaCatalog | null, products: Product[])
   const t = useTranslations('pizza');
   const added = useSmallItemsStore((state) => state.added);
   const rows = useMemo(() => smallItemRows(catalog, products), [catalog, products]);
-  useEffect(() => useSmallItemsStore.setState({ rows }), [rows]);
+  useEffect(
+    () => useSmallItemsStore.setState({ rows, opens: popupCategory(rows, products) }),
+    [rows, products],
+  );
   return {
     lineClass: (item) => cn(LINE, item.id === added && ADDED_LINE),
     lineMark: (item) =>
@@ -138,19 +144,12 @@ export function PizzaLineFold({ item }: { item: CartItem }) {
   );
 }
 
-function Tile({
-  tile,
-  autoFocus,
-  fmt,
-}: {
-  tile: SmallItemTile;
-  autoFocus: boolean;
-  fmt: (amount: number) => string;
-}) {
+function Tile({ tile, fmt }: { tile: SmallItemTile; fmt: (amount: number) => string }) {
   const t = useTranslations('pizza');
   const items = useCartStore((cart) => cart.items);
   const justAdded = useSmallItemsStore((state) => state.added === tile.lineId);
   const count = tileCount(items, tile);
+  const soldOut = tileSoldOut(tile, count);
 
   const add = () => {
     useCartStore.getState().addItem(...tileAdd(tile));
@@ -187,8 +186,7 @@ function Tile({
       )}
       <button
         type="button"
-        autoFocus={autoFocus}
-        disabled={tileSoldOut(tile, count)}
+        disabled={soldOut}
         onClick={add}
         className={cn(
           'flex min-w-12 flex-1 flex-col justify-center rounded-xl px-3 text-start hover:bg-muted/60 active:bg-muted disabled:cursor-not-allowed disabled:opacity-50',
@@ -197,7 +195,13 @@ function Tile({
       >
         <span className="text-base font-bold leading-tight text-foreground">{tile.name}</span>
         <span className="text-sm tabular-nums text-muted-foreground">
-          {justAdded ? t('justAdded') : count > 0 ? t('inOrder', { count }) : fmt(tile.price)}
+          {soldOut
+            ? t('soldOut')
+            : justAdded
+              ? t('justAdded')
+              : count > 0
+                ? t('inOrder', { count })
+                : fmt(tile.price)}
         </span>
       </button>
       {count > 0 && (
@@ -216,21 +220,14 @@ function Tile({
  * The sheet over the lower part of the product area. It is not modal: the
  * product area behind it is dimmed and switched off, the order stays in use.
  */
-function SmallItemsPopup({
-  rows,
-  from,
-  onClose,
-}: {
-  rows: SmallItemRow[];
-  from: SmallItemRow['kind'];
-  onClose: () => void;
-}) {
+function SmallItemsPopup({ rows, onClose }: { rows: SmallItemRow[]; onClose: () => void }) {
   const t = useTranslations('pizza');
   const tCommon = useTranslations('common');
   const fmt = useFormatCurrency();
   const id = useId();
-  const sheet = useRef<HTMLDivElement>(null);
   const [area, setArea] = useState<DOMRect | null>(null);
+  // The sheet takes the focus, not a tile: a scanner's Enter must not press one.
+  const focusSheet = useCallback((node: HTMLDivElement | null) => node?.focus(), []);
 
   useEffect(() => {
     const grid = document.querySelector<HTMLElement>(PRODUCT_AREA);
@@ -240,24 +237,24 @@ function SmallItemsPopup({
     observer.observe(grid);
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
-      // Escape inside another dialog opened from the order is that dialog's.
-      const dialog = (event.target as HTMLElement | null)?.closest?.('[role="dialog"]');
-      if (dialog && dialog !== sheet.current) return;
-      event.preventDefault();
-      onClose();
+      // A window opened from the order is in front, so the POS and its dialogs take Escape
+      // first. The POS registers its listener again whenever a window opens, which puts it
+      // after this one, so the answer is read once every listener has run.
+      setTimeout(() => {
+        if (!event.defaultPrevented) onClose();
+      });
     };
-    document.addEventListener('keydown', onKey, true);
+    window.addEventListener('keydown', onKey);
     grid.inert = true;
     return () => {
       observer.disconnect();
-      document.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('keydown', onKey);
       grid.inert = false;
       opener?.focus();
     };
   }, [onClose]);
 
   if (!area) return null;
-  const first = rows.find((row) => row.kind === from)?.tiles[0];
   return createPortal(
     <>
       <div
@@ -273,11 +270,12 @@ function SmallItemsPopup({
         }}
       />
       <div
-        ref={sheet}
+        ref={focusSheet}
+        tabIndex={-1}
         role="dialog"
         aria-label={t('smallItemsTitle')}
         aria-describedby={`${id}-hint`}
-        className="fixed z-30 grid gap-3 overflow-y-auto rounded-2xl border border-border bg-card p-4 shadow-2xl"
+        className="fixed z-30 grid gap-3 overflow-y-auto rounded-2xl outline-none border border-border bg-card p-4 shadow-2xl"
         style={{
           left: area.left,
           width: area.width,
@@ -318,7 +316,7 @@ function SmallItemsPopup({
             </p>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-2">
               {row.tiles.map((tile) => (
-                <Tile key={tile.lineId} tile={tile} autoFocus={tile === first} fmt={fmt} />
+                <Tile key={tile.lineId} tile={tile} fmt={fmt} />
               ))}
             </div>
           </div>
@@ -340,7 +338,9 @@ export function SmallItemBlocks(props: Parameters<typeof PizzaCategoryBlocks>[0]
   const [opener, setOpener] = useState<string | null>(null);
   const close = useCallback(() => setOpener(null), []);
   const dips = rows.find((row) => row.kind === 'dips');
-  const drinks = rows.find((row) => row.kind === 'drinks');
+  const opens = useSmallItemsStore((state) => state.opens);
+  // Rows that went away take the popup with them for good, not until they come back.
+  if (opener !== null && rows.length === 0) setOpener(null);
 
   let categories = props.categories;
   if (dips) {
@@ -361,18 +361,12 @@ export function SmallItemBlocks(props: Parameters<typeof PizzaCategoryBlocks>[0]
         categories={categories}
         selectedCategory={open ? opener : props.selectedCategory}
         setSelectedCategory={(id) =>
-          id !== null && (id === DIPS_BLOCK || id === drinks?.categoryId)
+          id !== null && (id === DIPS_BLOCK || id === opens)
             ? setOpener(id)
             : props.setSelectedCategory(id)
         }
       />
-      {open && (
-        <SmallItemsPopup
-          rows={rows}
-          from={opener === DIPS_BLOCK ? 'dips' : 'drinks'}
-          onClose={close}
-        />
-      )}
+      {open && <SmallItemsPopup rows={rows} onClose={close} />}
     </>
   );
 }

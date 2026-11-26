@@ -243,6 +243,43 @@ async function main() {
       );
     },
 
+    'Case 7: the drinks block opens the popup only when the popup holds every drink sold there':
+      () => {
+        const { smallItemRows, popupCategory } = smallItems();
+        const opens = (list: any[]) => popupCategory(smallItemRows(catalog, list), list);
+        assertEqualOrThrow(
+          opens(products),
+          'cat-drinks',
+          'the sample menu: every drink is on a tile',
+        );
+
+        const cola = onGrid('Cola');
+        const handAdded = { ...cola, id: 'own-soda', name: 'House Soda', variants: [] };
+        assertEqualOrThrow(opens([...products, handAdded]), null, 'a drink the menu did not load');
+        const extraSize = {
+          ...cola,
+          variants: [...cola.variants, { ...cola.variants[0], id: 'dr-cola-jug', name: 'Jug' }],
+        };
+        assertEqualOrThrow(
+          opens(products.map((entry) => (entry === cola ? extraSize : entry))),
+          null,
+          'a size the menu does not list',
+        );
+        const elsewhere = { ...handAdded, category_id: 'cat-sides' };
+        assertEqualOrThrow(
+          opens([...products, elsewhere]),
+          'cat-drinks',
+          'another category is its own',
+        );
+        const off = { ...handAdded, is_active: false };
+        assertEqualOrThrow(
+          opens([...products, off]),
+          'cat-drinks',
+          'a product switched off is not sold',
+        );
+        assertEqualOrThrow(opens([]), null, 'and no rows open nothing');
+      },
+
     'Case 5: past three lines a pizza line folds unless it was the last one touched': () => {
       const { touchedLine, foldsActions } = smallItems();
       const line = (id: string, quantity = 1): any => ({ id, quantity });

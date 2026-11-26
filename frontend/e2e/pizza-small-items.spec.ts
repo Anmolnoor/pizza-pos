@@ -331,6 +331,41 @@ test('Done, Escape and the dimmed area close it and leave the order as it is', a
   await expect(cartLines(page)).toHaveCount(3);
 });
 
+test('Escape closes a window opened from the order first, and the popup only after it', async ({
+  page,
+}) => {
+  const popup = popupOf(page);
+  await block(page, 'Drinks').click();
+  await add(page, 'Can', 'Cola').click();
+  await lineOf(page, 'Cola (Can)').getByRole('button', { name: 'Edit' }).click();
+  const save = page.getByRole('button', { name: /^Save/ });
+  await expect(save).toBeVisible();
+
+  await page.keyboard.press('Escape');
+  await expect(save).toBeHidden();
+  await expect(popup).toBeVisible();
+
+  await page.keyboard.press('Escape');
+  await expect(popup).toBeHidden();
+  await expect(cartLines(page)).toHaveCount(1);
+});
+
+test('a scan that ends in Enter adds nothing when the popup has just opened', async ({ page }) => {
+  const popup = popupOf(page);
+  await block(page, 'Dips').click();
+  // The sheet itself has the focus, not a tile a stray Enter would press.
+  await expect(popup).toBeFocused();
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Space');
+  await expect(cartLines(page)).toHaveCount(0);
+  await expect(popup).toBeVisible();
+
+  await page.keyboard.press('Tab');
+  await expect(popup.getByRole('button', { name: 'Done' })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(add(page, 'Dips', 'Ranch')).toBeFocused();
+});
+
 test('past three lines the pizza action rows fold, except on the line last touched', async ({
   page,
 }) => {
@@ -449,8 +484,8 @@ test('the popup works with the keyboard only', async ({ page }) => {
   await block(page, 'Drinks').focus();
   await page.keyboard.press('Enter');
   await expect(popup).toBeVisible();
-  // Opened from Drinks, it starts on the first drink.
-  await expect(add(page, 'Can', 'Cola')).toBeFocused();
+  await expect(popup).toBeFocused();
+  await tabTo(add(page, 'Can', 'Cola'));
   await page.keyboard.press('Enter');
   await page.keyboard.press('Space');
   await expect(countOn(page, 'Can', 'Cola')).toHaveText('2');
