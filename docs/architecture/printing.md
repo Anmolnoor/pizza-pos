@@ -276,9 +276,15 @@ in the stored menu, upper-cased, after `INCLUDES:` and a space, wrapped as the o
 description has no such line. The item heading stays the product name and variant. An item with no recipe keeps the
 `detailLines` it carried.
 
+An extra of an ingredient and an added topping print twice, and the two say different things. The
+detail lines name them under the pizza or half they are on, `EXTRA CHEESE` and `ADD BACON`. The
+item's add-on lines, printed after the detail lines as any add-on is, are the charge:
+`+ Topping x2` on a kitchen ticket, and the same with its amount on a receipt, or
+`+ Half topping x2` for toppings on one half.
+
 The recipe is not checked against the menu at print time, so an order sold before a menu change
-still prints its lines: a pizza, drink, or deal the menu no longer has prints by its id, and a
-removed ingredient prints under the name it was sold with.
+still prints its lines: a pizza, drink, topping, or deal the menu no longer has prints by its id,
+and a removed or extra ingredient prints under the name it was sold with.
 
 A recipe that cannot be written out never prints as a bare item. The item's detail lines are the
 single line `RECIPE NOT PRINTED - CHECK ORDER`, and the cause is logged with the order item id,
