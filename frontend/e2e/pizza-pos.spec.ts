@@ -2,6 +2,8 @@ import {
   test,
   expect,
   request as playwrightRequest,
+  type APIRequestContext,
+  type APIResponse,
   type Locator,
   type Page,
 } from '@playwright/test';
@@ -12,14 +14,65 @@ import { E2E_BASE_URL as BASE } from './helpers/urls';
 
 /**
  * The pizza POS home and the pizza sheet, against the made-up sample menu.
- * The first test runs before the menu is loaded; the rest load it. The e2e
- * server shares one database across the suite and a loaded menu cannot be
- * unloaded, so `afterAll` deletes the products and categories the menu made.
+ * Every spec shares one database, so this one loads the menu itself, never
+ * asserts "no menu" against the server, and clears the menu when it ends.
  */
 
-const menu = JSON.parse(
-  fs.readFileSync(path.resolve(__dirname, '../../tests/fixtures/pizza-sample-menu.json'), 'utf8'),
-);
+const ownerHeaders = { Authorization: `Bearer ${getE2eToken()}` };
+const MENU_CATEGORIES = ['cat-pizzas', 'cat-sides', 'cat-drinks', 'cat-deals'];
+
+/* oxlint-disable-next-line typescript/no-explicit-any -- the menu file is read as plain JSON */
+function sampleMenu(): any {
+  return JSON.parse(
+    fs.readFileSync(path.resolve(__dirname, '../../tests/fixtures/pizza-sample-menu.json'), 'utf8'),
+  );
+}
+
+async function loadSampleMenu(
+  request: APIRequestContext,
+  menu: unknown = sampleMenu(),
+  base = BASE,
+): Promise<void> {
+  const response = await request.post(`${base}/api/pizza/menu/import`, {
+    headers: ownerHeaders,
+    data: menu,
+  });
+  expect(response.status(), await response.text()).toBe(200);
+}
+
+/**
+ * Leaves the POS as upstream's for the specs that follow: loads the sample
+ * with every item taken out, then deletes the four menu categories and what
+ * is left in them. Every step runs whatever the others did.
+ */
+async function clearPizzaMenu(request: APIRequestContext, base = BASE): Promise<void> {
+  const failures: string[] = [];
+  const step = async (name: string, allowed: number[], run: () => Promise<APIResponse>) => {
+    try {
+      const response = await run();
+      if (!allowed.includes(response.status()))
+        failures.push(`${name}: ${response.status()} ${await response.text()}`);
+    } catch (error) {
+      failures.push(`${name}: ${String(error)}`);
+    }
+  };
+  const menu = sampleMenu();
+  const emptied = {
+    ...menu,
+    categories: menu.categories.map((category: object) => ({ ...category, items: [] })),
+  };
+  // The load comes first: every load writes "Pizzas" and "Half & Half" back as active.
+  await step('load the emptied menu', [200], () =>
+    request.post(`${base}/api/pizza/menu/import`, { headers: ownerHeaders, data: emptied }),
+  );
+  for (const id of MENU_CATEGORIES)
+    await step(`delete ${id}`, [200, 404], () =>
+      request.delete(`${base}/api/categories/${id}?action=delete_all`, { headers: ownerHeaders }),
+    );
+  expect(failures, 'the pizza menu is cleared').toEqual([]);
+}
+
+const menu = sampleMenu();
 const sizePrice = (id: string): number =>
   menu.sizes.pizza.find((size: { id: string }) => size.id === id).price;
 const LARGE = sizePrice('large');
@@ -28,11 +81,23 @@ const DIP = menu.categories
   .items.find((side: { id: string }) => side.id === 'dip').price;
 const money = (amount: number) => new RegExp(amount.toFixed(2).replace('.', '\\.'));
 
-const ownerHeaders = { Authorization: `Bearer ${getE2eToken()}` };
 /** Screenshots are saved only when a folder outside the checkout is named. */
 const EVIDENCE_DIR = process.env.E2E_EVIDENCE_DIR;
 
-test.describe.configure({ mode: 'serial' });
+test.beforeAll(async () => {
+  const api = await playwrightRequest.newContext();
+  await loadSampleMenu(api);
+  await api.dispose();
+});
+
+test.afterAll(async () => {
+  const api = await playwrightRequest.newContext();
+  try {
+    await clearPizzaMenu(api);
+  } finally {
+    await api.dispose();
+  }
+});
 
 async function shot(page: Page, name: string): Promise<void> {
   if (EVIDENCE_DIR)
@@ -82,47 +147,47 @@ async function addGardenNoOlives(
   await expect(sheet).toBeHidden();
 }
 
-test('with no pizza menu loaded the POS home is upstream', async ({ page }) => {
-  const catalog = page.waitForResponse(
-    (response) => new URL(response.url()).pathname === '/api/pizza/catalog',
-  );
-  await openPos(page);
-  expect((await catalog).status(), 'no menu is loaded yet').toBe(404);
-  await expect(page.getByTestId('pos-product-card').first()).toBeVisible();
-  await expect(page.getByTestId('pos-category-row')).toBeVisible();
-  await expect(page.getByTestId('pizza-category-blocks')).toHaveCount(0);
-  await expect(page.getByTestId('pizza-tile')).toHaveCount(0);
-  await expect(page.getByTestId('pizza-half-tile')).toHaveCount(0);
+/** What the server answers when it holds no menu, and when it holds one with every item taken out. */
+const NOT_A_PIZZA_MENU = {
+  'no pizza menu': (page: Page) =>
+    page.route('**/api/pizza/catalog', (route) =>
+      route.fulfill({ status: 404, json: { error: 'No menu has been loaded' } }),
+    ),
+  'a menu that has no pizzas': (page: Page) =>
+    page.route('**/api/pizza/catalog', async (route) => {
+      const stored = await (await route.fetch()).json();
+      await route.fulfill({
+        json: { ...stored, pizzas: [], dips: [], sides: [], drinks: [], deals: [] },
+      });
+    }),
+};
 
-  await page.getByTestId('pos-product-card').first().click();
-  await expect(cartLines(page)).toHaveCount(1);
-  await expect(page.getByTestId('pizza-line-quantity')).toHaveCount(0);
-});
+for (const [name, answer] of Object.entries(NOT_A_PIZZA_MENU)) {
+  test(`with ${name} the POS home is upstream`, async ({ page }) => {
+    await answer(page);
+    const catalog = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === '/api/pizza/catalog',
+    );
+    await openPos(page);
+    await catalog;
+    await expect(page.getByTestId('pos-category-row')).toBeVisible();
+    await expect(page.getByTestId('pizza-category-blocks')).toHaveCount(0);
+    await expect(page.getByTestId('pizza-tile')).toHaveCount(0);
+    await expect(page.getByTestId('pizza-half-tile')).toHaveCount(0);
+
+    // A pizza is an ordinary product here: upstream's tile, dialog and cart line.
+    await page.getByTestId('pos-product-card').filter({ hasText: 'Garden' }).click();
+    await expect(sheetOf(page)).toHaveCount(0);
+    await page.getByRole('button', { name: /^Add to Cart/ }).click();
+    await expect(cartLines(page)).toHaveCount(1);
+    await expect(cartLines(page).first()).toContainText('Garden');
+    await expect(cartLines(page).first().getByTestId('cart-item-qty')).toHaveText('1');
+    await expect(page.getByTestId('pizza-line-actions')).toHaveCount(0);
+    await expect(page.getByTestId('pizza-line-detail')).toHaveCount(0);
+  });
+}
 
 test.describe('with the sample menu loaded', () => {
-  test.beforeAll(async () => {
-    const api = await playwrightRequest.newContext();
-    const response = await api.post(`${BASE}/api/pizza/menu/import`, {
-      headers: ownerHeaders,
-      data: menu,
-    });
-    expect(response.status(), await response.text()).toBe(200);
-    await api.dispose();
-  });
-
-  test.afterAll(async () => {
-    const api = await playwrightRequest.newContext();
-    const listed = await api.get(`${BASE}/api/products`, { headers: ownerHeaders });
-    const { products } = (await listed.json()) as { products: { id: string }[] };
-    for (const { id } of products) {
-      if (/^(pz|sd|dr|dl)-/.test(id))
-        await api.delete(`${BASE}/api/products/${id}`, { headers: ownerHeaders });
-    }
-    for (const id of ['cat-pizzas', 'cat-sides', 'cat-drinks', 'cat-deals'])
-      await api.delete(`${BASE}/api/categories/${id}`, { headers: ownerHeaders });
-    await api.dispose();
-  });
-
   test.beforeEach(async ({ page }) => {
     await openPos(page);
     await expect(page.getByTestId('pizza-category-blocks')).toBeVisible();
