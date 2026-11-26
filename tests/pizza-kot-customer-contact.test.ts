@@ -398,6 +398,11 @@ runCases('pizza-kot-customer-contact', {
     // 2 January 02:05 UTC is 1 January 18:05 in Vancouver and 2 January 03:05 in Berlin.
     const line = (locale: string, timezone: string, now: string, stored = order.scheduled_for) =>
       kotScheduleLine({ ...order, scheduled_for: stored }, locale, timezone, new Date(now));
+    // A store with no time zone set passes an empty string, which Intl refuses as a zone.
+    assertOrThrow(
+      /^SCHEDULED /.test(line('en-CA', '', '2026-01-02T01:00:00Z') ?? ''),
+      'an empty time zone falls back to the machine zone and still prints',
+    );
     assertEqualOrThrow(
       line('en-CA', 'America/Vancouver', '2026-01-02T01:00:00Z'),
       'SCHEDULED 6:05 p.m.',

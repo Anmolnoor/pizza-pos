@@ -55,7 +55,11 @@ export function kotScheduleLine(
   const at = new Date(stored.replace(/^(\S+) (\S+)$/, '$1T$2Z'));
   if (!stored || Number.isNaN(at.getTime())) return null;
   const format = (options: Intl.DateTimeFormatOptions, instant: Date): string =>
-    new Intl.DateTimeFormat(`${locale}-u-nu-latn`, { ...options, timeZone }).format(instant);
+    new Intl.DateTimeFormat(`${locale}-u-nu-latn`, {
+      ...options,
+      // An unset store time zone arrives as '', which Intl refuses.
+      timeZone: timeZone || undefined,
+    }).format(instant);
   const day = { year: 'numeric', month: 'numeric', day: 'numeric' } as const;
   const date = format(day, at);
   const time = format({ hour: 'numeric', minute: '2-digit' }, at);
