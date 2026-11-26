@@ -31,6 +31,7 @@ import AddonModal from '@/components/pos/AddonModal';
 import { usePizzaPos } from '@/components/pos/pizza/usePizzaPos';
 import { usePriceGuard } from '@/components/pos/pizza/usePriceGuard';
 import { cartExpectedSubtotal } from '@/lib/pizza/price-guard';
+import { printKotWithRefresh } from '@/lib/pizza/kot-refresh';
 import CustomerSearch from '@/components/pos/CustomerSearch';
 import TablePickerModal from '@/components/pos/TablePickerModal';
 import TableCheckoutModal from '@/components/pos/TableCheckoutModal';
@@ -1243,8 +1244,12 @@ export default function POSPage() {
     if (!autoPrintKot) return;
 
     try {
-      const printWarnings = await printKot(order, order.items ? { items: order.items } : undefined);
-      showPrintWarningsToast(printWarnings);
+      const printWarnings = await printKotWithRefresh(
+        order,
+        (current) => printKot(current, current.items ? { items: current.items } : undefined),
+        async (id) => (await api.get<{ order: Order }>(`/orders/${id}`)).data.order,
+      );
+      if (printWarnings) showPrintWarningsToast(printWarnings);
     } catch (err) {
       if (isPrintCancelledOnTenantChangeError(err)) return;
       if (!checkSessionCurrent(origin)) return;
