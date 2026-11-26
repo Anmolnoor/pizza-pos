@@ -35,6 +35,7 @@ import {
   getCountryPackByVersion,
   invertTaxBreakdown,
   invertTaxSnapshot,
+  lineSubtotal,
   normalizeChargeAmount,
   type Customer,
 } from '../services/tax';
@@ -1160,7 +1161,6 @@ function insertOrderItems(
       );
     }
 
-    let itemSubtotal = unitPrice * quantity;
     if (item.addons && Array.isArray(item.addons)) {
       for (const addon of item.addons) {
         if (!addon) continue;
@@ -1178,11 +1178,15 @@ function insertOrderItems(
             );
           }
         }
-        const addonQty = addon.quantity || 1;
-        itemSubtotal += (addon.price || 0) * addonQty * quantity;
       }
     }
-    itemSubtotal = Math.max(0, itemSubtotal - itemDiscount);
+    const itemSubtotal = lineSubtotal(
+      unitPrice,
+      quantity,
+      Array.isArray(item.addons) ? item.addons : null,
+      itemDiscount,
+      getCurrencyFractionDigits(getTenantCurrency()),
+    );
 
     const taxResult = calculateItemTax(tenantInfo, product, itemSubtotal, customer);
     const itemTotal =
@@ -2486,7 +2490,6 @@ router.post(
             );
           }
 
-          let itemSubtotal = unitPrice * quantity;
           if (item.addons && Array.isArray(item.addons)) {
             for (const addon of item.addons) {
               if (!addon) continue;
@@ -2504,11 +2507,15 @@ router.post(
                   );
                 }
               }
-              const addonQty = addon.quantity || 1;
-              itemSubtotal += (addon.price || 0) * addonQty * quantity;
             }
           }
-          itemSubtotal = Math.max(0, itemSubtotal - itemDiscount);
+          const itemSubtotal = lineSubtotal(
+            unitPrice,
+            quantity,
+            Array.isArray(item.addons) ? item.addons : null,
+            itemDiscount,
+            getCurrencyFractionDigits(getTenantCurrency()),
+          );
 
           const itemId = String(item.id || item.product_id || idx + 1);
           validatedItems.push({
@@ -2525,10 +2532,11 @@ router.post(
           });
         }
 
-        const itemsSubtotal = validatedItems.reduce((acc, v) => acc + v.itemSubtotal, 0);
-
         const currency = getTenantCurrency();
         const decimals = getCurrencyFractionDigits(currency);
+        const itemsSubtotal = Number(
+          validatedItems.reduce((acc, v) => acc + v.itemSubtotal, 0).toFixed(decimals),
+        );
         const minorFactor = getCurrencyMinorUnitFactor(currency);
 
         const resolvedCharges = buildAppliedCharges({
@@ -2594,7 +2602,7 @@ router.post(
 
           const itemTotal =
             itemSubtotal + (taxResult.tax_type === 'inclusive' ? 0 : taxResult.tax_amount);
-          subtotal += itemSubtotal;
+          subtotal = Number((subtotal + itemSubtotal).toFixed(decimals));
 
           const itemCreatedAt = now();
           const recipeSnapshot = shouldDeferRelease
@@ -5533,7 +5541,13 @@ const handleItemDiscount = asyncHandler(async (req: Request, res: Response) => {
       discountAmount = Number(discountAmount.toFixed(decimals));
 
       // Recalculate item subtotal after discount
-      const newSubtotal = Math.max(0, freshItemBaseTotal - discountAmount);
+      const newSubtotal = lineSubtotal(
+        currentItem.unit_price,
+        currentItem.quantity,
+        addonRows,
+        discountAmount,
+        decimals,
+      );
 
       // Recalculate tax on discounted subtotal
       const product = db
@@ -5848,7 +5862,13 @@ const handleItemPriceOverride = asyncHandler(async (req: Request, res: Response)
       const itemDiscount = Number(
         Math.min(Number(currentItem.discount_amount || 0), baseTotal).toFixed(decimals),
       );
-      const newSubtotal = Math.max(0, Number((baseTotal - itemDiscount).toFixed(decimals)));
+      const newSubtotal = lineSubtotal(
+        override.price,
+        currentItem.quantity,
+        addonRows,
+        itemDiscount,
+        decimals,
+      );
 
       const customer = currentOrder.customer_id
         ? ((db.prepare('SELECT * FROM customers WHERE id = ?').get(currentOrder.customer_id) as
@@ -6806,9 +6826,12 @@ router.patch(
             oldQuantity,
             decimals,
           );
-          const itemSubtotal = Math.max(
-            0,
-            Number((itemBaseTotal - itemDiscount).toFixed(decimals)),
+          const itemSubtotal = lineSubtotal(
+            unitPrice,
+            newQuantity,
+            oldAddons,
+            itemDiscount,
+            decimals,
           );
           const taxResult = calculateItemTax(tenantInfo, product, itemSubtotal, customer);
           const itemTotal =

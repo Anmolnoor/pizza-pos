@@ -112,6 +112,27 @@ function round(value: number, decimals: number = 2): number {
   return Number(Math.round(Number(value + 'e' + decimals)) + 'e-' + decimals);
 }
 
+/** A line's amount in exact decimal arithmetic, rounded half-up to the currency's precision. */
+export function lineSubtotal(
+  unitPrice: number,
+  quantity: number,
+  addons: ReadonlyArray<{ price?: number; quantity?: number } | null> | null | undefined,
+  discount: number,
+  decimals: number,
+): number {
+  let perUnit = new Decimal(unitPrice);
+  for (const addon of addons || []) {
+    if (addon) {
+      perUnit = perUnit.plus(
+        new Decimal(Number(addon.price) || 0).mul(Number(addon.quantity) || 1),
+      );
+    }
+  }
+  return Decimal.max(0, perUnit.mul(quantity).minus(discount))
+    .toDecimalPlaces(decimals, Decimal.ROUND_HALF_UP)
+    .toNumber();
+}
+
 // Shared helper to retrieve the active country pack for tax calculation and categories API.
 export function getActiveCountryPack(country: string): CountryPack {
   try {
@@ -1557,13 +1578,7 @@ export async function calculateTaxPreview(req: any, res: any): Promise<void> {
       const rawDisc = Number(itemData.discount_amount);
       const itemDiscount = Number.isFinite(rawDisc) && rawDisc >= 0 ? rawDisc : 0;
 
-      let subtotal = unitPrice * quantity;
-      if (itemData.addons) {
-        for (const addon of itemData.addons) {
-          subtotal += (addon.price || 0) * (addon.quantity || 1) * quantity;
-        }
-      }
-      subtotal = Math.max(0, subtotal - itemDiscount);
+      const subtotal = lineSubtotal(unitPrice, quantity, itemData.addons, itemDiscount, decimals);
 
       resolvedItems.push({
         product,

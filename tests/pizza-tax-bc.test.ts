@@ -86,7 +86,7 @@ async function main() {
   };
 
   try {
-    await testCase('1. Setup with the pizza profile, then a three-item menu', async () => {
+    await testCase('1. Setup with the pizza profile, then a four-item menu', async () => {
       const setup = await api(baseUrl, '/api/auth/setup/initialize', {
         method: 'POST',
         body: {
@@ -117,6 +117,7 @@ async function main() {
         ['Sample large pizza', 23, 'food'],
         ['Sample can of soda', 1.75, 'soda'],
         ['Sample gift card', 10, null],
+        ['Sample side', 10.7, 'food'],
       ];
       for (const [name, price, taxCategory] of menu) {
         const product = await api(baseUrl, '/api/products', {
@@ -265,6 +266,124 @@ async function main() {
       );
       assertEqualOrThrow(charged.data.order.total, 25.15, 'total is 23.00 + 1.15 + 1.00');
     });
+
+    await testCase(
+      '10. Three at $10.70 are taxed on $32.10, however the line is made',
+      async () => {
+        // 10.70 x 3 is 32.099999999999994 in binary floating point; 5% of that rounds to 1.60.
+        // The line is worth 32.10 and its GST is 1.605 -> 1.61.
+        const side = productIds['Sample side'];
+        const db = getDatabase();
+        const line = (itemId: number) =>
+          db
+            .prepare('SELECT subtotal, tax_amount FROM order_items WHERE id = ?')
+            .get(itemId) as any;
+        const stored = (orderId: number) =>
+          db.prepare('SELECT subtotal, tax_amount, total FROM orders WHERE id = ?').get(orderId);
+        const three = JSON.stringify({ subtotal: 32.1, tax_amount: 1.61, total: 33.71 });
+        const items = [{ product_id: side, quantity: 3 }];
+
+        const created = await api(baseUrl, '/api/orders', {
+          method: 'POST',
+          headers,
+          body: { type: 'takeaway', items },
+        });
+        assertEqualOrThrow(created.status, 201, 'create: three on one line');
+        assertEqualOrThrow(JSON.stringify(stored(created.data.order.id)), three, 'create: order');
+        assertEqualOrThrow(
+          JSON.stringify(line(created.data.order.items[0].id)),
+          JSON.stringify({ subtotal: 32.1, tax_amount: 1.61 }),
+          'create: the line holds 32.10 and 1.61',
+        );
+
+        const preview = await api(baseUrl, '/api/tax/preview', {
+          method: 'POST',
+          headers,
+          body: { items },
+        });
+        assertEqualOrThrow(preview.status, 200, 'preview: answered');
+        assertEqualOrThrow(
+          JSON.stringify([
+            preview.data.summary.subtotal,
+            preview.data.summary.tax_amount,
+            preview.data.summary.total,
+          ]),
+          '[32.1,1.61,33.71]',
+          'preview: quotes what the order charges',
+        );
+
+        const bill = await api(baseUrl, '/api/bills/generate', {
+          method: 'POST',
+          headers,
+          body: { order_id: created.data.order.id },
+        });
+        assertEqualOrThrow(bill.status, 201, 'bill: generated');
+        assertEqualOrThrow(
+          JSON.stringify([
+            bill.data.bill.subtotal,
+            bill.data.bill.tax_amount,
+            bill.data.bill.total,
+          ]),
+          '[32.1,1.61,33.71]',
+          'bill: the same three figures',
+        );
+
+        const gift = await order('Sample gift card');
+        const appended = await api(baseUrl, `/api/orders/${gift.id}/items`, {
+          method: 'POST',
+          headers,
+          body: { items },
+        });
+        assertEqualOrThrow(appended.status, 200, 'append: three added to an open order');
+        assertEqualOrThrow(
+          JSON.stringify(line(appended.data.added_item_ids[0])),
+          JSON.stringify({ subtotal: 32.1, tax_amount: 1.61 }),
+          'append: the line holds 32.10 and 1.61',
+        );
+        assertEqualOrThrow(
+          JSON.stringify(stored(gift.id)),
+          JSON.stringify({ subtotal: 42.1, tax_amount: 1.61, total: 43.71 }),
+          'append: order',
+        );
+
+        const one = await order('Sample side');
+        const version = (
+          db
+            .prepare(
+              'SELECT COALESCE(MAX(id), 0) AS v FROM order_audit_log WHERE order_id = ? AND order_item_id = ?',
+            )
+            .get(one.id, one.items[0].id) as any
+        ).v;
+        const edited = await api(baseUrl, `/api/orders/${one.id}/items/${one.items[0].id}/edit`, {
+          method: 'PATCH',
+          headers: { ...headers, 'Idempotency-Key': 'pizza-tax-bc-three' },
+          body: { expected_edit_version: version, quantity: 3 },
+        });
+        assertEqualOrThrow(edited.status, 200, 'edit: one made three');
+        assertEqualOrThrow(JSON.stringify(stored(one.id)), three, 'edit: order');
+
+        // Three lines of one: each line's GST is 0.535 -> 0.54, and the lines add up to 32.10.
+        const lines = await order('Sample side', 'Sample side', 'Sample side');
+        assertEqualOrThrow(
+          JSON.stringify(stored(lines.id)),
+          JSON.stringify({ subtotal: 32.1, tax_amount: 1.62, total: 33.72 }),
+          'three lines of one: the stored subtotal is 32.10, not 32.099999999999994',
+        );
+
+        // 10% off 32.10 is 3.21, leaving 28.89.
+        const discounted = await api(
+          baseUrl,
+          `/api/orders/${created.data.order.id}/items/${created.data.order.items[0].id}/discount`,
+          { method: 'POST', headers, body: { discount_type: 'percentage', discount_value: 10 } },
+        );
+        assertEqualOrThrow(discounted.status, 200, 'item discount: applied');
+        assertEqualOrThrow(
+          JSON.stringify(line(created.data.order.items[0].id)),
+          JSON.stringify({ subtotal: 28.89, tax_amount: 1.44 }),
+          'item discount: the line holds 28.89, not 28.889999999999993',
+        );
+      },
+    );
 
     await testCase('9. The tax configuration is recorded as the owner saving it', () => {
       const audit = getDatabase()
