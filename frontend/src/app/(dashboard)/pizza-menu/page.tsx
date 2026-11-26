@@ -1,14 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useState, type ChangeEvent } from 'react';
-import { useRouter } from 'next/navigation';
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { useTranslations } from 'use-intl';
 import api from '@/lib/api';
-import { tenantCan } from '@/lib/permissions';
 import { reloadPizzaCatalog } from '@/lib/pizza/catalog';
-import { useAuthStore } from '@/store/auth';
-import { getLandingPage } from '@/components/layout/AuthGuard';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -29,7 +25,7 @@ const WARNING_BOX =
 const ERROR_BOX =
   'flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300';
 
-function PizzaMenuScreen() {
+export default function PizzaMenuPage() {
   const t = useTranslations('pizza');
   const tCommon = useTranslations('common');
   // undefined until the first answer; null when the shop has no pizza menu.
@@ -62,11 +58,17 @@ function PizzaMenuScreen() {
     setPending(null);
     setSummary(null);
     setError(null);
+    let menu: unknown;
     try {
-      setPending({ name: file.name, menu: JSON.parse(await file.text()) });
+      menu = JSON.parse(await file.text());
     } catch {
-      setError({ message: t('menuNotJson', { name: file.name }) });
+      // Refused below, with a list, a number, text and null: none of them is a menu file.
     }
+    if (typeof menu !== 'object' || menu === null || Array.isArray(menu)) {
+      setError({ message: t('menuNotJson', { name: file.name }) });
+      return;
+    }
+    setPending({ name: file.name, menu });
   };
 
   const load = async () => {
@@ -79,10 +81,11 @@ function PizzaMenuScreen() {
     } catch (err) {
       const answer = (err as { response?: { data?: { error?: unknown; path?: unknown } } }).response
         ?.data;
-      setError({
-        message: typeof answer?.error === 'string' ? answer.error : t('menuNotLoaded'),
-        path: typeof answer?.path === 'string' ? answer.path : undefined,
-      });
+      const path = typeof answer?.path === 'string' ? answer.path : undefined;
+      const message = typeof answer?.error === 'string' ? answer.error : t('menuNotLoaded');
+      // The server's message starts with the entry it names, which is shown on its own line.
+      const named = path !== undefined && message.startsWith(`${path}: `);
+      setError({ message: named ? message.slice(path.length + 2) : message, path });
     } finally {
       setPending(null);
       setBusy(false);
@@ -224,16 +227,4 @@ function PizzaMenuScreen() {
       </Card>
     </div>
   );
-}
-
-export default function PizzaMenuPage() {
-  const router = useRouter();
-  const tenant = useAuthStore((state) => state.currentTenant);
-  const allowed = tenantCan(tenant, 'catalog.import-export');
-
-  useEffect(() => {
-    if (!allowed) router.replace(getLandingPage(tenant));
-  }, [allowed, router, tenant]);
-
-  return allowed ? <PizzaMenuScreen /> : null;
 }

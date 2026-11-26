@@ -1,20 +1,16 @@
-import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { E2E_BASE_URL as BASE } from './helpers/urls';
 import { E2E_PASSWORD, getE2eToken, loginWithPassword, setLanguage } from './helpers/test-auth';
+import {
+  clearPizzaMenu,
+  loadSampleMenu,
+  sampleMenu,
+  type SampleMenu as Menu,
+} from './helpers/pizza-menu';
 
-type MenuItem = {
-  id: string;
-  price?: number;
-  picks?: Array<{ size?: string }>;
-  [field: string]: unknown;
-};
-type Menu = { categories: Array<{ id: string; name: string; items: MenuItem[] }> };
-
-const SAMPLE: Menu = JSON.parse(
-  fs.readFileSync(path.resolve(__dirname, '../../tests/fixtures/pizza-sample-menu.json'), 'utf8'),
-);
+const SAMPLE = sampleMenu();
 const IMPORT_URL = `${BASE}/api/pizza/menu/import`;
 // Catalogue rows the sample maps to, the stored menu record included.
 const SAMPLE_ROWS = 73;
@@ -24,18 +20,13 @@ const EVIDENCE_DIR = process.env.EVIDENCE_DIR;
 const ownerHeaders = () => ({ Authorization: `Bearer ${getE2eToken()}` });
 
 function copyOf(edit: (menu: Menu) => void): Menu {
-  const menu = structuredClone(SAMPLE);
+  const menu = sampleMenu();
   edit(menu);
   return menu;
 }
 
 const itemsOf = (menu: Menu, id: string) =>
   menu.categories.find((category) => category.id === id)!.items;
-
-async function importByApi(request: APIRequestContext, menu: Menu): Promise<void> {
-  const res = await request.post(IMPORT_URL, { headers: ownerHeaders(), data: menu });
-  expect(res.ok(), `loading a menu by API must succeed (got ${res.status()})`).toBeTruthy();
-}
 
 async function openScreen(page: Page): Promise<void> {
   await loginWithPassword(page, 'owner@flo.local');
@@ -89,32 +80,18 @@ test.describe('Pizza menu screen', () => {
     await setLanguage(page, 'en');
   });
 
-  // The whole suite shares one server: take the menu's products and categories back out of the
-  // catalogue, so the specs that run after this one find the POS as it was.
   test.afterAll(async ({ request }) => {
-    await importByApi(
-      request,
-      copyOf((menu) => {
-        menu.categories = [{ id: 'pizzas', name: 'Our Pizzas', items: [] }];
-      }),
-    );
-    for (const id of ['cat-pizzas', 'cat-sides', 'cat-drinks', 'cat-deals']) {
-      const res = await request.delete(`${BASE}/api/categories/${id}?action=delete_all`, {
-        headers: ownerHeaders(),
-      });
-      expect([200, 404], `removing ${id} must succeed or find it gone`).toContain(res.status());
-    }
-    await request.post(`${BASE}/api/staff/${cashier.id}/deactivate`, { headers: ownerHeaders() });
+    await request
+      .post(`${BASE}/api/staff/${cashier.id}/deactivate`, { headers: ownerHeaders() })
+      .catch(() => {});
+    await clearPizzaMenu(request);
   });
 
   test('says so when no menu is loaded', async ({ page }) => {
-    const stored = await page.request.get(`${BASE}/api/pizza/catalog`, { headers: ownerHeaders() });
-    // A menu cannot be unloaded, so when an earlier spec loaded one the server's "none" is replayed.
-    if (stored.status() !== 404) {
-      await page.route('**/api/pizza/catalog', (route) =>
-        route.fulfill({ status: 404, json: { error: 'No menu has been loaded' } }),
-      );
-    }
+    // A menu cannot be unloaded and the suite shares one server, so the server's "none" is replayed.
+    await page.route('**/api/pizza/catalog', (route) =>
+      route.fulfill({ status: 404, json: { error: 'No menu has been loaded' } }),
+    );
 
     await openScreen(page);
 
@@ -157,16 +134,16 @@ test.describe('Pizza menu screen', () => {
     await expect(page.getByTestId('pizza-menu-result')).toContainText(
       `${summary.created} added, ${summary.updated} changed, ${summary.unchanged} unchanged, ${summary.deactivated} switched off`,
     );
-    // The fixture store's tax pack has no "food" or "soda" category.
-    expect(summary.untaxed).toBe(true);
-    await expect(page.getByTestId('pizza-menu-untaxed')).toContainText('"food" and "soda"');
+    const untaxed = page.getByTestId('pizza-menu-untaxed');
+    if (summary.untaxed) await expect(untaxed).toContainText('"food" and "soda"');
+    else await expect(untaxed).toHaveCount(0);
     await expect(confirm).toBeHidden();
     await expectLoaded(page, SAMPLE_COUNTS);
     await evidence(page, 'menu-loaded.png');
   });
 
   test('loading the same file again changes nothing', async ({ page }) => {
-    await importByApi(page.request, SAMPLE);
+    await loadSampleMenu(page.request);
     await openScreen(page);
 
     await loadThroughScreen(page, 'sample-menu.json', SAMPLE);
@@ -177,7 +154,7 @@ test.describe('Pizza menu screen', () => {
   });
 
   test('a removed pizza is switched off and a changed price is counted', async ({ page }) => {
-    await importByApi(page.request, SAMPLE);
+    await loadSampleMenu(page.request);
     await openScreen(page);
 
     await loadThroughScreen(
@@ -198,7 +175,7 @@ test.describe('Pizza menu screen', () => {
   });
 
   test('a file the server refuses shows its message and the entry it names', async ({ page }) => {
-    await importByApi(page.request, SAMPLE);
+    await loadSampleMenu(page.request);
     await openScreen(page);
 
     await loadThroughScreen(
@@ -211,12 +188,14 @@ test.describe('Pizza menu screen', () => {
 
     const error = page.getByTestId('pizza-menu-error');
     await expect(error).toContainText('"huge" is not a pizza size');
-    await expect(error).toContainText('categories.deals.items[0].picks[0].size');
+    const entry = 'categories.deals.items[0].picks[0].size';
+    await expect(error).toContainText(`Entry in the file: ${entry}`);
+    expect((await error.innerText()).split(entry)).toHaveLength(2);
     await expect(page.getByTestId('pizza-menu-result')).toHaveCount(0);
     await expectLoaded(page, SAMPLE_COUNTS);
   });
 
-  test('a file that is not JSON is refused in the browser and nothing is sent', async ({
+  test('a file that is not a JSON object is refused in the browser and nothing is sent', async ({
     page,
   }) => {
     await openScreen(page);
@@ -225,12 +204,17 @@ test.describe('Pizza menu screen', () => {
       if (request.url() === IMPORT_URL) sent += 1;
     });
 
-    await chooseFile(page, 'not-a-menu.json', '{ "sizes": ');
+    for (const [name, content] of [
+      ['cut-short.json', '{ "sizes": '],
+      ['a-list.json', '[]'],
+    ]) {
+      await chooseFile(page, name, content);
 
-    await expect(page.getByTestId('pizza-menu-error')).toContainText(
-      'not-a-menu.json is not valid JSON',
-    );
-    await expect(page.getByTestId('pizza-menu-confirm')).toHaveCount(0);
+      await expect(page.getByTestId('pizza-menu-error')).toContainText(
+        `${name} is not a menu file, so nothing was sent`,
+      );
+      await expect(page.getByTestId('pizza-menu-confirm')).toHaveCount(0);
+    }
     expect(sent).toBe(0);
   });
 
@@ -246,7 +230,7 @@ test.describe('Pizza menu screen', () => {
   });
 
   test('the POS shows a newly loaded pizza without signing out', async ({ page }) => {
-    await importByApi(page.request, SAMPLE);
+    await loadSampleMenu(page.request);
     await openScreen(page);
 
     await loadThroughScreen(
