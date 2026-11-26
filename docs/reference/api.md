@@ -662,6 +662,49 @@ Imports strip a single leading UTF-8 BOM (`\uFEFF`) after checking the 100,000-b
 | `POST` | `/import/products`   | `catalog.import-export` | body: `csv`  | Body `csv` is the raw file text. Resolves `(category_parent, category)` against root parents first, falling back to an existing live non-root `parent -> child` pair only when no root parent matches and the pair uniquely identifies one live category; when the `category_parent` column is present and blank, matches an effective root category (including a legacy category whose parent is missing/soft-deleted) first or falls back to an unambiguous subcategory; when `category_parent` is omitted (flat CSVs), resolves `category` if unambiguous across all live categories and rejects ambiguous category names explicitly. New product rows and category-changing updates require an active category with an active, non-deleted ancestor chain, whereas an existing product identified by `id` may retain its unchanged non-deleted `category_id`. A supplied `id` matching a non-deleted product updates it; a missing or unrecognized `id` creates a product with a generated id unless the name and category already exist, in which case the row is skipped. Decodes `quote-v1` rows and ID-proven legacy product fields. Returns `created`, `updated`, `reactivated`, `skipped`, and `failed` counts plus per-row `errors`. |
 | `POST` | `/import/addons`     | `catalog.import-export` | body: `csv`  | Body `csv` is the raw file text. Decodes `quote-v1` rows and ID-proven legacy add-on fields, and reports counts plus per-row `errors`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
+### Pizza menu
+
+Router: `main/routes/pizza.ts`. Full path: `/api/pizza`.
+
+A shop's menu is one JSON file in the shape of `tests/fixtures/pizza-sample-menu.json`. `importMenu()`
+in `main/pizza/menu-import.ts` writes it onto the catalogue in one transaction, with every id derived
+from the menu's own ids, so loading the same file again changes nothing and a changed entry updates
+only its own rows:
+
+| Menu                   | Catalogue rows                                                                                                                       | Ids                                                                  |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| A pizza                | A product in "Pizzas" with one variant per size at the size price                                                                    | `cat-pizzas`; `pz-<pizza>`; `pz-<pizza>-<size>`                      |
+| Half and half          | One more product, "Half & Half", in "Pizzas" with the same variants                                                                  | `pz-half-and-half`; `pz-half-and-half-<size>`                        |
+| The `dip` side         | An add-on group "Dips" linked to the "Pizzas" category, one add-on per dip at the dip price: optional, any number, several of a kind | `ag-dips`; `ad-dips-<option>`                                        |
+| A side                 | A product in "Sides"                                                                                                                 | `cat-sides`; `sd-<side>`                                             |
+| A side with a modifier | The side's product plus a required single-choice add-on group at no charge, linked to that product                                   | `ag-<side>-<modifier>`; `ad-<side>-<modifier>-<option>`              |
+| A drink                | A product in "Drinks" with one variant per drink variant                                                                             | `cat-drinks`; `dr-<drink>`; `dr-<drink>-<variant>`                   |
+| A deal                 | A product in "Deals" at the deal price                                                                                               | `cat-deals`; `dl-<deal>`                                             |
+
+A category is written only when the menu has something to put in it, and each has its own named
+colour. A product with variants carries its lowest variant price as its own price. Rows keep the
+order of the file in `sort_order`. Prices in the stored catalogue are whole cents and are divided by
+`getCurrencyMinorUnitFactor()` of the store's currency when they are written.
+
+The import also stores the parsed catalogue in `pizza_menu` and one `pizza_products` row per pizza,
+for the half-and-half product, and per deal.
+
+A row the previously loaded menu had and this one does not is switched off (`is_active = 0`) and
+counted in `deactivated`; it is not deleted, because orders point at it, and its `pizza_products` row
+stays. A later file that has the entry again switches it back on. Rows that did not come from a menu
+file are never touched. The file is the master for the columns it writes: a name or price edited in
+the back office, or a product deleted there, is put back by the next load.
+
+Drinks get the tax category `soda` when the menu's drinks category has `pst: true`; every other
+product gets `food`. Both are looked up in the store's active tax pack. Where the pack has no such
+category the product is left without one, which the tax engine treats as untaxed, and `untaxed` is
+`true`.
+
+| Method | Path           | Authorization    | Parameters                                         | Response                                                                                                                                                                                                                                                                                                             |
+| ------ | -------------- | ---------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST` | `/menu/import` | `catalog.manage` | body: the menu file (`tax`, `sizes`, `categories`) | `{ created, updated, unchanged, deactivated, untaxed }`, counting rows. `parseMenuFile()` validates the whole file before anything is written; a file it rejects answers `400` with `{ error, path }`, where `path` names the bad entry, and writes nothing. So does a menu in which two entries derive the same id. |
+| `GET`  | `/catalog`     | `catalog.view`   | none                                               | The catalogue parsed from the last menu file loaded (`PizzaCatalog` in `shared/pizza/types.ts`, money in whole cents). `404` when no menu has been loaded.                                                                                                                                                           |
+
 ### Settings
 
 Router: `main/routes/settings.ts`. Full path: `/api/settings`.
