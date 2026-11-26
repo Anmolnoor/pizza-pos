@@ -43,10 +43,10 @@ const {
   giveBackAppend,
   isPricesChanged,
   isStaleSelectionRefusal,
-  productsShown,
   repricedCart,
   usePriceGuardStore,
 } = require('../frontend/src/lib/pizza/price-guard');
+const { productsShown } = require('../frontend/src/lib/pizza/price-refresh');
 const {
   appendBody,
   quotedLines,

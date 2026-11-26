@@ -3,7 +3,8 @@
 import { useCallback, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { useTranslations } from 'use-intl';
-import { productsShown, refreshAfterRefusal, usePriceGuardStore } from '@/lib/pizza/price-guard';
+import { usePriceGuardStore } from '@/lib/pizza/price-guard';
+import { productsShown, refreshAfterRefusal } from '@/lib/pizza/price-refresh';
 import type { CartItem, Product } from '@/lib/types';
 
 /**
