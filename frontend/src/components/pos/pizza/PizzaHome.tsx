@@ -3,7 +3,7 @@
 import { SlidersHorizontal } from 'lucide-react';
 import { useTranslations } from 'use-intl';
 import { cartVariantUnitPrice } from '@/lib/cart-price';
-import { sizeLabel, tilePrice } from '@/lib/pizza/pizza-home';
+import { sizeLabels, tilePrice } from '@/lib/pizza/pizza-home';
 import { activeVariants, isVariantSoldOut } from '@/lib/product-variants';
 import type { Category, Product, ProductVariant } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -12,7 +12,7 @@ import { QuickButtonsBlock, useOnlineOrder } from './useQuickButtons';
 
 const FOCUS =
   'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground';
-/** The tile draws the focus of its Customize band, which its size buttons partly cover. */
+/** The tile draws the focus of its Customize band, so the ring frames the whole pizza. */
 const CUSTOMIZE_FOCUS =
   'has-[[data-customize]:focus-visible]:outline-2 has-[[data-customize]:focus-visible]:outline-offset-2 has-[[data-customize]:focus-visible]:outline-foreground';
 
@@ -20,8 +20,9 @@ const CUSTOMIZE_FOCUS =
  * The grid the pizza home lays its tiles on: as many columns as fit three size buttons each,
  * so twelve pizzas fit a tablet screen, and no more than five on a wide one.
  */
+// 2.5rem is the four xl gaps between five columns; the 1px keeps rounding from dropping the fifth.
 export const PIZZA_GRID_CLASS =
-  'grid-cols-[repeat(auto-fill,minmax(max(11.5rem,calc((100%_-_2rem)/5)),1fr))] gap-2!';
+  'grid-cols-[repeat(auto-fill,minmax(max(11.5rem,calc((100%_-_2.5rem_-_1px)/5)),1fr))] gap-1.5! xl:gap-2.5!';
 
 /** The price most pizzas share at each size, by size name: see `standardPrices`. */
 type StandardPrices = ReadonlyMap<string, number>;
@@ -100,16 +101,19 @@ function SizeButtons({
   const t = useTranslations('pizza');
   // What the cart charges for the size: its online price on an order for an online platform.
   const online = useOnlineOrder();
+  const variants = activeVariants(product.variants);
+  const labels = sizeLabels(variants.map((variant) => variant.name));
   return (
     // More sizes than a tile is wide wrap to a second row; each button keeps its 48 px.
     <div className={cn('flex flex-wrap gap-1', className)}>
-      {activeVariants(product.variants).map((variant) => {
+      {variants.map((variant) => {
         const price = tilePrice(product, variant, standard, online);
+        const soldOut = isVariantSoldOut(variant);
         return (
           <button
             key={variant.id}
             type="button"
-            disabled={disabled || isVariantSoldOut(variant)}
+            disabled={disabled || soldOut}
             onClick={() => onSize(variant)}
             aria-label={t('sizeOf', {
               pizza: product.name,
@@ -118,13 +122,14 @@ function SizeButtons({
             })}
             className={cn(
               'group/size flex min-h-12 min-w-12 flex-1 flex-col items-center justify-center rounded-lg border border-border bg-muted/60 px-1 text-sm font-bold leading-tight text-foreground transition-colors hover:border-brand hover:bg-brand hover:text-white active:border-brand active:bg-brand active:text-white disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-muted/60 disabled:hover:text-foreground',
+              soldOut && 'line-through',
               FOCUS,
             )}
           >
-            {sizeLabel(variant.name)}
+            {labels.get(variant.name)}
             {/* Only a price that differs from the one in the Half & Half legend is shown. */}
             {price !== null && (
-              <span className="text-[11px] tabular-nums text-brand group-hover/size:text-white group-active/size:text-white dark:text-indigo-300">
+              <span className="text-[11px] tabular-nums text-brand group-enabled/size:group-hover/size:text-white group-enabled/size:group-active/size:text-white dark:text-indigo-300">
                 {fmt(price)}
               </span>
             )}
@@ -163,38 +168,40 @@ export function PizzaTile({
     <div
       data-testid="pizza-tile"
       className={cn(
-        'group relative flex flex-col gap-1 rounded-xl border bg-card p-1.5 transition-colors has-[[data-customize]:enabled:hover]:bg-muted/40',
+        'group flex flex-col rounded-xl border bg-card transition-colors has-[[data-customize]:enabled:hover]:bg-muted/40',
         CUSTOMIZE_FOCUS,
         inCart > 0 ? 'border-brand' : 'border-border',
       )}
     >
-      {/* A 48 px band across the top; the size buttons cover its lower part, so the name opens the sheet. */}
-      <button
-        type="button"
-        data-customize
-        disabled={disabled}
-        onClick={onCustomize}
-        aria-label={t('customizeNamed', { name: product.name })}
-        className="absolute inset-x-0 top-0 h-12 rounded-t-xl outline-hidden disabled:cursor-not-allowed"
-      />
-      {/* The number and the icon float, no taller than a line, so the name's second line has the whole width. */}
-      <div className={cn('pointer-events-none relative min-w-0 px-0.5', disabled && 'opacity-50')}>
-        {number != null && (
-          <span className="float-start me-1.5 font-mono text-[11px] font-semibold leading-4 tabular-nums text-muted-foreground">
-            {number}
+      {/* The top 48 px opens the sheet; the size buttons sit below it, never over it. */}
+      <div className="relative min-h-12 px-2 pt-1.5">
+        <button
+          type="button"
+          data-customize
+          disabled={disabled}
+          onClick={onCustomize}
+          aria-label={t('customizeNamed', { name: product.name })}
+          className="absolute inset-0 outline-hidden disabled:cursor-not-allowed"
+        />
+        {/* The number and the icon float, no taller than a line, so the name's second line has the whole width. */}
+        <div className={cn('pointer-events-none relative min-w-0', disabled && 'opacity-50')}>
+          {number != null && (
+            <span className="float-start me-1.5 font-mono text-[11px] font-semibold leading-4 tabular-nums text-muted-foreground">
+              {number}
+            </span>
+          )}
+          <span className="float-end ms-1 flex items-center gap-1">
+            <InOrder count={inCart} />
+            <SlidersHorizontal
+              size={14}
+              aria-hidden
+              className="text-muted-foreground transition-colors group-has-[[data-customize]:enabled:hover]:text-foreground"
+            />
           </span>
-        )}
-        <span className="float-end ms-1 flex items-center gap-1">
-          <InOrder count={inCart} />
-          <SlidersHorizontal
-            size={14}
-            aria-hidden
-            className="text-muted-foreground/45 transition-colors group-has-[[data-customize]:enabled:hover]:text-foreground"
-          />
-        </span>
-        <h3 className="text-[13px] font-semibold leading-tight break-words text-foreground">
-          {product.name}
-        </h3>
+          <h3 className="text-[13px] font-semibold leading-tight break-words text-foreground">
+            {product.name}
+          </h3>
+        </div>
       </div>
       <SizeButtons
         product={product}
@@ -202,7 +209,7 @@ export function PizzaTile({
         disabled={disabled}
         fmt={fmt}
         onSize={onSize}
-        className="relative mt-auto"
+        className="mt-auto px-1"
       />
     </div>
   );
@@ -228,10 +235,11 @@ export function HalfAndHalfTile({
   onSize: (variant: ProductVariant) => void;
 }) {
   const t = useTranslations('pizza');
+  const labels = sizeLabels(standard.keys());
   return (
     <div
       data-testid="pizza-half-tile"
-      className="col-span-full flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-border bg-muted/40 p-1 ps-2"
+      className="sticky top-0 z-10 col-span-full flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-border bg-muted p-1 ps-2 shadow-sm"
     >
       <div className="flex min-w-0 items-center gap-2">
         <span
@@ -250,17 +258,16 @@ export function HalfAndHalfTile({
         disabled={disabled}
         fmt={fmt}
         onSize={onSize}
-        className="min-w-44"
       />
       {standard.size > 0 && (
         <p
           data-testid="pizza-price-legend"
-          className="ms-auto flex flex-wrap items-center gap-x-1.5 pe-2 text-xs text-muted-foreground"
+          className="ms-auto flex flex-wrap items-center gap-x-2.5 pe-2 text-xs text-muted-foreground"
         >
-          {[...standard].map(([size, price], index) => (
-            <span key={size} className="flex items-center gap-1.5 whitespace-nowrap">
-              {index > 0 && <span aria-hidden>·</span>}
-              <span aria-hidden>{sizeLabel(size)}</span>
+          <span className="font-medium">{t('standardPrices')}</span>
+          {[...standard].map(([size, price]) => (
+            <span key={size} className="flex items-center gap-1 whitespace-nowrap">
+              <span aria-hidden>{labels.get(size)}</span>
               <span className="sr-only">{size}</span>
               <span className="font-semibold tabular-nums text-foreground">{fmt(price)}</span>
             </span>

@@ -36,7 +36,21 @@ export function tilePrice(
   return standard.get(variant.name) === price ? null : price;
 }
 
-const LABELS: Record<string, string> = { small: 'S', medium: 'M', large: 'L', 'extra large': 'XL' };
+const LABELS = new Map([
+  ['small', 'S'],
+  ['medium', 'M'],
+  ['large', 'L'],
+  ['extra large', 'XL'],
+]);
 
-/** The short label of a size button: S, M, L or XL, or the size's own name. */
-export const sizeLabel = (name: string) => LABELS[name.trim().toLowerCase()] ?? name;
+/**
+ * The short label of each size button, by size name: S, M, L or XL, or the size's own name.
+ * Sizes that would share a label keep their own names, so no two buttons read the same.
+ */
+export function sizeLabels(names: Iterable<string>): Map<string, string> {
+  const unique = [...new Set(names)];
+  const short = (name: string) => LABELS.get(name.trim().toLowerCase()) ?? name;
+  const uses = new Map<string, number>();
+  for (const name of unique) uses.set(short(name), (uses.get(short(name)) ?? 0) + 1);
+  return new Map(unique.map((name) => [name, uses.get(short(name))! > 1 ? name : short(name)]));
+}

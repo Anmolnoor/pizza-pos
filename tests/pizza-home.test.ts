@@ -9,7 +9,7 @@ const { assertEqualOrThrow, loadFrontend, runCases } = require('./helpers/pizza-
 const { isDeepStrictEqual } = require('node:util');
 
 loadFrontend();
-const { sizeLabel, standardPrices, tilePrice } = require('../frontend/src/lib/pizza/pizza-home');
+const { sizeLabels, standardPrices, tilePrice } = require('../frontend/src/lib/pizza/pizza-home');
 
 const same = (actual: unknown, expected: unknown, message: string) =>
   assertEqualOrThrow(
@@ -100,15 +100,50 @@ runCases('pizza-home', {
   },
 
   'Case 6: common size names get a one- or two-letter label, any other keeps its name': () => {
-    for (const [name, label] of [
-      ['Small', 'S'],
-      ['Medium', 'M'],
-      ['Large', 'L'],
-      ['Extra Large', 'XL'],
-      [' large ', 'L'],
-      ['Family', 'Family'],
-      ['Party Size', 'Party Size'],
-    ])
-      assertEqualOrThrow(sizeLabel(name), label, `the label of "${name}"`);
+    const names = ['Small', 'Medium', 'Large', 'Extra Large', 'Family', 'Party Size'];
+    same(
+      entries(sizeLabels(names)),
+      [
+        ['Small', 'S'],
+        ['Medium', 'M'],
+        ['Large', 'L'],
+        ['Extra Large', 'XL'],
+        ['Family', 'Family'],
+        ['Party Size', 'Party Size'],
+      ],
+      'the labels of the sizes',
+    );
+    same(entries(sizeLabels([' large '])), [[' large ', 'L']], 'case and spaces are ignored');
+  },
+
+  'Case 7: a size named like a property of every object keeps its own name': () => {
+    const names = ['__proto__', 'constructor', 'toString', 'hasOwnProperty'];
+    same(
+      entries(sizeLabels(names)),
+      names.map((name) => [name, name]),
+      'no label is read off the prototype',
+    );
+  },
+
+  'Case 8: two sizes that would share a label keep their own names': () => {
+    same(
+      entries(sizeLabels(['Small', 'Large', 'L'])),
+      [
+        ['Small', 'S'],
+        ['Large', 'Large'],
+        ['L', 'L'],
+      ],
+      'Large and L are told apart',
+    );
+    same(
+      entries(sizeLabels(['Small', 'S', 'Medium'])),
+      [
+        ['Small', 'Small'],
+        ['S', 'S'],
+        ['Medium', 'M'],
+      ],
+      'Small and S are told apart, Medium still shortens',
+    );
+    same(entries(sizeLabels(['Large', 'Large'])), [['Large', 'L']], 'a name twice is one size');
   },
 });

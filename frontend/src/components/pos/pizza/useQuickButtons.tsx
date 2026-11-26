@@ -132,7 +132,7 @@ export function QuickButtonsBlock({
       onClick={() => onSelect(QUICK_BUTTONS_CATEGORY)}
     >
       <span className="whitespace-nowrap">{t('quickButtons')}</span>
-      <span className="whitespace-nowrap rounded-full bg-muted px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-muted-foreground group-aria-pressed:bg-white/20 group-aria-pressed:text-white">
+      <span className="whitespace-nowrap rounded-full bg-muted px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-muted-foreground group-aria-pressed:bg-black/25 group-aria-pressed:text-white">
         {t('quickSaved', { count })}
       </span>
     </CategoryPill>

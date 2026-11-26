@@ -24,6 +24,7 @@ import { useOnlineOrder, useQuickButtonSheet } from './useQuickButtons';
 
 const HALF_AND_HALF = `${PIZZA_PRODUCT_PREFIX}half-and-half`;
 const PIZZAS_CATEGORY = 'cat-pizzas';
+const NO_STANDARD: ReadonlyMap<string, number> = new Map();
 
 /** The cart with a line "Customize 1" split off merged back into the line it came from. */
 function mergedBack(split: CartItem): CartItem[] {
@@ -46,6 +47,8 @@ export interface PizzaPos extends SmallItemsPos {
     fmt: (amount: number) => string,
     /** The product grid's own click: it checks the quantity typed in the search and opens the product. */
     onClick: () => void,
+    /** The products on screen, which say whether the Half & Half legend is there to quote the standard prices. */
+    displayed: Product[],
   ) => ReactNode;
   /** Opens the sheet for a pizza product, or the deal configurator for a deal; false for any other product. */
   open: (product: Product, quantity?: number) => boolean;
@@ -197,7 +200,7 @@ export function usePizzaPos(
       const half = list.find((product) => product.id === HALF_AND_HALF);
       return half ? [half, ...list.filter((product) => product !== half)] : list;
     },
-    tile: (product, inCart, disabled, fmt, onClick) => {
+    tile: (product, inCart, disabled, fmt, onClick, displayed) => {
       const menuDeal = deal.of(product);
       if (menuDeal)
         return (
@@ -216,7 +219,7 @@ export function usePizzaPos(
           <HalfAndHalfTile
             key={product.id}
             product={product}
-            standard={standard}
+            standard={displayed.some(menuPizza) ? standard : NO_STANDARD}
             inCart={inCart}
             disabled={disabled}
             fmt={fmt}
@@ -232,7 +235,7 @@ export function usePizzaPos(
           key={product.id}
           product={product}
           number={pizza.number}
-          standard={standard}
+          standard={displayed.some((entry) => entry.id === HALF_AND_HALF) ? standard : NO_STANDARD}
           inCart={inCart}
           disabled={disabled}
           fmt={fmt}
