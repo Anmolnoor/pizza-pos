@@ -599,6 +599,83 @@ async function main() {
       assertEqualOrThrow(row(without.id).modifier_selection, 'null', 'nothing is stored for none');
     },
 
+    'Case 6e: an item a menu load retired cannot be sold again, but a sold line can shrink':
+      async () => {
+        const islandLine = (extra: object = {}) => ({
+          product_id: 'pz-island',
+          variant_id: 'pz-island-large',
+          quantity: 2,
+          ...extra,
+        });
+        const sold = (await createOrder([islandLine(), islandLine()])).data.order;
+        const [first, second] = liveRows(sold.id);
+        // What a menu load does to a pizza that left the file, and what the back office does.
+        const retire = (active: number, deletedAt: string | null) => {
+          db.prepare('UPDATE products SET is_active = ?, deleted_at = ? WHERE id = ?').run(
+            active,
+            deletedAt,
+            'pz-island',
+          );
+          db.prepare('UPDATE product_variants SET is_active = ? WHERE product_id = ?').run(
+            active,
+            'pz-island',
+          );
+        };
+        const gone = 'Island is not on the menu. Pick another item';
+        const refusedSale = async (label: string, response: any) => {
+          assertEqualOrThrow(response.status, 400, `${label}: refused`);
+          assertEqualOrThrow(response.data.error, gone, `${label}: says what to do`);
+        };
+        retire(0, null);
+        try {
+          const before = [count('orders'), count('order_items')];
+          await refusedSale('create with its size', await createOrder([islandLine()]));
+          await refusedSale(
+            'create with no size, which would sell at the base price',
+            await createOrder([{ product_id: 'pz-island', quantity: 1 }]),
+          );
+          await refusedSale(
+            'add items',
+            await post(`/api/orders/${sold.id}/items`, { items: [islandLine()] }),
+          );
+          await refusedSale('quantity increase', await edit(sold.id, first.id, { quantity: 3 }));
+          assertEqualOrThrow(
+            JSON.stringify([count('orders'), count('order_items')]),
+            JSON.stringify(before),
+            'the refusals write nothing',
+          );
+
+          const fewer = await edit(sold.id, first.id, { quantity: 1 });
+          assertEqualOrThrow(fewer.status, 200, 'a reduction of the sold line is accepted');
+          assertEqualOrThrow(
+            JSON.stringify(liveRows(sold.id).map((line) => line.quantity)),
+            '[2,1]',
+            'and the line now holds one',
+          );
+          const cancelled = await patch(`/api/orders/${sold.id}/items/${second.id}/cancel`, {});
+          assertEqualOrThrow(cancelled.status, 200, 'a sold line can still be cancelled');
+
+          retire(1, '2026-01-01T00:00:00.000Z');
+          await refusedSale('a deleted product', await createOrder([islandLine()]));
+        } finally {
+          retire(1, null);
+        }
+
+        // A pizza whose sizes are all switched off must not sell at its base price.
+        db.prepare(
+          "UPDATE product_variants SET is_active = 0 WHERE product_id = 'pz-island'",
+        ).run();
+        try {
+          const sizeless = await createOrder([{ product_id: 'pz-island', quantity: 1 }]);
+          assertEqualOrThrow(sizeless.status, 400, 'a pizza with no size is refused');
+          assertEqualOrThrow(sizeless.data.error, 'Pick a size for this pizza', 'with a message');
+        } finally {
+          retire(1, null);
+        }
+        const back = await createOrder([islandLine()]);
+        assertEqualOrThrow(back.status, 201, 'back on the menu, it sells again');
+      },
+
     'Case 9: with no readable menu, pizza recipes answer 503 and other lines still sell':
       async () => {
         const menuText = JSON.stringify(catalog);

@@ -90,6 +90,7 @@ import { cloudSync } from '../services/cloud-sync';
 import {
   validateOrderNotes,
   validateItemNotes,
+  assertProductOnMenu,
   validateProductQuantity,
   validateDeliveryAddress,
   validateDeliveryNote,
@@ -1112,6 +1113,7 @@ function insertOrderItems(
 
     // Validate quantity and price
     validateProductQuantity(product, quantity);
+    if (!context.preserveSelections) assertProductOnMenu(product);
     const variant = resolveOrderItemVariant(db, product, item, isOnlineOrder, {
       // A quantity reduction keeps the stored selection even if the merchant
       // has since disabled the variant or added variants the line never had;
@@ -2460,6 +2462,7 @@ router.post(
 
           // Validate quantity and price
           validateProductQuantity(product, quantity);
+          assertProductOnMenu(product);
           const variant = resolveOrderItemVariant(db, product, item, isOnlineOrder);
           checkLineRecipe(db, items, item, variant?.id);
           let unitPrice = variant
