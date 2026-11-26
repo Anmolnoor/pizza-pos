@@ -321,7 +321,8 @@ Route gating lives in `AuthGuard`:
 - `PAGE_PERMISSIONS` maps a guarded route to the single permission id it needs. `/staff` and
   `/settings` are the two exceptions and carry an any-of list instead, because either screen
   aggregates several permissions. Adding a route means adding it to one of those three; a route in
-  none of them is behind authentication and nothing else.
+  none of them is behind authentication and nothing else. `/pizza-menu` is the one route that gates
+  itself: its page checks `catalog.import-export` and sends a tenant without it to `getLandingPage`.
 - `PUBLIC_PATHS` holds the unauthenticated surfaces: `/kds`, `/kds-standalone`,
   `/server-standalone`, `/customer-display`, `/auth/login`, `/auth/register`, `/auth/recover`, and
   `/setup`. The standalone KDS, Server App, and paired customer display pages run their own session
@@ -519,6 +520,28 @@ on, with no React in it:
 `tests/pizza-kot-browser.test.ts` cover these modules and the cart and print hooks that call them.
 `tests/pizza-pos-order-seam.test.ts` posts the requests these modules build to the real order routes
 of a store with the sample menu loaded, and reads the catalogue through `GET /api/pizza/catalog`.
+
+### Pizza menu screen
+
+`/pizza-menu` (`frontend/src/app/(dashboard)/pizza-menu/page.tsx`) is where an owner or a manager
+loads the shop's menu file. The sidebar shows its entry, and the page renders, only for a tenant
+with `catalog.import-export`. Its text is in the
+[English-only pizza strings](internationalization.md#english-only-pizza-strings).
+
+- **What is loaded now** counts the pizzas, sizes, dips, sides, drinks and deals of the catalogue
+  `reloadPizzaCatalog()` answers when the screen opens, or says that no pizza menu is loaded.
+- **Choosing a file** reads it in the browser. A file that is not valid JSON is refused there, and
+  nothing is sent. A file that parses opens a confirm step that says what loading does: the file is
+  the master copy, names, prices and what is on sale follow it, what it no longer has is switched
+  off and not deleted, and changes made in the product screen are overwritten.
+- **Confirming** sends the parsed file to
+  [`POST /api/pizza/menu/import`](../reference/api.md#pizza-menu). On success the screen shows the
+  four row counts of the answer, and a warning when the answer says `untaxed`. On a refusal it shows
+  the server's message and the entry the answer names.
+- After a successful load the screen calls `reloadPizzaCatalog()`, so the catalogue the POS reads is
+  the new one without a sign-out.
+
+`frontend/e2e/pizza-menu.spec.ts` drives the screen against the sample menu and copies of it.
 
 ## Printing
 
@@ -721,8 +744,8 @@ frontend/src/
 ├── app/                        App Router routes
 │   ├── (dashboard)/            Authenticated shell: AuthGuard, title bar, sidebar, status bar
 │   │   ├── addon-groups/  customers/  dashboard/  inventory/  kds/
-│   │   ├── order-history-demo/  orders/  pos/  print-test/  products/
-│   │   ├── settings/  staff/  support/  tables/  whatsapp/
+│   │   ├── order-history-demo/  orders/  pizza-menu/  pos/  print-test/
+│   │   ├── products/  settings/  staff/  support/  tables/  whatsapp/
 │   ├── auth/                   login, register, recover
 │   ├── customer-display/       Customer-facing order-status board
 │   ├── kds-standalone/         Standalone KDS, served by the :3002 base port
