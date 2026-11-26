@@ -724,9 +724,10 @@ A load never takes over a row it does not own. When the menu derives the id of a
 variant, add-on group or add-on that exists and is not in `owned_rows`, for example a product made by
 hand or by a CSV import, the load is refused with a `400` that names it ("A product with the id
 pz-garden already exists and was not made by a menu load. Give that item a different id in the menu
-file, then load it again.") and nothing is written. For an id every menu uses (`cat-pizzas`,
-`cat-sides`, `cat-drinks`, `cat-deals`, `pz-half-and-half`, `ag-dips`) no change to the file helps,
-so the message says that support has to rename or remove the row. A row deleted in the back office still exists,
+file, then load it again.") and nothing is written. For an id reserved for a section of the menu
+(`cat-pizzas`, `cat-sides`, `cat-drinks`, `cat-deals`, `pz-half-and-half`, `ag-dips`) no change to
+an id in the file helps, so the message names the section and says that support has to rename or
+remove the row. A row deleted in the back office still exists,
 so it still refuses the load. A product that has a `pizza_products` row counts as a load's own
 whether or not the list names it, and so do its variants.
 

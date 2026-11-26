@@ -802,7 +802,7 @@ async function main() {
       // Every menu uses this id, so no change to the file can get around the row.
       await refused(
         sampleMenu(),
-        'A category with the id cat-deals already exists and was not made by a menu load. Every menu file uses that id, so the menu cannot be loaded until support renames or removes that category.',
+        'A category with the id cat-deals already exists and was not made by a menu load. That id is reserved for the Deals section of the menu, so the menu cannot be loaded until support renames or removes that category.',
         'a category stops it too, and the owner is not told to change the file',
       );
       db.prepare('UPDATE pizza_menu SET owned_rows = ?').run(owned);

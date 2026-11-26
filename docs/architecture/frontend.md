@@ -569,7 +569,8 @@ as an array with the spaces around each entry removed, `hydrateReceiptSettings()
 
 The store keeps `posOrderTypes` in memory only: it is left out of what `pos-settings` persists, so
 a new cart is moved only by what the store's settings say on this visit, never by a list kept from
-an earlier one.
+an earlier one. A sign-out or a change of store empties it (`useReceiptSettingsSync.ts`), so the
+next store starts with every type offered until its own settings arrive.
 
 The setting changes only the switch. The order routes accept every type whatever it holds, and no
 Settings screen exposes it. `tests/pizza-order-types.test.ts` covers the rule.

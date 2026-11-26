@@ -891,7 +891,15 @@ export const usePrinterStore = create<PrinterState>()(
           throwIfTenantChanged();
           const hydratedLargeOrderNumber = usePosSettingsStore.getState().billShowLargeOrderNumber;
           const showCustomerContact = usePosSettingsStore.getState().kotShowCustomerContact;
-          const showScheduledTime = usePosSettingsStore.getState().kotShowScheduledTime;
+          // Asked at print time through the route order staff may read, so a change in Settings
+          // counts at once; a failed read prints no time.
+          const showScheduledTime = order.scheduled_for
+            ? await api
+                .get<{ setting?: { value?: string } }>('/settings/scheduled_orders_enabled')
+                .then((res) => res.data?.setting?.value === 'true')
+                .catch(() => false)
+            : false;
+          throwIfTenantChanged();
 
           const orderForPrint = opts?.items ? { ...order, items: opts.items } : order;
           const activeTextSize = resolveActivePrinterTextSize(get(), opts?.capabilities?.textSize);

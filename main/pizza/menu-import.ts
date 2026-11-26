@@ -37,15 +37,15 @@ const NOUN: Record<string, string> = {
   addon_groups: 'An add-on group',
   addons: 'An add-on',
 };
-/** Rows every menu writes under the same id, whatever the file holds. */
-const FIXED = [
-  'categories:cat-pizzas',
-  'categories:cat-sides',
-  'categories:cat-drinks',
-  'categories:cat-deals',
-  'products:pz-half-and-half',
-  'addon_groups:ag-dips',
-];
+/** Rows whose id is set by a section of the menu, not by an id in the file. */
+const RESERVED: Record<string, string> = {
+  'categories:cat-pizzas': 'the Pizzas section',
+  'categories:cat-sides': 'the Sides section',
+  'categories:cat-drinks': 'the Drinks section',
+  'categories:cat-deals': 'the Deals section',
+  'products:pz-half-and-half': 'the half and half pizza',
+  'addon_groups:ag-dips': 'the dips',
+};
 const LINKS = ['category_addon_groups', 'addon_group_product'];
 /** The column a derived id is tied to: a variant to its product, an add-on to its group. */
 const PARENT: Record<string, string> = {
@@ -395,8 +395,8 @@ export function importMenu(db: Database.Database, catalog: PizzaCatalog): Import
       if (found && !known)
         throw new MenuImportError(
           `${NOUN[table]} with the id ${id} already exists and was not made by a menu load. ${
-            FIXED.includes(entry)
-              ? `Every menu file uses that id, so the menu cannot be loaded until support renames or removes that ${NOUN[table].replace(/^An? /, '')}.`
+            RESERVED[entry]
+              ? `That id is reserved for ${RESERVED[entry]} of the menu, so the menu cannot be loaded until support renames or removes that ${NOUN[table].replace(/^An? /, '')}.`
               : 'Give that item a different id in the menu file, then load it again.'
           }`,
         );

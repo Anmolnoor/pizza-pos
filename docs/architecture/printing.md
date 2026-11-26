@@ -358,10 +358,12 @@ line, a reprint of an order that still has a `scheduled_for` included, and ticke
 always were.
 
 `kotScheduleLine()` in `shared/print/kot-contact.ts` builds the line for all four paths, and
-returns none unless it is told the setting is on. The setting travels the way the contact setting
-does: `kotCustomerContactFields()` adds `show_scheduled_time` to the order the backend prints, and
-`GET /api/settings/business` returns `scheduled_orders_enabled`, which `hydrateReceiptSettings()`
-stores as `kotShowScheduledTime` and `printKot` passes as `showScheduledTime`. The two browser paths
+returns none unless it is told the setting is on.
+`kotCustomerContactFields()` adds `show_scheduled_time` to the order the backend prints. In the
+browser, `printKot` asks `GET /api/settings/scheduled_orders_enabled` each time it prints an order
+that has a `scheduled_for`, and passes the answer as `showScheduledTime`. That route is open to
+anyone with `orders.read` or `orders.create`, so staff who may not read the business settings print
+the line too, and a change in Settings counts on the next print. A failed read prints no line. The two browser paths
 that read the raw order call `kotScheduleLine()` with the order. The document paths carry the
 instant as `KotOrderSnapshot.scheduledFor` and `KotHeaderBlock.scheduledFor` only while the setting
 is on, and `renderKotDocumentToLines` prints what the document carries. The word is English on every ticket. Kitchen display payloads do not carry

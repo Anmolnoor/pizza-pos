@@ -518,7 +518,6 @@ runCases('pizza-kot-customer-contact', {
           headers: owner.authHeader,
           body: { value },
         });
-      assertEqualOrThrow(before.data.scheduled_orders_enabled, false, 'scheduling starts off');
       await printKOTDetailed({ ...routeOrder, ...timed }, items, 'Kitchen', false, capture.printer);
       assertOrThrow(
         !flat(await capture.lastJob()).includes('SCHEDULED'),
@@ -530,23 +529,28 @@ runCases('pizza-kot-customer-contact', {
         flat(await capture.lastJob()).includes('SCHEDULED'),
         'server, scheduling on: the line prints',
       );
-      const scheduling = await api(baseUrl, '/api/settings/business', {
-        headers: owner.authHeader,
-      });
-      assertEqualOrThrow(
-        scheduling.data.scheduled_orders_enabled,
-        true,
-        'the POS is told it is on',
-      );
-      const settingsStore = frontend.posSettings.usePosSettingsStore;
-      assertEqualOrThrow(
-        settingsStore.getState().kotShowScheduledTime,
-        false,
-        'the store starts off',
-      );
-      settingsStore.getState().hydrateReceiptSettings(scheduling.data);
-      assertEqualOrThrow(settingsStore.getState().kotShowScheduledTime, true, 'and takes it');
-      settingsStore.setState({ kotShowScheduledTime: false, kotShowCustomerContact: false });
+      // A waiter the owner took the store's settings from still reads this one setting.
+      const { getJWTSecret } = require('../main/routes/auth');
+      db.prepare(
+        `INSERT INTO users (id, name, email, password, role, is_active, created_at, updated_at)
+         VALUES ('waiter-1', 'Sam Sample', 'waiter@test.local', 'x', 'server', 1, datetime('now'), datetime('now'))`,
+      ).run();
+      db.prepare(
+        `INSERT INTO user_permission_overrides (user_id, permission_id, effect, updated_by, created_at, updated_at)
+         VALUES ('waiter-1', 'settings.view', 'deny', ?, datetime('now'), datetime('now'))`,
+      ).run(owner.userId);
+      const waiter = {
+        Authorization: `Bearer ${require('jsonwebtoken').sign(
+          { userId: 'waiter-1', email: 'waiter@test.local', role: 'server' },
+          getJWTSecret(),
+          { expiresIn: '1h' },
+        )}`,
+      };
+      const closed = await api(baseUrl, '/api/settings/business', { headers: waiter });
+      assertEqualOrThrow(closed.status, 403, 'a waiter may not read the business settings');
+      const readScheduled = () =>
+        api(baseUrl, '/api/settings/scheduled_orders_enabled', { headers: waiter });
+      assertEqualOrThrow((await readScheduled()).data.setting.value, 'true', 'but reads this one');
       await setScheduled('false');
 
       const saved = await api(baseUrl, `/api/settings/${SETTING}`, {
@@ -617,16 +621,66 @@ runCases('pizza-kot-customer-contact', {
         assertOrThrow(browserJob.includes(line), `browser hook, setting on: prints "${line}"`);
       }
 
-      for (const on of [false, true]) {
-        frontend.posSettings.usePosSettingsStore.setState({ kotShowScheduledTime: on });
+      // The hook asks for the setting each time it prints a scheduled order, as a waiter may.
+      const asked: string[] = [];
+      let failing = false;
+      const businessGet = frontend.api.get;
+      frontend.api.get = async (url: string) => {
+        asked.push(url);
+        if (url !== '/settings/scheduled_orders_enabled') return businessGet(url);
+        if (failing) throw new Error('offline');
+        return { data: (await readScheduled()).data };
+      };
+      const printsTheTime = async () => {
+        html = '';
         await usePrinterStore.getState().printKot({ ...deliveryOrder, ...timed });
-        assertEqualOrThrow(
-          html.includes('SCHEDULED'),
-          on,
-          `browser hook, scheduling ${on ? 'on' : 'off'}: the line ${on ? 'prints' : 'does not print'}`,
-        );
-      }
-      frontend.posSettings.usePosSettingsStore.setState({ kotShowScheduledTime: false });
+        return html.includes('SCHEDULED');
+      };
+      assertEqualOrThrow(await printsTheTime(), false, 'browser hook, scheduling off: no line');
+      assertOrThrow(
+        asked.includes('/settings/scheduled_orders_enabled'),
+        'the hook read the setting from its own endpoint',
+      );
+      await setScheduled('true');
+      assertEqualOrThrow(await printsTheTime(), true, 'switched on: the next print has the line');
+      failing = true;
+      assertEqualOrThrow(await printsTheTime(), false, 'a failed read prints no line');
+      failing = false;
+
+      // A waiter is refused the business settings and still prints the time.
+      const ownerTenant = frontend.auth.useAuthStore.getState().currentTenant;
+      frontend.auth.useAuthStore.setState({
+        currentTenant: {
+          id: 1,
+          role: 'server',
+          country: 'US',
+          timezone: 'UTC',
+          permission_ids: ['pos.use', 'orders.read', 'orders.create'],
+        } as any,
+      });
+      const withBusiness = frontend.api.get;
+      frontend.api.get = async (url: string) => {
+        if (url === '/settings/business')
+          throw Object.assign(new Error('Forbidden'), { response: { status: 403 } });
+        return withBusiness(url);
+      };
+      assertEqualOrThrow(await printsTheTime(), true, 'a waiter prints the line too');
+      frontend.api.get = withBusiness;
+      frontend.auth.useAuthStore.setState({ currentTenant: ownerTenant });
+
+      await setScheduled('false');
+      assertEqualOrThrow(
+        await printsTheTime(),
+        false,
+        'switched off again: the next print has none',
+      );
+      asked.length = 0;
+      await usePrinterStore.getState().printKot(deliveryOrder);
+      assertOrThrow(
+        !asked.includes('/settings/scheduled_orders_enabled'),
+        'an order with no time does not ask',
+      );
+      frontend.api.get = businessGet;
 
       // The same hook with a WebUSB printer connected sends ESC/POS bytes instead.
       let bytes = new Uint8Array();

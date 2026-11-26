@@ -91,4 +91,20 @@ runCases('pizza-order-types', {
     assertOrThrow('tablesRequired' in saved, 'while other settings are still kept');
     store().hydrateReceiptSettings({ pos_order_types: [] });
   },
+
+  'Case 6: signing out or changing store empties the list, so the next store starts unrestricted':
+    () => {
+      require('../frontend/src/hooks/useReceiptSettingsSync');
+      const { useAuthStore } = require('../frontend/src/store/auth');
+      const tenant = (id: number) => ({ id, role: 'owner', country: 'CA', timezone: 'UTC' });
+      useAuthStore.setState({ currentTenant: tenant(1) });
+      store().hydrateReceiptSettings({ pos_order_types: COUNTER });
+      useAuthStore.setState({ currentTenant: { ...tenant(1) } });
+      same(store().posOrderTypes, COUNTER, 'the same store keeps its list');
+      useAuthStore.setState({ currentTenant: tenant(2) });
+      same(store().posOrderTypes, [], 'another store does not inherit it');
+      store().hydrateReceiptSettings({ pos_order_types: COUNTER });
+      useAuthStore.setState({ currentTenant: null });
+      same(store().posOrderTypes, [], 'signing out empties it');
+    },
 });

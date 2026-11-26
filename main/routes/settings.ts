@@ -300,7 +300,6 @@ function businessShape(s: Record<string, string>) {
       s.kot_show_customer_contact === 'delivery'
         ? 'delivery'
         : s.kot_show_customer_contact === 'true',
-    scheduled_orders_enabled: s.scheduled_orders_enabled === 'true',
     pos_order_types: (s.pos_order_types || '')
       .split(',')
       .map((type) => type.trim())
