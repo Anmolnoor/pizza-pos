@@ -10,7 +10,11 @@ import { directionalText, isKotItemPending, type DirectionalText } from '@print/
 import { orderItemDetailLines } from '@/lib/pizza/detail-lines';
 import { kotContactLines } from '@print/kot-contact';
 import { containsRtlScript } from '@print/direction';
-import { normalizePrinterTextSize, type PrinterTextSize } from '@print/text-size';
+import {
+  layoutColumnsForTextSize,
+  normalizePrinterTextSize,
+  type PrinterTextSize,
+} from '@print/text-size';
 import { columnsForReceiptPaperSize } from '@print/width';
 import type { TextDirection } from '@print/types';
 import { usePosSettingsStore } from '@/store/pos-settings';
@@ -22,7 +26,7 @@ import { formatItemHeading } from './item-heading';
 export interface KotWebPrintOptions {
   /** 58 mm or 80mm paper. Controls font sizing. Default: 58 */
   paperWidth?: 58 | 80;
-  /** Columns a pizza's detail lines are wrapped for. Default: the paper's own count. */
+  /** Columns at normal text size, for wrapping a pizza's detail lines. Default: the paper's own. */
   columns?: number;
   /** Per-printer text size ('normal' | 'large' | 'extra_large'). Default: 'normal'. */
   textSize?: PrinterTextSize;
@@ -225,7 +229,7 @@ export function generateKotHtml(order: Order, opts: KotWebPrintOptions = {}): st
       quantity: Number(item.quantity) || 0,
       detailLines: orderItemDetailLines(
         item,
-        opts.columns ?? columnsForReceiptPaperSize(paperWidth),
+        layoutColumnsForTextSize(opts.columns ?? columnsForReceiptPaperSize(paperWidth), textSize),
       ),
       addons: (Array.isArray(item.addons) ? item.addons : []).filter((addon) => addon?.name),
       specialInstructions: item.special_instructions

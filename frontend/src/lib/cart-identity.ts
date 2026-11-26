@@ -1,6 +1,7 @@
 import type { Addon, CartItem } from './types';
 import { normalizeOverridePrice } from './cart-price';
 import { recipeKey } from '../../../shared/pizza/recipe';
+import { lineRecipe } from './pizza/line-recipe';
 import type { OrderLineRecipe } from '../../../shared/pizza/types';
 
 /** Serializes cart identity into a typed, sorted canonical representation. */
@@ -80,7 +81,9 @@ export function generateCartItemId(
     return 0;
   });
 
-  return `cart-v3:${lineDigest(canonicalize({ productId, variantId, addons: sortedAddons, specialInstructions, ...(priceOverride ? { priceOverride: { price: normalizeOverridePrice(priceOverride.price), reason: priceOverride.reason } } : {}), ...(recipe ? { recipe: recipeKey(recipe) } : {}) }))}`;
+  const keyed = lineRecipe(recipe);
+
+  return `cart-v3:${lineDigest(canonicalize({ productId, variantId, addons: sortedAddons, specialInstructions, ...(priceOverride ? { priceOverride: { price: normalizeOverridePrice(priceOverride.price), reason: priceOverride.reason } } : {}), ...(keyed ? { recipe: recipeKey(keyed) } : {}) }))}`;
 }
 
 /** Normalize persisted/held cart lines to the current identity format. */

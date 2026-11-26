@@ -25,7 +25,7 @@ This branch sits on the pizza core (`shared/pizza/`: `validateRecipe`, `recipeKe
 - The displayed unit price needs no change (the variant and add-ons already price it): prove that with a test rather than adding code.
 - A cart line exposes its detail lines for display (from `ticketLines` at a fixed width suited to the cart panel).
 
-**4. Browser print paths and the kitchen display data.** The print layer already prints an item's `detailLines`. Fill them from the item's `modifier_selection` and the catalogue with `ticketLines` in the browser paths: `frontend/src/lib/printer/kot-encoder.ts`, `print-document.ts` (kitchen ticket and bill documents), `kot-web-print.ts` and `receipt-encoder.ts`. Add one helper, used by those and by the kitchen display, that turns an order item into its detail lines. With no catalogue loaded, or an item with no recipe, output is unchanged.
+**4. Browser print paths and the kitchen display data.** The print layer already prints an item's `detailLines`. Fill them from the item's `modifier_selection` and the catalogue with `ticketLines` in the browser paths: `frontend/src/lib/printer/kot-encoder.ts`, `print-document.ts` (kitchen ticket and bill documents), `kot-web-print.ts` and `receipt-encoder.ts`. Add one helper, used by those, that turns an order item into its detail lines. With no catalogue loaded, or an item with no recipe, output is unchanged.
 
 ## Not in this lane
 

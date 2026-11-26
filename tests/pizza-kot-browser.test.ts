@@ -24,6 +24,9 @@ const pizzaCatalog = () => require('../frontend/src/lib/pizza/catalog');
 const catalog = parseMenuFile(sample);
 const INDENT = '   ';
 const COLUMNS = [42, 48];
+/** 58 mm paper prints 32 columns; the wider counts are 80 mm paper. */
+const BASELINE_COLUMNS = [32, ...COLUMNS];
+const paperOf = (columns: number) => (columns === 32 ? 58 : 80);
 
 const part = (pizzaId: string, removed: string[] = []) => ({ pizzaId, removed });
 const HALF_AND_HALF = {
@@ -94,7 +97,13 @@ const plainOrder = orderWith([item(1, 'Half & Half'), item(2, 'Large Pizzas & Wi
 const browserKot = (order: any, columns: number): Uint8Array =>
   frontend.kotEncoder.buildKotBytes(
     order,
-    { columns, paperWidth: 80, stationName: 'Kitchen', language: 'en', timezone: 'UTC' },
+    {
+      columns,
+      paperWidth: paperOf(columns),
+      stationName: 'Kitchen',
+      language: 'en',
+      timezone: 'UTC',
+    },
     [],
   );
 const rasterKotDocument = (order: any, columns: number) =>
@@ -104,17 +113,17 @@ const rasterKotDocument = (order: any, columns: number) =>
     language: 'en',
     timezone: 'UTC',
   });
-const htmlKot = (order: any, columns?: number): string =>
+const htmlKot = (order: any, options: object = {}): string =>
   frontend.kotWebPrint.generateKotHtml(order, {
     paperWidth: 80,
     language: 'en',
     stationName: 'Kitchen',
     timezone: 'UTC',
-    ...(columns ? { columns } : {}),
+    ...options,
   });
 const receiptOptions = (columns: number) => ({
   columns,
-  paperWidth: 80 as const,
+  paperWidth: paperOf(columns),
   languages: ['en'] as const,
 });
 const receipts: Record<string, (order: any, columns: number) => Uint8Array> = {
@@ -148,6 +157,11 @@ const sha = (value: Uint8Array | string): string =>
  */
 const BASELINE: Record<string, string> = {
   'kitchen ticket, browser HTML': '1fb411bc9075d737',
+  'kitchen ticket, browser HTML, 58 mm': 'd16488b262059ba0',
+  'kitchen ticket, browser ESC/POS, 32 columns': '4df009d02493d810',
+  'kitchen ticket, raster document, 32 columns': 'c3fa2399a45058d8',
+  'receipt, browser classic, 32 columns': '72c6518f817a437c',
+  'receipt, browser compact, 32 columns': '9830477e7f96173f',
   'kitchen ticket, browser ESC/POS, 42 columns': 'a4580e20d495a1ac',
   'kitchen ticket, raster document, 42 columns': 'c3fa2399a45058d8',
   'receipt, browser classic, 42 columns': 'ea71a9c9fc44ed96',
@@ -159,8 +173,11 @@ const BASELINE: Record<string, string> = {
 };
 
 function outputs(order: any): Record<string, string> {
-  const result: Record<string, string> = { 'kitchen ticket, browser HTML': sha(htmlKot(order)) };
-  for (const columns of COLUMNS) {
+  const result: Record<string, string> = {
+    'kitchen ticket, browser HTML': sha(htmlKot(order)),
+    'kitchen ticket, browser HTML, 58 mm': sha(htmlKot(order, { paperWidth: 58 })),
+  };
+  for (const columns of BASELINE_COLUMNS) {
     result[`kitchen ticket, browser ESC/POS, ${columns} columns`] = sha(browserKot(order, columns));
     result[`kitchen ticket, raster document, ${columns} columns`] = sha(
       JSON.stringify(rasterKotDocument(order, columns)),
@@ -214,6 +231,23 @@ function printsUnderEachItem(printed: string[], columns: number, path: string) {
       addon >= first + lines.length,
       `${path} ${columns}: the add-on of "${name}" prints after its detail lines`,
     );
+    cursor = addon;
+  });
+}
+
+/** Asserts that the HTML ticket carries each item's lines for this many columns, in order. */
+function htmlCarries(html: string, columns: number, label: string) {
+  let cursor = 0;
+  expected(columns).forEach((lines, index) => {
+    cursor = html.indexOf(escapeHtml(RECIPE_ITEMS[index].name), cursor);
+    assertOrThrow(cursor >= 0, `${label}: the heading of item ${index + 1} is present`);
+    for (const line of lines) {
+      const at = html.indexOf(`>${escapeHtml(line)}<`, cursor);
+      assertOrThrow(at > cursor, `${label}: "${line}" follows in order, unchanged`);
+      cursor = at;
+    }
+    const addon = html.indexOf('Garlic', cursor);
+    assertOrThrow(addon > cursor, `${label}: the add-on follows the detail lines`);
     cursor = addon;
   });
 }
@@ -305,24 +339,29 @@ runCases('pizza-kot-browser', {
 
   'Case 7: the browser HTML ticket carries the same lines': () => {
     for (const columns of COLUMNS) {
-      const html = htmlKot(recipeOrder, columns);
-      let cursor = 0;
-      expected(columns).forEach((lines, index) => {
-        cursor = html.indexOf(escapeHtml(RECIPE_ITEMS[index].name), cursor);
-        assertOrThrow(cursor >= 0, `html ${columns}: the heading of item ${index + 1} is present`);
-        for (const line of lines) {
-          const at = html.indexOf(`>${escapeHtml(line)}<`, cursor);
-          assertOrThrow(at > cursor, `html ${columns}: "${line}" follows in order, unchanged`);
-          cursor = at;
-        }
-        const addon = html.indexOf('Garlic', cursor);
-        assertOrThrow(addon > cursor, `html ${columns}: the add-on follows the detail lines`);
-        cursor = addon;
-      });
+      htmlCarries(htmlKot(recipeOrder, { columns }), columns, `html ${columns}`);
     }
-    assertOrThrow(
-      htmlKot(recipeOrder).includes(`>${expected(42)[0][3]}<`),
-      'html: without a column count, 80 mm paper wraps as 42 columns',
+    htmlCarries(htmlKot(recipeOrder), 42, 'html, 80 mm paper and no column count');
+    htmlCarries(htmlKot(recipeOrder, { paperWidth: 58 }), 32, 'html, 58 mm paper');
+  },
+
+  'Case 7b: the HTML ticket wraps for the columns its text size leaves': () => {
+    for (const columns of COLUMNS) {
+      htmlCarries(
+        htmlKot(recipeOrder, { columns, textSize: 'large' }),
+        columns,
+        `html ${columns}, large text keeps every column`,
+      );
+      htmlCarries(
+        htmlKot(recipeOrder, { columns, textSize: 'extra_large' }),
+        columns / 2,
+        `html ${columns}, extra large text has half the columns`,
+      );
+    }
+    htmlCarries(
+      htmlKot(recipeOrder, { paperWidth: 58, textSize: 'extra_large' }),
+      16,
+      'html, 58 mm paper at extra large text',
     );
   },
 

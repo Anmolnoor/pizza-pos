@@ -3,6 +3,7 @@ import type { Customer, Product, Addon, CartItem, ProductVariant } from '@/lib/t
 import type { OrderLineRecipe } from '../../../shared/pizza/types';
 import { generateCartItemId, normalizeCartItems } from '@/lib/cart-identity';
 import { cartLineUnitPrice, normalizeOverridePrice } from '@/lib/cart-price';
+import { recipeForVariant } from '@/lib/pizza/line-recipe';
 import { onSessionBoundary } from './session-events';
 
 export { generateCartItemId, normalizeCartItems } from '@/lib/cart-identity';
@@ -177,13 +178,14 @@ export const useCartStore = create<CartState>((set, get) => ({
 
     // Omitting the variant keeps the one already chosen on the line.
     const nextVariant = variant === undefined ? (target.variant ?? null) : variant;
+    const recipe = recipeForVariant(target.recipe, target.product.id, nextVariant?.id);
     const newId = generateCartItemId(
       target.product.id,
       nextVariant?.id ?? null,
       addons,
       specialInstructions,
       target.price_override,
-      target.recipe,
+      recipe,
     );
     if (newId === cartItemId) {
       set({
@@ -221,6 +223,7 @@ export const useCartStore = create<CartState>((set, get) => ({
                 addons,
                 special_instructions: specialInstructions,
                 variant: nextVariant,
+                ...(recipe ? { recipe } : {}),
               }
             : i,
         ),

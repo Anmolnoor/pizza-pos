@@ -231,7 +231,8 @@ formats it with `ticketLines()` against the pizza catalogue the browser holds, a
 of the ticket or receipt being printed. `buildFrontendKotDocument`, the frontend
 `buildBillPrintData`, the browser kitchen-ticket encoder, and the HTML renderer all call it. The
 HTML ticket has no column grid, so it wraps for `KotWebPrintOptions.columns`, or for the paper
-size's own count when that is absent. When no catalogue is loaded, or the item has no recipe, the
+size's own count when that is absent, reduced by `layoutColumnsForTextSize()` for the ticket's
+text size as on the ESC/POS path. When no catalogue is loaded, or the item has no recipe, the
 helper answers `readDetailLines(item)`, and the output is byte for byte what it is without pizza
 logic. A recipe on the item takes the place of any `detailLines` it also carries; the two are
 never both printed.

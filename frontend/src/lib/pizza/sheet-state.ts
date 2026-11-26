@@ -9,6 +9,7 @@ import type {
   TicketLines,
 } from '../../../../shared/pizza/types';
 import type { CartItem } from '@/lib/types';
+import { lineRecipe } from './line-recipe';
 
 /** One side of the sheet: the pizza picked there and the ingredients taken off it. */
 export interface SheetHalf {
@@ -91,7 +92,7 @@ export function newSheet(
 /** The sheet for a pizza line already in the cart; null for a line that is not one pizza. */
 function sheetOf(line: SheetSourceLine): SheetState | null {
   const { recipe, product, variant } = line;
-  if (recipe?.kind === 'deal') return null;
+  if (!product.id.startsWith(PRODUCT_PREFIX) || recipe?.kind === 'deal') return null;
   const parts = recipe?.halves ?? [
     recipe?.whole ?? { pizzaId: product.id.slice(PRODUCT_PREFIX.length), removed: [] },
   ];
@@ -199,10 +200,9 @@ export function sheetLine(catalog: PizzaCatalog, state: SheetState, columns = 42
   );
   const size = catalog.sizes.find((entry) => entry.id === state.sizeId);
   const productId = pizza && PRODUCT_PREFIX + (pizza.whole?.pizzaId ?? 'half-and-half');
-  const plain = pizza?.whole?.removed.length === 0 && !pizza.cook && !pizza.cut;
 
   return {
-    recipe: plain ? null : pizza,
+    recipe: lineRecipe(pizza),
     productId,
     variantId: pizza && `${productId}-${pizza.sizeId}`,
     dips,

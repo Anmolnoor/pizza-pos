@@ -66,6 +66,17 @@ const CLASSIC_ISLAND = halves(part('classic'), part('island', ['Pineapple']));
 const GARDEN_TWICE = halves(part('garden', ['Olives', 'Onions']), part('garden'));
 const GARDEN_TWICE_TAPPED_BACKWARDS = halves(part('garden', ['Onions', 'Olives']), part('garden'));
 const NO_OLIVES = { kind: 'pizza', v: 1, sizeId: 'large', whole: part('garden', ['Olives']) };
+const PLAIN_GARDEN = { kind: 'pizza', v: 1, sizeId: 'large', whole: part('garden') };
+const PLAIN_GARDEN_ID = 'cart-v3:3deb140d3dd95c1e';
+const MEDIUM = variant('pz-half-and-half', 'medium', 19);
+const MEDIUM_GARDEN = variant('pz-garden', 'medium', 19);
+const ranch = (quantity: number): any => ({
+  ...dip(),
+  id: 'ad-dips-ranch',
+  name: 'Ranch',
+  quantity,
+});
+const medium = (recipe: object) => ({ ...recipe, sizeId: 'medium' });
 
 const cart = () => useCartStore.getState();
 const lineOf = (recipe: object | undefined, more: object = {}): any => ({
@@ -92,6 +103,16 @@ const fingerprint = (items: unknown[]) =>
     waivedChargeIds: new Set(),
     optedInChargeIds: new Set(),
   });
+
+function deferred() {
+  let resolve: (value: unknown) => void = () => {};
+  let reject: (reason: unknown) => void = () => {};
+  const promise = new Promise((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  return { promise, resolve, reject };
+}
 
 function stubCatalogRoute(answer: () => Promise<unknown>) {
   const originalGet = frontend.api.get;
@@ -469,6 +490,96 @@ runCases('pizza-cart-store', {
     }
   },
 
+  'Case 10b: a reload after a 404 gives the catalogue, and only the latest answer is kept':
+    async () => {
+      const { getPizzaCatalog, loadPizzaCatalog, reloadPizzaCatalog } = pizzaCatalog();
+      const smaller = { ...catalog, deals: [] };
+      let answer: () => Promise<unknown> = () => Promise.reject({ response: { status: 404 } });
+      const route = stubCatalogRoute(() => answer());
+      try {
+        assertEqualOrThrow(await reloadPizzaCatalog(), null, 'no pizza menu yet');
+        answer = async () => ({ data: catalog });
+        assertEqualOrThrow(await loadPizzaCatalog(), null, 'a load still answers "no menu"');
+        assertOrThrow((await reloadPizzaCatalog()) === catalog, 'a reload after a 404 fetches');
+        assertOrThrow(getPizzaCatalog() === catalog, 'and the catalogue is held');
+
+        const older = deferred();
+        const newer = deferred();
+        const answers = [older.promise, newer.promise];
+        answer = () => answers.shift() as Promise<unknown>;
+        const first = reloadPizzaCatalog();
+        const second = reloadPizzaCatalog();
+        newer.resolve({ data: smaller });
+        await second;
+        older.resolve({ data: catalog });
+        await first;
+        assertOrThrow(getPizzaCatalog() === smaller, 'an older answer arriving late is ignored');
+
+        const lost = deferred();
+        const kept = deferred();
+        answers.push(lost.promise, kept.promise);
+        const failing = reloadPizzaCatalog();
+        const working = reloadPizzaCatalog();
+        kept.resolve({ data: catalog });
+        await working;
+        lost.reject({ response: { status: 404 } });
+        await failing;
+        assertOrThrow(getPizzaCatalog() === catalog, 'an older 404 arriving late is ignored too');
+        const calls = route.calls.length;
+        assertOrThrow((await loadPizzaCatalog()) === catalog, 'the latest fetch stays the answer');
+        assertEqualOrThrow(route.calls.length, calls, 'with no further request');
+      } finally {
+        route.restore();
+      }
+    },
+
+  'Case 10c: a session boundary forgets the catalogue, and the next load fetches again':
+    async () => {
+      const { getPizzaCatalog, loadPizzaCatalog, reloadPizzaCatalog } = pizzaCatalog();
+      const { notifySessionBoundary } = require('../frontend/src/store/session-events');
+      const smaller = { ...catalog, deals: [] };
+      let answer: () => Promise<unknown> = async () => ({ data: catalog });
+      const route = stubCatalogRoute(() => answer());
+      try {
+        await reloadPizzaCatalog();
+        assertOrThrow(getPizzaCatalog() === catalog, 'a catalogue is held');
+        notifySessionBoundary('logout');
+        assertEqualOrThrow(getPizzaCatalog(), null, 'signing out forgets it');
+        answer = async () => ({ data: smaller });
+        let calls = route.calls.length;
+        assertOrThrow((await loadPizzaCatalog()) === smaller, 'the next load fetches again');
+        assertEqualOrThrow(route.calls.length, calls + 1, 'with a request of its own');
+
+        answer = () => Promise.reject({ response: { status: 404 } });
+        assertEqualOrThrow(await reloadPizzaCatalog(), null, 'a shop with no pizza menu');
+        notifySessionBoundary('login');
+        answer = async () => ({ data: catalog });
+        assertOrThrow(
+          (await loadPizzaCatalog()) === catalog,
+          'a remembered "no menu" does not outlive the session',
+        );
+
+        const slow = deferred();
+        answer = () => slow.promise as Promise<unknown>;
+        const before = reloadPizzaCatalog();
+        notifySessionBoundary('logout');
+        slow.resolve({ data: smaller });
+        await before;
+        assertEqualOrThrow(
+          getPizzaCatalog(),
+          null,
+          'an answer from before the boundary is not kept',
+        );
+        answer = async () => ({ data: catalog });
+        calls = route.calls.length;
+        assertOrThrow((await loadPizzaCatalog()) === catalog, 'and the next load asks again');
+        assertEqualOrThrow(route.calls.length, calls + 1, 'with a request of its own');
+        notifySessionBoundary('logout');
+      } finally {
+        route.restore();
+      }
+    },
+
   'Case 11: a cart line gives its detail lines at the cart panel width': async () => {
     const { cartLineDetailLines, CART_DETAIL_COLUMNS } = detailLines();
     const { reloadPizzaCatalog } = pizzaCatalog();
@@ -504,5 +615,147 @@ runCases('pizza-cart-store', {
       'no line is wider than ticketLines allows at that width',
     );
     same(cartLineDetailLines(lineOf(undefined)), [], 'a line without a recipe shows nothing extra');
+  },
+
+  'Case 12: a pizza moved to another size takes its recipe with it': () => {
+    cart().clearCart();
+    cart().addItem(GARDEN, 1, [], '', LARGE_GARDEN, NO_OLIVES);
+    cart().addItem(HALF, 2, [], '', LARGE, ISLAND_CLASSIC);
+    const [whole, half] = cart().items;
+    cart().updateItemDetails(whole.id, 1, [], '', MEDIUM_GARDEN);
+    cart().updateItemDetails(half.id, 2, [], '', MEDIUM);
+    same(
+      cart().items.map((item: any) => [item.variant.id, item.recipe]),
+      [
+        ['pz-garden-medium', medium(NO_OLIVES)],
+        ['pz-half-and-half-medium', medium(ISLAND_CLASSIC)],
+      ],
+      'a whole pizza and a half and half both say medium in their recipes',
+    );
+    same(
+      cart().items.map((item: any) => item.id),
+      [
+        generateCartItemId(GARDEN.id, MEDIUM_GARDEN.id, [], '', undefined, medium(NO_OLIVES)),
+        generateCartItemId(HALF.id, MEDIUM.id, [], '', undefined, medium(ISLAND_CLASSIC)),
+      ],
+      'and each line takes the identity of the medium pizza',
+    );
+    assertOrThrow(
+      cart().items[0].id !== whole.id && cart().items[1].id !== half.id,
+      'which is not the identity it had',
+    );
+    assertEqualOrThrow(NO_OLIVES.sizeId, 'large', 'the recipe it was given is as it was');
+
+    cart().updateItemDetails(cart().items[0].id, 3, [], 'no box');
+    same(
+      [cart().items[0].quantity, cart().items[0].recipe],
+      [3, medium(NO_OLIVES)],
+      'an edit that leaves the size alone leaves the recipe alone',
+    );
+
+    cart().clearCart();
+    cart().addItem(GARDEN, 1, [], '', MEDIUM_GARDEN, medium(NO_OLIVES));
+    cart().addItem(GARDEN, 2, [], '', LARGE_GARDEN, NO_OLIVES);
+    cart().addItem(GARDEN, 1, [], '', LARGE_GARDEN);
+    cart().updateItemDetails(cart().items[1].id, 2, [], '', MEDIUM_GARDEN);
+    cart().updateItemDetails(cart().items[1].id, 1, [], '', MEDIUM_GARDEN);
+    same(
+      cart().items.map((item: any) => [item.quantity, item.variant.id, item.recipe]),
+      [
+        [3, 'pz-garden-medium', medium(NO_OLIVES)],
+        [1, 'pz-garden-medium', undefined],
+      ],
+      'a resized pizza joins the same pizza at that size; a plain pizza gains no recipe',
+    );
+  },
+
+  'Case 13: a plain whole pizza is the same line with or without its recipe': () => {
+    assertEqualOrThrow(
+      generateCartItemId(GARDEN.id, LARGE_GARDEN.id, [], '', undefined, PLAIN_GARDEN),
+      PLAIN_GARDEN_ID,
+      'a recipe that says nothing gives the id of no recipe',
+    );
+    for (const said of [
+      { cook: 'well-done' },
+      { cut: 'uncut' },
+      { whole: part('garden', ['Olives']) },
+    ]) {
+      assertOrThrow(
+        generateCartItemId(GARDEN.id, LARGE_GARDEN.id, [], '', undefined, {
+          ...PLAIN_GARDEN,
+          ...said,
+        }) !== PLAIN_GARDEN_ID,
+        `${json(said)} is not plain`,
+      );
+    }
+    assertOrThrow(
+      idOf(halves(part('garden'), part('classic'))) !== idOf(),
+      'a half and half is never plain',
+    );
+
+    for (const order of [
+      [PLAIN_GARDEN, undefined],
+      [undefined, PLAIN_GARDEN],
+    ]) {
+      cart().clearCart();
+      for (const recipe of order) cart().addItem(GARDEN, 1, [], '', LARGE_GARDEN, recipe);
+      same(
+        cart().items.map((item: any) => [item.id, item.quantity]),
+        [[PLAIN_GARDEN_ID, 2]],
+        'a plain pizza from a quick button and one from a tile are one 2x line',
+      );
+    }
+    same(
+      normalizeCartItems([
+        lineOf(PLAIN_GARDEN, { product: GARDEN, variant: LARGE_GARDEN }),
+        lineOf(undefined, { product: GARDEN, variant: LARGE_GARDEN, quantity: 2 }),
+      ]).map((item: any) => [item.id, item.quantity]),
+      [[PLAIN_GARDEN_ID, 3]],
+      'and they merge when a saved cart is restored',
+    );
+    same(
+      cartItemToOrderItem(lineOf(PLAIN_GARDEN, { product: GARDEN, variant: LARGE_GARDEN })),
+      {
+        product_id: 'pz-garden',
+        variant_id: 'pz-garden-large',
+        quantity: 1,
+        addons: null,
+        special_instructions: null,
+      },
+      'a plain pizza goes out with no modifier_selection',
+    );
+  },
+
+  'Case 14: a line opened in the sheet and saved unchanged keeps its identity': () => {
+    const { replaceCartLine } = cartLines();
+    const { newSheet, sheetReducer, sheetLine } = sheet();
+    cart().clearCart();
+    cart().addItem(HALF, 2, [dip(), ranch(2)], 'no box', LARGE, GARDEN_TWICE_TAPPED_BACKWARDS);
+    cart().addItem(GARDEN, 1, [ranch(1)], '', LARGE_GARDEN, { ...NO_OLIVES, cut: 'uncut' });
+    cart().addItem(GARDEN, 3, [dip()], '', LARGE_GARDEN);
+    const before = cart().items;
+    for (const line of before) {
+      const state = sheetReducer(newSheet(), { type: 'load', line });
+      const saved = sheetLine(catalog, state);
+      assertOrThrow(saved.canAdd, `${line.id}: the sheet accepts the line it loaded`);
+      assertEqualOrThrow(saved.productId, line.product.id, `${line.id}: the same product`);
+      assertEqualOrThrow(saved.variantId, line.variant.id, `${line.id}: the same variant`);
+      const edited = {
+        ...line,
+        quantity: state.quantity,
+        special_instructions: state.note,
+        recipe: saved.recipe,
+        addons: saved.dips.map((entry: any) => ({
+          ...line.addons.find((addon: any) => addon.id === entry.addonId),
+          quantity: entry.quantity,
+        })),
+      };
+      const after = replaceCartLine(before, line.id, edited);
+      same(
+        after.map((item: any) => [item.id, item.quantity]),
+        before.map((item: any) => [item.id, item.quantity]),
+        `${line.id}: every line has the id and quantity it had`,
+      );
+    }
   },
 });

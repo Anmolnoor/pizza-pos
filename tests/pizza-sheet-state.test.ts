@@ -443,6 +443,20 @@ runCases('pizza-sheet-state', {
       largeHalves(),
       'a deal line is not a pizza and leaves the sheet as it was',
     );
+    for (const [productId, variantId] of [
+      ['sd-wings', null],
+      ['dr-cola', 'dr-cola-can'],
+      ['dl-party', null],
+    ]) {
+      const other = cartLine(productId as string, variantId as any, {
+        variant: variantId ? { id: variantId, product_id: productId, name: 'x', price: 2 } : null,
+      });
+      same(
+        after(largeHalves(), { type: 'load', line: other }),
+        largeHalves(),
+        `${productId} is not a pizza and leaves the sheet as it was`,
+      );
+    }
   },
 
   'Case 9: the reducer never changes the state or the action it is given': () => {
