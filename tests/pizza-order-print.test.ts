@@ -409,6 +409,12 @@ async function main() {
         JSON.stringify({ ...dealSelection, pizzas: [half], total: undefined }),
         'a deal keeps its pizzas, pops and choices and nothing else',
       );
+      const noted = { ...half, cook: 'well-done', cut: 'uncut' };
+      assertEqualOrThrow(
+        JSON.stringify(project(noted)),
+        JSON.stringify(noted),
+        'the cook and cut notes of the format are kept',
+      );
       const malformed: Array<[why: string, selection: unknown]> = [
         ['another format version', { ...half, v: 2 }],
         ['a size that is not text', { ...half, sizeId: { price: 5 } }],
@@ -426,6 +432,13 @@ async function main() {
         ['a deal with no pizza list', { kind: 'deal', v: 1, dealId: 'party' }],
         ['a deal whose pizza is not a recipe', { ...dealSelection, pizzas: [{ kind: 'note' }] }],
         ['pops that are not counts', { ...dealSelection, pops: { cola: { a: 1 } } }],
+        ['pops as a list', { ...dealSelection, pops: [2] }],
+        ['pops as a number', { ...dealSelection, pops: 5 }],
+        ['pops as text', { ...dealSelection, pops: 'cola' }],
+        ['a count below zero', { ...dealSelection, pops: { cola: -1 } }],
+        ['a count that is not whole', { ...dealSelection, pops: { cola: 1.5 } }],
+        ['a cook note the format does not have', { ...half, cook: 'burnt' }],
+        ['a cut the format does not have', { ...half, cut: 'triangles' }],
         ['a wing flavour that is not text', { ...dealSelection, wingFlavour: ['hot'] }],
       ];
       for (const [why, selection] of malformed) {

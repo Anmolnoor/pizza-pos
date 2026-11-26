@@ -132,6 +132,18 @@ export function keepStoredRecipe(
 type Loose = Record<string, unknown> | null | undefined;
 const isText = (value: unknown): boolean => typeof value === 'string';
 const textOrAbsent = (value: unknown): boolean => value == null || isText(value);
+const oneOrAbsent = (value: unknown, ...allowed: string[]): boolean =>
+  value == null || allowed.includes(value as string);
+/** Absent, or a plain record of whole can counts: a list or a number would be copied as something else. */
+function isPops(pops: unknown): boolean {
+  if (pops == null) return true;
+  if (typeof pops !== 'object') return false;
+  const prototype = Object.getPrototypeOf(pops);
+  return (
+    (prototype === Object.prototype || prototype === null) &&
+    Object.values(pops).every((cans) => Number.isInteger(cans) && cans >= 0)
+  );
+}
 const isPart = (raw: unknown): boolean => {
   const part = raw as Loose;
   return isText(part?.pizzaId) && Array.isArray(part?.removed) && part.removed.every(isText);
@@ -146,7 +158,7 @@ function isRecipeShaped(raw: unknown): boolean {
       isText(recipe.dealId) &&
       Array.isArray(recipe.pizzas) &&
       recipe.pizzas.every((pizza) => (pizza as Loose)?.kind === 'pizza' && isRecipeShaped(pizza)) &&
-      Object.values(recipe.pops ?? {}).every((cans) => typeof cans === 'number') &&
+      isPops(recipe.pops) &&
       textOrAbsent(recipe.twoLitre) &&
       textOrAbsent(recipe.wingFlavour)
     );
@@ -156,8 +168,8 @@ function isRecipeShaped(raw: unknown): boolean {
     (whole == null
       ? Array.isArray(halves) && halves.length === 2 && halves.every(isPart)
       : halves == null && isPart(whole)) &&
-    textOrAbsent(recipe.cook) &&
-    textOrAbsent(recipe.cut)
+    oneOrAbsent(recipe.cook, 'well-done', 'light-bake') &&
+    oneOrAbsent(recipe.cut, 'square-cut', 'uncut')
   );
 }
 
