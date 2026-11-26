@@ -45,7 +45,13 @@ Upstream files get one-line hooks, not rewrites. A change to `main/db.ts`, `main
    Those tests run on Linux under Xvfb; `local-ci.sh` skips them on macOS.
 10. No real shop's name, address, phone number, items or prices in this repository. Tests and examples use
     `tests/fixtures/pizza-sample-menu.json`.
-11. If something fails, stop and report it with the output. No workarounds.
+11. On Linux, run tests that start Electron or a browser with `DBUS_SESSION_BUS_ADDRESS=disabled:` and a
+    private `XDG_RUNTIME_DIR`. Otherwise every launch registers a scope with the service manager of whoever
+    is logged in. `local-ci.sh` and `baseline.sh` do this themselves.
+12. Do not install the headless kit into a session someone is using. It was rehearsed twice on a developer's
+    live session and both times that session's service manager stopped starting jobs. See
+    [headless.md](headless.md).
+13. If something fails, stop and report it with the output. No workarounds.
 
 ## Running the backend without Electron
 

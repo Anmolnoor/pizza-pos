@@ -145,3 +145,17 @@ scripts/pizza/headless/uninstall.sh
 ```
 
 It stops and disables the service and the timer, deletes the three unit files and the settings file, reloads systemd, and fails if the service is still running. It also works when the kit is only partly installed, or not installed. The data folder and its backups stay; delete them yourself when you no longer need them. If you turned lingering on and no longer need it, `loginctl disable-linger`.
+
+## What has been checked, and what has not
+
+| Step | Checked how |
+| :--- | :--- |
+| Unit files, health, backup, restore, recovery steps | 21 test cases against a real headless server, with a stand-in for `systemctl` |
+| Install as a user service, health on fixed ports | Run for real on Fedora 45 (systemd 262) |
+| Install again with a changed port | Run for real: the server restarted on the new port |
+| Backup and restore through the real service manager | Run for real with the first version of the kit only |
+| Uninstall, and uninstall a second time | **Not run end to end** |
+| Start at boot with lingering, the timer firing at midnight, a tablet over the LAN, a real printer | Not checked |
+
+**Open risk.** Both rehearsals were on a developer's live desktop session, and both times that session's service manager stopped starting new jobs part-way through (jobs sat in "waiting"; `systemctl --user daemon-reexec` cleared it). That manager logged a resource-busy warning on every reload and had left a restart queued for nine minutes, so it may have been unhealthy already, but the kit has not been shown to be harmless on a healthy one. Rehearse it on the shop's machine, or on a clean Linux install, before relying on it, and check `systemctl --user list-jobs` is empty afterwards.
+
