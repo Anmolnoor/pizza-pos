@@ -68,10 +68,11 @@ useCartStore.subscribe((cart, before) => {
 
 /**
  * Every cart line can hold a folded line's tap target, which covers the line;
- * the line's own buttons stay above it.
+ * the line's own buttons stay above it. The row that follows the fold button,
+ * "Save as quick button", is folded away with the action row.
  */
 const LINE =
-  'relative isolate has-[[data-pizza-line-unfold]]:min-h-12 [&>div_button]:relative [&>div_button]:z-10';
+  'relative isolate has-[[data-pizza-line-unfold]]:min-h-12 [&>div_button]:relative [&>div_button]:z-10 [&>[data-pizza-line-unfold]+div]:hidden';
 const ADDED_LINE = 'bg-emerald-50 dark:bg-emerald-950/40';
 
 /** What the cart panel hooks the popup's mark and the folded rows in with. */

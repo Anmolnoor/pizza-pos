@@ -416,9 +416,11 @@ test('a dialog opened from the order over the popup takes Escape first', async (
   await expect(cartLines(page)).toHaveCount(2);
 });
 
-test('a deal line folds like a pizza line, and the quick-button row stays in reach on every line', async ({
+test('the save row shows on the unfolded line and is hidden on folded ones, and stays on ordinary lines', async ({
   page,
 }) => {
+  const saveRow = (name: string) =>
+    lineOf(page, name).getByRole('button', { name: 'Save as quick button' });
   await block(page, 'Deals').click();
   await page.getByTestId('pos-product-card').filter({ hasText: 'Pasta Night' }).click();
   const deal = page.getByRole('dialog', { name: 'Pasta Night' });
@@ -428,35 +430,62 @@ test('a deal line folds like a pizza line, and the quick-button row stays in rea
   await expect(deal).toBeHidden();
   await block(page, 'Pizzas').click();
   for (const name of ['Garden', 'Island']) await addLargePizza(page, name);
+  // With three lines nothing folds, and every line has its row.
+  for (const name of ['Pasta Night', 'Garden', 'Island']) await expect(saveRow(name)).toBeVisible();
+
   await block(page, 'Dips').click();
   await add(page, 'Dips', 'Ranch').click();
   await popupOf(page).getByRole('button', { name: 'Done' }).click();
   await expect(cartLines(page)).toHaveCount(4);
 
-  // The dip was touched last: the deal and both pizzas are folded.
+  // The dip was touched last: the deal and both pizzas are folded, and their rows are away.
   await expect(page.getByTestId('pizza-line-actions')).toHaveCount(0);
   await expect(lineOf(page, 'Pasta Night').getByTestId('pizza-line-unfold')).toHaveText('1x');
   await expect(lineOf(page, 'Pasta Night').getByTestId('pizza-line-detail').first()).toBeVisible();
-
-  // On a folded deal, a folded pizza and an ordinary line the row opens its dialog.
+  for (const name of ['Pasta Night', 'Garden', 'Island']) await expect(saveRow(name)).toBeHidden();
+  // An ordinary line keeps its row, and it opens the dialog.
   const saveButton = page.getByRole('dialog', { name: 'Save as quick button' });
-  for (const name of ['Pasta Night', 'Garden', 'Ranch']) {
-    const row = lineOf(page, name).getByRole('button', { name: 'Save as quick button' });
-    expect((await row.boundingBox())!.height).toBeGreaterThanOrEqual(48);
-    await row.click();
-    await expect(saveButton).toBeVisible();
-    await page.keyboard.press('Escape');
-    await expect(saveButton).toBeHidden();
-  }
-  await expect(page.getByTestId('pizza-line-actions')).toHaveCount(0);
-
-  // The folded deal unfolds on a tap, and its row is still in reach unfolded.
-  await lineOf(page, 'Pasta Night').click({ position: { x: 90, y: 12 } });
-  await expect(lineOf(page, 'Pasta Night').getByTestId('pizza-line-actions')).toBeVisible();
-  await lineOf(page, 'Pasta Night').getByRole('button', { name: 'Save as quick button' }).click();
+  expect((await saveRow('Ranch').boundingBox())!.height).toBeGreaterThanOrEqual(48);
+  await saveRow('Ranch').click();
   await expect(saveButton).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(saveButton).toBeHidden();
+
+  // Unfolding the deal brings its action row and its save row back, and folds nothing else open.
+  await lineOf(page, 'Pasta Night').click({ position: { x: 90, y: 12 } });
+  await expect(lineOf(page, 'Pasta Night').getByTestId('pizza-line-actions')).toBeVisible();
+  await saveRow('Pasta Night').click();
+  await expect(saveButton).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(saveButton).toBeHidden();
+  await expect(saveRow('Garden')).toBeHidden();
+  await expect(saveRow('Ranch')).toBeVisible();
+});
+
+test('five pizza lines fit the cart at iPad landscape without scrolling', async ({ page }) => {
+  for (const name of [
+    'Garden',
+    'Island',
+    'Classic Pepperoni',
+    'Smokehouse Chicken',
+    'Plain Cheese',
+  ])
+    await addLargePizza(page, name);
+  await expect(cartLines(page)).toHaveCount(5);
+  const last = lineOf(page, 'Plain Cheese');
+  await expect(last.getByTestId('pizza-line-actions')).toBeVisible();
+  const heights = await cartLines(page).evaluateAll((lines) =>
+    lines.map((line) => Math.round(line.getBoundingClientRect().height)),
+  );
+  const line = (await last.boundingBox())!;
+  const footer = (await page.getByTestId('cart-footer').boundingBox())!;
+  expect(
+    line.y + line.height,
+    `the last line ends above the cart footer (line heights ${heights.join(', ')})`,
+  ).toBeLessThanOrEqual(footer.y);
+  await expect(last.getByRole('button', { name: 'Save as quick button' })).toBeInViewport({
+    ratio: 1,
+  });
 });
 
 test('the Quick Buttons block keeps its place, and the popup opens over its page and gives it back', async ({
