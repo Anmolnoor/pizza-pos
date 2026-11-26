@@ -133,6 +133,19 @@ export function lineSubtotal(
     .toNumber();
 }
 
+/**
+ * A percentage or flat discount on a currency-rounded base, in exact decimal arithmetic, rounded
+ * half-up to the currency's precision and never more than the base.
+ */
+export function discountOn(base: number, type: unknown, value: number, decimals: number): number {
+  const baseDec = Decimal.max(0, new Decimal(Number(base) || 0));
+  const raw =
+    type === 'percentage' ? baseDec.mul(Number(value) || 0).div(100) : new Decimal(value || 0);
+  return Decimal.max(0, Decimal.min(raw, baseDec))
+    .toDecimalPlaces(decimals, Decimal.ROUND_HALF_UP)
+    .toNumber();
+}
+
 // Shared helper to retrieve the active country pack for tax calculation and categories API.
 export function getActiveCountryPack(country: string): CountryPack {
   try {
@@ -1613,11 +1626,10 @@ export async function calculateTaxPreview(req: any, res: any): Promise<void> {
           res.status(400).json({ error: 'discount_value must not exceed 100 percent' });
           return;
         }
-        discountAmount = subtotalDecimal.mul(parsedDiscount).div(100);
-      } else {
-        discountAmount = Decimal.min(new Decimal(parsedDiscount), subtotalDecimal);
       }
-      discountAmount = discountAmount.toDecimalPlaces(decimals, Decimal.ROUND_HALF_UP);
+      discountAmount = new Decimal(
+        discountOn(subtotalDecimal.toNumber(), discount_type, parsedDiscount, decimals),
+      );
     }
 
     let appliedCharges: AppliedCharge[] | undefined;

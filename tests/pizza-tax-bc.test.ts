@@ -462,6 +462,139 @@ async function main() {
       );
     });
 
+    await testCase(
+      '12. Five percent off three at $10.70 is $1.61 wherever it is applied',
+      async () => {
+        // 5% of 32.10 is 1.605, which rounds half-up to 1.61. In binary floating point the product
+        // falls just under the half cent and gives 1.60.
+        const side = productIds['Sample side'];
+        const db = getDatabase();
+        const items = [{ product_id: side, quantity: 3 }];
+        const five = { discount_type: 'percentage', discount_value: 5 };
+        const place = async (quantity: number) => {
+          const created = await api(baseUrl, '/api/orders', {
+            method: 'POST',
+            headers,
+            body: { type: 'takeaway', items: [{ product_id: side, quantity }] },
+          });
+          assertEqualOrThrow(created.status, 201, `an order of ${quantity} is created`);
+          return created.data.order;
+        };
+        const lines = (orderId: number) =>
+          JSON.stringify(
+            db
+              .prepare(
+                "SELECT quantity, discount_amount, subtotal, tax_amount FROM order_items WHERE order_id = ? AND status = 'pending'",
+              )
+              .all(orderId),
+          );
+        const discountedLine = JSON.stringify([
+          { quantity: 3, discount_amount: 1.61, subtotal: 30.49, tax_amount: 1.52 },
+        ]);
+
+        const onItem = await place(3);
+        const itemDiscount = await api(
+          baseUrl,
+          `/api/orders/${onItem.id}/items/${onItem.items[0].id}/discount`,
+          { method: 'POST', headers, body: five },
+        );
+        assertEqualOrThrow(itemDiscount.status, 200, 'item discount: applied');
+        assertEqualOrThrow(
+          lines(onItem.id),
+          discountedLine,
+          'item discount: 1.61 off, GST on 30.49',
+        );
+
+        const grown = await place(1);
+        const one = await api(
+          baseUrl,
+          `/api/orders/${grown.id}/items/${grown.items[0].id}/discount`,
+          { method: 'POST', headers, body: five },
+        );
+        assertEqualOrThrow(one.status, 200, 'quantity edit: one is discounted first');
+        const version = (
+          db
+            .prepare(
+              'SELECT COALESCE(MAX(id), 0) AS v FROM order_audit_log WHERE order_id = ? AND order_item_id = ?',
+            )
+            .get(grown.id, grown.items[0].id) as any
+        ).v;
+        const edited = await api(
+          baseUrl,
+          `/api/orders/${grown.id}/items/${grown.items[0].id}/edit`,
+          {
+            method: 'PATCH',
+            headers: { ...headers, 'Idempotency-Key': 'pizza-tax-bc-discount-three' },
+            body: { expected_edit_version: version, quantity: 3 },
+          },
+        );
+        assertEqualOrThrow(edited.status, 200, 'quantity edit: one made three');
+        assertEqualOrThrow(lines(grown.id), discountedLine, 'quantity edit: the same line');
+
+        const preview = await api(baseUrl, '/api/tax/preview', {
+          method: 'POST',
+          headers,
+          body: { items, ...five },
+        });
+        assertEqualOrThrow(preview.status, 200, 'preview: answered');
+        const quoted = JSON.stringify([
+          preview.data.summary.discount_amount,
+          preview.data.summary.tax_amount,
+          preview.data.summary.total,
+        ]);
+        assertEqualOrThrow(quoted, '[1.61,1.53,32.02]', 'preview: 1.61 off, 30.49 + 1.53');
+        const stored = (table: string, id: number) => {
+          const row = db
+            .prepare(`SELECT discount_amount, tax_amount, total FROM ${table} WHERE id = ?`)
+            .get(id) as any;
+          return JSON.stringify([row.discount_amount, row.tax_amount, row.total]);
+        };
+
+        const onOrder = await place(3);
+        const orderDiscount = await api(baseUrl, `/api/orders/${onOrder.id}/discount`, {
+          method: 'POST',
+          headers,
+          body: five,
+        });
+        assertEqualOrThrow(orderDiscount.status, 200, 'order discount: applied');
+        assertEqualOrThrow(stored('orders', onOrder.id), quoted, 'order discount: as quoted');
+
+        const onBill = await place(3);
+        const bill = await api(baseUrl, '/api/bills/generate', {
+          method: 'POST',
+          headers,
+          body: { order_id: onBill.id },
+        });
+        assertEqualOrThrow(bill.status, 201, 'bill discount: the bill is generated');
+        const billDiscount = await api(baseUrl, `/api/bills/${bill.data.bill.id}/discount`, {
+          method: 'POST',
+          headers,
+          body: { type: 'percentage', value: 5 },
+        });
+        assertEqualOrThrow(billDiscount.status, 200, 'bill discount: applied');
+        assertEqualOrThrow(stored('bills', bill.data.bill.id), quoted, 'bill discount: as quoted');
+
+        // A later change to the order works the order discount out again.
+        const added = await api(baseUrl, `/api/orders/${onOrder.id}/items`, {
+          method: 'POST',
+          headers,
+          body: { items: [{ product_id: productIds['Sample gift card'], quantity: 1 }] },
+        });
+        assertEqualOrThrow(added.status, 200, 'recalculation: an untaxed 10.00 is added');
+        const cancelled = await api(
+          baseUrl,
+          `/api/orders/${onOrder.id}/items/${added.data.added_item_ids[0]}/cancel`,
+          {
+            method: 'PATCH',
+            headers: { ...headers, 'Idempotency-Key': 'pizza-tax-bc-discount-cancel' },
+            body: {},
+          },
+        );
+        assertEqualOrThrow(cancelled.status, 200, 'recalculation: and taken off again');
+        assertEqualOrThrow(stored('orders', onOrder.id), quoted, 'recalculation: back to 1.61 off');
+      },
+    );
+
     await testCase('9. The tax configuration is recorded as the owner saving it', () => {
       const audit = getDatabase()
         .prepare(

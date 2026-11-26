@@ -34,6 +34,7 @@ import {
   getConfiguredChargeTaxCategories,
   getCountryPackByVersion,
   invertTaxBreakdown,
+  discountOn,
   invertTaxSnapshot,
   lineSubtotal,
   normalizeChargeAmount,
@@ -1323,7 +1324,7 @@ function resolveOrderLevelDiscountAmount(
   const configuredValue = Number(order.discount_value || 0);
   if (order.discount_type === 'percentage') {
     if (configuredValue > 0) {
-      return Math.min(subtotal, Number(((subtotal * configuredValue) / 100).toFixed(decimals)));
+      return discountOn(subtotal, 'percentage', configuredValue, decimals);
     }
     const previousSubtotal = Number(order.subtotal || 0);
     if (existingDiscountAmount > 0 && previousSubtotal > 0) {
@@ -5044,15 +5045,10 @@ const handleOrderDiscount = asyncHandler(async (req: Request, res: Response) => 
       const totals = calculateOrderTotals(db, req.params.id as string);
 
       // Calculate discount amount
-      let discountAmount = 0;
-      if (discount_value > 0) {
-        if (discount_type === 'percentage') {
-          discountAmount = (totals.subtotal * discount_value) / 100;
-        } else {
-          discountAmount = Math.min(discount_value, totals.subtotal);
-        }
-        discountAmount = Number(discountAmount.toFixed(decimals));
-      }
+      const discountAmount =
+        discount_value > 0
+          ? discountOn(totals.subtotal, discount_type, discount_value, decimals)
+          : 0;
 
       const engineCharges = resolveEngineCharges(currentOrder, totals.subtotal, discountAmount);
       const {
@@ -5530,19 +5526,19 @@ const handleItemDiscount = asyncHandler(async (req: Request, res: Response) => {
       const addonRows = db
         .prepare('SELECT price, quantity FROM order_item_addons WHERE order_item_id = ?')
         .all(currentItem.id) as { price: number; quantity?: number }[];
-      const addonTotal = addonRows.reduce(
-        (sum, addon) => sum + (addon.price || 0) * (addon.quantity || 1) * currentItem.quantity,
+      const freshItemBaseTotal = lineSubtotal(
+        currentItem.unit_price,
+        currentItem.quantity,
+        addonRows,
         0,
+        decimals,
       );
-      const freshItemBaseTotal = currentItem.unit_price * currentItem.quantity + addonTotal;
-
-      let discountAmount: number;
-      if (discount_type === 'percentage') {
-        discountAmount = (freshItemBaseTotal * discount_value) / 100;
-      } else {
-        discountAmount = Math.min(discount_value, freshItemBaseTotal);
-      }
-      discountAmount = Number(discountAmount.toFixed(decimals));
+      const discountAmount = discountOn(
+        freshItemBaseTotal,
+        discount_type,
+        discount_value,
+        decimals,
+      );
 
       // Recalculate item subtotal after discount
       const newSubtotal = lineSubtotal(
@@ -6188,14 +6184,11 @@ function resolveEditedItemDiscountAmount(
   if (existingDiscount <= 0) return 0;
   const details = getAppliedItemDiscountDetails(db, oldItem.id);
   if (details?.discount_type === 'percentage') {
-    return Math.min(
-      itemBaseTotal,
-      Number(((itemBaseTotal * details.discount_value) / 100).toFixed(decimals)),
-    );
+    return discountOn(itemBaseTotal, 'percentage', details.discount_value, decimals);
   }
   if (details?.discount_type === 'amount') {
     if (extraLineOnly) return 0;
-    return Math.min(itemBaseTotal, Number(details.discount_value.toFixed(decimals)));
+    return discountOn(itemBaseTotal, 'amount', details.discount_value, decimals);
   }
   if (extraLineOnly) return 0;
   const scaled =
@@ -6817,12 +6810,8 @@ router.patch(
           }
           validateProductQuantity(product, newQuantity);
 
-          const addonPerUnitTotal = oldAddons.reduce(
-            (sum, addon) => sum + Number(addon.price || 0) * Number(addon.quantity || 1),
-            0,
-          );
           const unitPrice = Number(oldItem.unit_price);
-          const itemBaseTotal = (unitPrice + addonPerUnitTotal) * newQuantity;
+          const itemBaseTotal = lineSubtotal(unitPrice, newQuantity, oldAddons, 0, decimals);
           const itemDiscount = resolveEditedItemDiscountAmount(
             db,
             oldItem,
@@ -7004,12 +6993,13 @@ router.patch(
             ? getAppliedItemDiscountDetails(db, oldItem.id)
             : null;
           if (preserveUnitPrice) {
-            const addonPerUnitTotal = (newItem.addons || []).reduce(
-              (sum, addon) => sum + Number(addon?.price || 0) * Number(addon?.quantity || 1),
+            const itemBaseTotal = lineSubtotal(
+              Number(newItem.unit_price),
+              Number(newItem.quantity),
+              newItem.addons,
               0,
+              decimals,
             );
-            const itemBaseTotal =
-              (Number(newItem.unit_price) + addonPerUnitTotal) * Number(newItem.quantity);
             newItem.discount_amount = resolveEditedItemDiscountAmount(
               db,
               oldItem,
