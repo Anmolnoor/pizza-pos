@@ -605,6 +605,42 @@ test("a Half & Half priced apart shows its own prices beside the pizzas' legend"
   await shot(page, 'full-menu-half-priced-apart.png');
 });
 
+test('a long custom size label wraps in the legend without overflowing sideways', async ({
+  page,
+}) => {
+  const LONG_SIZE =
+    'Super Ultra Mega Party Family Banquet Feast Celebration Special Edition Extra Giant Pizza Size';
+  await page.route(
+    (url) => url.pathname === '/api/products',
+    async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      for (const product of body.products)
+        if (product.id.startsWith('pz-'))
+          for (const variant of product.variants)
+            if (variant.name === 'Large') variant.name = LONG_SIZE;
+      await route.fulfill({ response, json: body });
+    },
+  );
+  await page.reload();
+  const legend = halfTile(page).getByTestId('pizza-price-legend');
+  await expect(legend).toContainText(LONG_SIZE);
+  const scroller = page.getByTestId('pos-catalog-scroll');
+  const overflow = await scroller.evaluate((el) => el.scrollWidth - el.clientWidth);
+  expect(overflow, 'the catalog does not scroll sideways').toBeLessThanOrEqual(0);
+  const priceBox = await legend
+    .locator('span')
+    .filter({ hasText: money(SIZES[2].price) })
+    .last()
+    .boundingBox();
+  const scrollerBox = (await scroller.boundingBox())!;
+  expect(priceBox, 'the price amount is rendered').not.toBeNull();
+  expect(priceBox!.x + priceBox!.width, 'the price fits inside the scrollport').toBeLessThanOrEqual(
+    scrollerBox.x + scrollerBox.width + 0.5,
+  );
+  expect(priceBox!.height, 'the price stays on one line').toBeLessThanOrEqual(24);
+});
+
 test('a wide screen stops at five columns', async ({ page }) => {
   const tiles = page.getByTestId('pizza-tile');
   for (const width of [1600, 1920, 2560]) {

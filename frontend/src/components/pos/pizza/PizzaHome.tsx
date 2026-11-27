@@ -109,7 +109,7 @@ function SizeButtons({
   const variants = activeVariants(product.variants);
   return (
     // More sizes than a tile is wide wrap to a second row; each button keeps its 48 px.
-    <div className={cn('flex flex-wrap gap-1', className)}>
+    <div className={cn('flex min-w-0 max-w-full flex-wrap gap-1', className)}>
       {variants.map((variant) => {
         const price = tilePrice(product, variant, standard, online);
         const soldOut = isVariantSoldOut(variant);
@@ -125,12 +125,14 @@ function SizeButtons({
               price: fmt(cartVariantUnitPrice({ product, variant }, online)),
             })}
             className={cn(
-              'group/size flex min-h-12 min-w-12 flex-1 flex-col items-center justify-center rounded-lg border border-border bg-muted/60 px-1 text-sm font-bold leading-tight text-foreground transition-colors hover:border-brand hover:bg-brand hover:text-white active:border-brand active:bg-brand active:text-white disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-muted/60 disabled:hover:text-foreground',
+              'group/size flex min-h-12 min-w-12 max-w-full flex-1 flex-col items-center justify-center rounded-lg border border-border bg-muted/60 px-1 text-center text-sm font-bold leading-tight break-words text-foreground transition-colors hover:border-brand hover:bg-brand hover:text-white active:border-brand active:bg-brand active:text-white disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-muted/60 disabled:hover:text-foreground',
               soldOut && 'line-through',
               FOCUS,
             )}
           >
-            {labels.get(variant.name) ?? variant.name}
+            <span className="max-w-full break-words">
+              {labels.get(variant.name) ?? variant.name}
+            </span>
             {/* Only a price that differs from the one in the Half & Half legend is shown. */}
             {price !== null && (
               <span className="text-[11px] tabular-nums text-brand group-enabled/size:group-hover/size:text-white group-enabled/size:group-active/size:text-white dark:text-indigo-300">
@@ -174,7 +176,7 @@ export function PizzaTile({
     <div
       data-testid="pizza-tile"
       className={cn(
-        'group flex flex-col rounded-xl border bg-card transition-colors',
+        'group flex min-w-0 flex-col rounded-xl border bg-card transition-colors',
         CUSTOMIZE_FOCUS,
         inCart > 0 ? 'border-brand' : 'border-border',
       )}
@@ -264,7 +266,7 @@ export function HalfAndHalfTile({
     <div
       ref={ref}
       data-testid="pizza-half-tile"
-      className="sticky top-0 z-20 col-span-full flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-border bg-muted p-1 ps-2 shadow-sm"
+      className="sticky top-0 z-20 col-span-full flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-border bg-muted p-1 ps-2 shadow-sm"
     >
       <div className="flex min-w-0 items-center gap-2">
         <span
@@ -288,14 +290,18 @@ export function HalfAndHalfTile({
       {standard.size > 0 && (
         <p
           data-testid="pizza-price-legend"
-          className="ms-auto flex flex-wrap items-center gap-x-2.5 pe-2 text-xs text-muted-foreground"
+          className="ms-auto flex min-w-0 max-w-full flex-wrap items-center gap-x-2.5 pe-2 text-xs text-muted-foreground"
         >
           <span className="font-medium">{t('standardPrices')}</span>
           {[...standard].map(([size, price]) => (
-            <span key={size} className="flex items-center gap-1 whitespace-nowrap">
-              <span aria-hidden>{labels.get(size) ?? size}</span>
+            <span key={size} className="inline-flex max-w-full flex-wrap items-center gap-x-1">
+              <span aria-hidden className="min-w-0 break-words">
+                {labels.get(size) ?? size}
+              </span>
               <span className="sr-only">{size}</span>
-              <span className="font-semibold tabular-nums text-foreground">{fmt(price)}</span>
+              <span className="whitespace-nowrap font-semibold tabular-nums text-foreground">
+                {fmt(price)}
+              </span>
             </span>
           ))}
         </p>
