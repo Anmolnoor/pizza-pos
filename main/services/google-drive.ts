@@ -4021,8 +4021,8 @@ class GoogleDriveService {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(
           error || !code || !stateMatches
-            ? '<html><body>Google Drive connection failed. Close this window and return to FloCafe.</body></html>'
-            : '<html><body>Google Drive connected. Close this window and return to FloCafe.</body></html>',
+            ? '<html><body>Google Drive connection failed. Close this window and return to Pizza POS.</body></html>'
+            : '<html><body>Google Drive connected. Close this window and return to Pizza POS.</body></html>',
         );
         if (error) return finish(() => reject(createDriveError('reauth_required')));
         if (!code || !stateMatches)
