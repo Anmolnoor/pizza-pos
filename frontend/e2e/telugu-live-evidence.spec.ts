@@ -42,7 +42,7 @@ test.describe('Live Telugu (te / te-IN) E2E verification across FloCafe surfaces
 
     await expect(page.locator('html')).toHaveAttribute('lang', 'te-IN');
     await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
-    await expect(page.getByText('FloCafe కు స్వాగతం')).toBeVisible();
+    await expect(page.getByText('Pizza POS కు స్వాగతం')).toBeVisible();
 
     await page.locator('.max-h-72 button').first().click();
     await page.screenshot({
