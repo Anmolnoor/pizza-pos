@@ -1817,7 +1817,7 @@ async function initialize(): Promise<void> {
         return;
       }
       try {
-        dialog.showErrorBox('Initialization Error', `Failed to start Flo: ${fatalStartupError}`);
+        dialog.showErrorBox('Initialization Error', `Failed to start Pizza POS: ${fatalStartupError}`);
       } catch (dialogError) {
         console.error('[Flo] Failed to display initialization error dialog:', dialogError);
       }

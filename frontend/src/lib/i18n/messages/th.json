@@ -2176,7 +2176,7 @@
     "googleDriveRemoteHistory": "ข้อมูลสำรองระยะไกลบน Drive",
     "googleDriveLoadingRemoteHistory": "กำลังโหลด...",
     "googleDriveRefreshRemoteHistory": "รีเฟรช",
-    "googleDriveNoRemoteBackups": "ไม่พบข้อมูลสำรองระยะไกลที่ FloCafe เป็นเจ้าของ",
+    "googleDriveNoRemoteBackups": "ไม่พบข้อมูลสำรองระยะไกลที่ Pizza POS เป็นเจ้าของ",
     "googleDriveRemoteHistoryFailed": "ไม่สามารถโหลดข้อมูลสำรองระยะไกลบน Drive ได้",
     "googleDriveAutomaticBadge": "อัตโนมัติ",
     "googleDriveManualBadge": "ด้วยตนเอง - เก็บไม่จำกัด",

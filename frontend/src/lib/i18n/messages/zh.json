@@ -2176,7 +2176,7 @@
     "googleDriveRemoteHistory": "远程 Drive 备份",
     "googleDriveLoadingRemoteHistory": "加载中…",
     "googleDriveRefreshRemoteHistory": "刷新",
-    "googleDriveNoRemoteBackups": "未找到 FloCafe 拥有的远程备份。",
+    "googleDriveNoRemoteBackups": "未找到 Pizza POS 拥有的远程备份。",
     "googleDriveRemoteHistoryFailed": "无法加载远程 Drive 备份",
     "googleDriveAutomaticBadge": "自动",
     "googleDriveManualBadge": "手动 - 永久保留",

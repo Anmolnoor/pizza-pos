@@ -2176,7 +2176,7 @@
     "googleDriveRemoteHistory": "Backups remotos do Drive",
     "googleDriveLoadingRemoteHistory": "Carregando...",
     "googleDriveRefreshRemoteHistory": "Atualizar",
-    "googleDriveNoRemoteBackups": "Nenhum backup remoto pertencente ao FloCafe foi encontrado.",
+    "googleDriveNoRemoteBackups": "Nenhum backup remoto pertencente ao Pizza POS foi encontrado.",
     "googleDriveRemoteHistoryFailed": "Não foi possível carregar os backups remotos do Drive",
     "googleDriveAutomaticBadge": "Automático",
     "googleDriveManualBadge": "Manual - mantido indefinidamente",

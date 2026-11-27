@@ -112,7 +112,7 @@ async function run(): Promise<void> {
     unmanagedResult,
     {
       success: false,
-      error: 'Restore source must be a Flo-managed backup file',
+      error: 'Restore source must be a Pizza POS-managed backup file',
     },
     'IPC rejects unmanaged external database path',
   );
@@ -123,7 +123,7 @@ async function run(): Promise<void> {
     invalidNameResult,
     {
       success: false,
-      error: 'Restore source must be a Flo-managed backup file',
+      error: 'Restore source must be a Pizza POS-managed backup file',
     },
     'IPC rejects unmanaged filename inside backups directory',
   );
@@ -139,7 +139,7 @@ async function run(): Promise<void> {
       symlinkResult,
       {
         success: false,
-        error: 'Restore source must be a Flo-managed backup file',
+        error: 'Restore source must be a Pizza POS-managed backup file',
       },
       'IPC rejects symlink escaping backups directory',
     );
@@ -167,7 +167,7 @@ async function run(): Promise<void> {
     {
       success: false,
       error:
-        'Invalid backup file: missing schema version metadata. This backup may have been created with an older version of FloDesktop.',
+        'Invalid backup file: missing schema version metadata. This backup may have been created with an older version of Pizza POS.',
     },
     'IPC allows managed backup path past the boundary to schema inspection',
   );
@@ -251,7 +251,7 @@ async function run(): Promise<void> {
     {
       success: false,
       error:
-        'Invalid backup file: missing schema version metadata. This backup may have been created with an older version of FloDesktop.',
+        'Invalid backup file: missing schema version metadata. This backup may have been created with an older version of Pizza POS.',
     },
     'IPC rejects zero metadata schema_version at preflight',
   );

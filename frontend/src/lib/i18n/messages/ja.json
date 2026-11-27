@@ -1489,7 +1489,7 @@
       "amount": "合計："
     },
     "test": {
-      "title": "Floプリンターテスト",
+      "title": "Pizza POSプリンターテスト",
       "networkUsb": "ネットワーク / USBテスト印刷",
       "columns": "列数",
       "wrapHint": "次の行が折り返される場合は、列数を小さくしてください。",
@@ -2176,7 +2176,7 @@
     "googleDriveRemoteHistory": "リモートDriveバックアップ",
     "googleDriveLoadingRemoteHistory": "読み込み中…",
     "googleDriveRefreshRemoteHistory": "更新",
-    "googleDriveNoRemoteBackups": "FloCafe所有のリモートバックアップが見つかりません。",
+    "googleDriveNoRemoteBackups": "Pizza POS所有のリモートバックアップが見つかりません。",
     "googleDriveRemoteHistoryFailed": "リモートDriveバックアップを読み込めませんでした",
     "googleDriveAutomaticBadge": "自動",
     "googleDriveManualBadge": "手動 - 無期限保持",
@@ -2196,7 +2196,7 @@
     "healthCheckReviewHint": "これらは自動適用されません。データの削除やカラム型の変更を伴う可能性があるため、このツール単独では実行しません。",
     "healthCheckSafeHeader": "自動修正可能（{count}）",
     "howItWorks": "仕組み:",
-    "howItWorksBody": "Floはポート3001で組み込みHTTPサーバーを実行します。/kdsのKDSページはWebSocketでリアルタイムの注文更新に接続します。アプリのインストールは不要で、同じネットワーク上の最新ブラウザーだけで利用できます。",
+    "howItWorksBody": "Pizza POSはポート3001で組み込みHTTPサーバーを実行します。/kdsのKDSページはWebSocketでリアルタイムの注文更新に接続します。アプリのインストールは不要で、同じネットワーク上の最新ブラウザーだけで利用できます。",
     "importDatabase": "マスク済みJSONをインポート",
     "importDatabaseHint": "Pizza POS JSONエクスポートからデータをインポートします。MacからWindowsへの移行や端末全体の移行には、バックアップの作成と復元を使用してください。",
     "importFailed": "インポートに失敗しました。Pizza POS JSONエクスポートで、対応するアップロードサイズ以内か確認してください。",
@@ -3566,7 +3566,7 @@
       "colReason": "理由",
       "colWhen": "日時",
       "defaultReason": "顧客がSTOPと返信",
-      "description": "ここに登録した番号にはFloからメッセージを送信しません。",
+      "description": "ここに登録した番号にはPizza POSからメッセージを送信しません。",
       "empty": "ブロックリストは空です。",
       "failed": "失敗しました。",
       "fromInboxSuccess": "{phone}をブロックしました。",
@@ -3593,7 +3593,7 @@
       "filterGroupsLabel": "WhatsAppグループからのメッセージを無視します（グループチャットで配信を依頼する人はいないため）。グループメッセージを受け付ける場合はチェックを外してください。",
       "pairingFailed": "ペアリングを開始できませんでした。",
       "pairingInstruction": "WhatsApp → 設定 → リンク済みデバイス → デバイスをリンク →「電話番号でリンク」をタップし、次を入力してください:",
-      "pairingMethodDescription": "電話でQRをスキャンできない場合に最適です。Floが8桁のコードを生成し、電話のWhatsAppに入力します。",
+      "pairingMethodDescription": "電話でQRをスキャンできない場合に最適です。Pizza POSが8桁のコードを生成し、電話のWhatsAppに入力します。",
       "pairingMethodTitle": "ペアリングコード",
       "pairingMethodWhere": "電話で: WhatsApp → 設定 → リンク済みデバイス → デバイスをリンク →「電話番号でリンク」をタップします。",
       "pairingPhoneLabel": "電話番号（国番号付き）",
@@ -3621,7 +3621,7 @@
       "cta": "WhatsAppを有効化",
       "description": "この端末とペアリングした電話から、支払い済みのレシートを顧客のWhatsAppへ直接送信します。",
       "failed": "有効化に失敗しました。",
-      "floHelps": "FloはSTOPリクエストを即時に尊重し、受信者ごとに1時間あたり4件までに制限し、短縮URLを拒否します。それでも、WhatsAppからの連絡を期待している顧客にのみ送信し、記録を最新に保ってください。ペアリングした番号が停止された場合、復旧できません。",
+      "floHelps": "Pizza POSはSTOPリクエストを即時に尊重し、受信者ごとに1時間あたり4件までに制限し、短縮URLを拒否します。それでも、WhatsAppからの連絡を期待している顧客にのみ送信し、記録を最新に保ってください。ペアリングした番号が停止された場合、復旧できません。",
       "riskNote": "メッセージはこの端末とペアリングした電話から送信されます。その番号を失うリスクはあなたが負います。WhatsAppはスパムや未承諾メッセージに使われた番号を停止し、停止は永久です。",
       "success": "WhatsAppを有効化しました。送信を開始するには電話を接続してください。",
       "title": "WhatsApp配信を有効化"
@@ -3665,7 +3665,7 @@
       "customerPhoneRequired": "送信する前にこの顧客の電話番号を追加してください。",
       "error": {
         "blocked": "この顧客はメッセージの受信停止を希望しています。WhatsApp → 接続でブロックリストを管理してください。",
-        "notConnected": "FloはWhatsAppに接続されていません。WhatsApp → 接続で再接続してください。",
+        "notConnected": "Pizza POSはWhatsAppに接続されていません。WhatsApp → 接続で再接続してください。",
         "notOnWhatsapp": "この電話番号はWhatsAppに登録されていません。顧客に番号を確認してください。",
         "rateLimited": "この番号への送信が最近多すぎます。"
       },
