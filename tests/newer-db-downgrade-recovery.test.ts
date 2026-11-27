@@ -66,8 +66,10 @@ const {
   restoreCompatibleBackupForDowngrade,
   SchemaVersionMismatchError,
 } = require('../main/db') as typeof import('../main/db');
-const { FLOCAFE_RELEASES_URL, runDowngradeRecoveryFlow } =
+const { RELEASES_URL, runDowngradeRecoveryFlow } =
   require('../main/downgrade-recovery') as typeof import('../main/downgrade-recovery');
+
+assert.equal(RELEASES_URL, 'https://github.com/Anmolnoor/pizza-pos/releases');
 const { getUserAuthStatus, isTokenRevoked, revokeToken } =
   require('../main/middleware/security') as typeof import('../main/middleware/security');
 const { clearJWTSecretCache, getJWTSecret, JWT_SECRET_SAFE_STORAGE_MARKER } =
@@ -690,7 +692,7 @@ async function run(): Promise<void> {
     });
     assert.deepEqual(noCompatibleOutcome, {
       outcome: 'opened_releases',
-      url: FLOCAFE_RELEASES_URL,
+      url: RELEASES_URL,
     });
     assert.equal(noCompatibleDialogs[1]?.title, 'No Compatible Backup Available');
     assert.deepEqual(noCompatibleDialogs[1]?.buttons, [
@@ -698,12 +700,12 @@ async function run(): Promise<void> {
       'Open Backups Folder',
       'Exit',
     ]);
-    assert.match(noCompatibleDialogs[1]?.detail || '', /require a newer Flo Cafe version/);
+    assert.match(noCompatibleDialogs[1]?.detail || '', /require a newer Pizza POS version/);
     assert.match(noCompatibleDialogs[1]?.detail || '', /failed integrity or schema validation/);
     assert.deepEqual(openedPaths, [backupDir], 'Open Backups Folder reveals backupDir');
     assert.deepEqual(
       openedUrls,
-      [FLOCAFE_RELEASES_URL],
+      [RELEASES_URL],
       'Get Latest Version opens official releases URL',
     );
     assert.equal(

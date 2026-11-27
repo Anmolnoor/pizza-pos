@@ -157,7 +157,7 @@ data:
    recovery flow compares the database schema version (and recorded app version when available)
    against the running build and offers four actions:
 
-   - **Get Latest Version** - opens `FLOCAFE_RELEASES_URL` in the system browser and exits with code
+   - **Get Latest Version** - opens `RELEASES_URL` in the system browser and exits with code
      `0` without modifying any files; if the browser cannot open, shows the URL in an error dialog
      and stays in recovery.
    - **Open Backups Folder** - opens `backups/` (or the database parent folder when `backups/` does
@@ -174,7 +174,7 @@ data:
      `schemaVersion <= getLatestSupportedSchemaVersion()` and a pizza version this build supports
      (a backup at a newer pizza version is classified with the newer backups). When no compatible
      valid backup exists,
-     the dialog reports whether backups are missing, require a newer FloCafe version, or failed
+     the dialog reports whether backups are missing, require a newer Pizza POS version, or failed
      validation, while keeping update, folder-open, and exit actions available. Restoring a selected
      backup requires explicit confirmation warning that orders, payments, inventory changes, and
      settings recorded after that backup are absent from the restored database and stating the

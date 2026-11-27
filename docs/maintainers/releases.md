@@ -1,6 +1,7 @@
 # Desktop releases
 
-FloCafe desktop releases use one electron-builder pipeline and publish to GitHub Releases for
+FloCafe desktop releases use one electron-builder pipeline and publish to the GitHub Releases of
+`Anmolnoor/pizza-pos` (`build.publish` in `package.json`, which is also the update feed) for
 Windows (NSIS), macOS (DMG and ZIP), and Linux (AppImage, deb, rpm, Snap). AppX and Mac App Store
 packages are produced by the same tag build and uploaded as GitHub release assets; they are not
 consumed by `electron-updater` and are not submitted to their stores by this pipeline. Snap Store

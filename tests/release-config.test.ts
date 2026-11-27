@@ -244,6 +244,11 @@ function run() {
     'electron-builder must support channel update manifests',
   );
   assert.equal(build?.publish?.provider, 'github', 'build.publish must target GitHub releases');
+  assert.deepEqual(
+    [build?.publish?.owner, build?.publish?.repo],
+    ['Anmolnoor', 'pizza-pos'],
+    'the updater must read this fork\'s releases, never upstream FloCafe',
+  );
 
   const macTargets = (build?.mac?.target || []).map((target: any) => target.target);
   assert.ok(macTargets.includes('zip'), 'mac build target must include zip for electron-updater');
