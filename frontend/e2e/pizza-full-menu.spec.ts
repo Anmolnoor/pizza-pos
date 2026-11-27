@@ -425,57 +425,124 @@ test('the price legend stays on screen at the end of the list', async ({ page })
 });
 
 /**
- * Shift+Tab from the last control of the list up to the first Customize, then Tab back down:
- * every control the focus reaches scrolls below the sticky Half & Half row, uncovered.
+ * Shift+Tab from the last control of the list up to the first one below the Half & Half row,
+ * then Tab back down: every control the focus reaches scrolls below that sticky row, uncovered.
  */
-async function keyboardClearsHalfRow(page: Page, sizes: number): Promise<void> {
-  const tiles = page.getByTestId('pizza-tile');
-  // Customize and one button per size on every tile, less the one the focus starts on.
-  const steps = PIZZAS * (sizes + 1) - 1;
-  await page.getByTestId('pos-catalog-scroll').evaluate((element) => {
+async function keyboardClearsHalfRow(page: Page): Promise<void> {
+  const list = page.getByTestId('pos-catalog-scroll');
+  const controls = list.locator('button:enabled:not([data-testid="pizza-half-tile"] button)');
+  const names = await controls.evaluateAll((all) =>
+    all.map((control) => control.getAttribute('aria-label') || control.textContent),
+  );
+  await list.evaluate((element) => {
     element.scrollTop = element.scrollHeight;
   });
-  await tiles.last().getByRole('button').last().focus();
-  /** Where the focused control sits, or null once focus has left the pizza tiles. */
+  await controls.last().focus();
+  /** Where the focused control sits, or null once focus has left the list below the row. */
   const focused = () =>
     page.evaluate(() => {
       const control = document.activeElement as HTMLElement | null;
-      if (!control?.closest('[data-testid="pizza-tile"]')) return null;
       const half = document.querySelector('[data-testid="pizza-half-tile"]')!;
+      if (!control?.closest('[data-testid="pos-catalog-scroll"]') || half.contains(control))
+        return null;
       const box = control.getBoundingClientRect();
       const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
       return {
-        name: control.getAttribute('aria-label'),
+        name: control.getAttribute('aria-label') || control.textContent,
         top: box.top,
         below: half.getBoundingClientRect().bottom,
         hit: !!hit && control.contains(hit),
       };
     });
   const check = async (key: string) => {
-    const seen: string[] = [];
-    for (let step = 0; step < steps; step += 1) {
+    const seen: (string | null)[] = [];
+    for (let step = 1; step < names.length; step += 1) {
       await page.keyboard.press(key);
       const at = await focused();
-      expect(at, `${key} ${step + 1} stays on a pizza tile`).not.toBeNull();
+      expect(at, `${key} ${step} stays in the list below the Half & Half row`).not.toBeNull();
       expect(at!.top, `${at!.name} is below the Half & Half row`).toBeGreaterThanOrEqual(
         at!.below - 1,
       );
       expect(at!.hit, `${at!.name} is not covered`).toBe(true);
-      seen.push(at!.name!);
+      seen.push(at!.name);
     }
     return seen;
   };
   const up = await check('Shift+Tab');
-  expect(up.at(-1)).toBe('Customize Garden');
+  expect(up.at(-1)).toBe(names[0]);
   const down = await check('Tab');
-  expect(down.at(-1)).toMatch(new RegExp(`^${nameOf(PIZZAS)}, `));
+  expect(down.at(-1)).toBe(names.at(-1));
 }
 
 test('a tile control reached by the keyboard is never under the Half & Half row', async ({
   page,
 }) => {
-  await keyboardClearsHalfRow(page, SIZES.length);
+  await keyboardClearsHalfRow(page);
   await shot(page, 'full-menu-keyboard-focus.png');
+});
+
+test('under All, a deal or product reached by the keyboard is never under the Half & Half row', async ({
+  page,
+}) => {
+  await page
+    .getByTestId('pizza-category-blocks')
+    .getByRole('button', { name: 'All', exact: true })
+    .click();
+  await expect(page.getByTestId('pos-product-card').filter({ hasText: 'Green Salad' })).toHaveCount(
+    1,
+  );
+  await keyboardClearsHalfRow(page);
+  await shot(page, 'full-menu-keyboard-focus-all.png');
+});
+
+test("a tap on the Half & Half row lands on it, over a product's badge scrolled beneath", async ({
+  page,
+}) => {
+  await page
+    .getByTestId('pizza-category-blocks')
+    .getByRole('button', { name: 'All', exact: true })
+    .click();
+  const salad = page.getByTestId('pos-product-card').filter({ hasText: 'Green Salad' });
+  await salad.click();
+  const badge = salad.getByText('1', { exact: true });
+  await expect(badge).toBeVisible();
+  const small = halfTile(page).getByRole('button', {
+    name: /^Half & Half, Small/,
+  });
+  const top = (await small.boundingBox())!.y;
+  await page.getByTestId('pos-catalog-scroll').evaluate(
+    (element, { card, to }) => {
+      element.scrollTop += card - to;
+    },
+    { card: (await salad.boundingBox())!.y, to: top + 4 },
+  );
+  const { overlap, misses } = await small.evaluate(
+    (button, badgeBox) => {
+      const box = button.getBoundingClientRect();
+      const left = Math.max(box.left, badgeBox.x);
+      const right = Math.min(box.right, badgeBox.x + badgeBox.width);
+      const y = badgeBox.y + badgeBox.height / 2;
+      const misses: string[] = [];
+      for (let x = box.left + 2; x <= box.right - 2; x += 2) {
+        const hit = document.elementFromPoint(x, y);
+        if (!hit || !button.contains(hit)) misses.push(`${x}: ${hit?.textContent}`);
+      }
+      return {
+        overlap: { x: (left + right) / 2, y, width: right - left },
+        misses,
+      };
+    },
+    (await badge.boundingBox())!,
+  );
+  expect(overlap.width, "the salad's badge lies under the Small button").toBeGreaterThan(0);
+  expect(misses, 'every point across Small hits Small').toEqual([]);
+
+  await page.mouse.click(overlap.x, overlap.y);
+  const sheet = page.getByRole('dialog', { name: 'Pizza' });
+  await expect(sheet).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(sheet).toHaveCount(0);
+  await expect(badge).toHaveText('1');
 });
 
 test('the keyboard also clears a Half & Half row that wraps', async ({ page }) => {
@@ -495,14 +562,14 @@ test('the keyboard also clears a Half & Half row that wraps', async ({ page }) =
     await expect(halfTile(page).getByRole('button')).toHaveCount(sizes);
     const { height, clearance } = await halfTile(page).evaluate((row) => ({
       height: Math.ceil(row.getBoundingClientRect().height),
-      clearance: getComputedStyle(
-        row.closest('[data-testid="pos-catalog-scroll"]')!,
-      ).getPropertyValue('--pizza-half-h'),
+      clearance: parseFloat(
+        getComputedStyle(row.closest('[data-testid="pos-catalog-scroll"]')!).scrollPaddingTop,
+      ),
     }));
     measured('wrapped Half & Half height', height);
     expect(height, 'the row is taller than a fixed 7rem clearance').toBeGreaterThan(112);
-    expect(clearance, 'the list knows the height of the row').toBe(`${height}px`);
-    await keyboardClearsHalfRow(page, sizes);
+    expect(clearance, 'the list keeps the height of the row clear').toBeGreaterThanOrEqual(height);
+    await keyboardClearsHalfRow(page);
     await shot(page, 'full-menu-keyboard-focus-wrapped.png');
   } finally {
     await loadSampleMenu(api, menu);

@@ -16,8 +16,6 @@ const FOCUS =
 /** The tile draws the focus of its Customize band, so the ring frames the whole pizza. */
 const CUSTOMIZE_FOCUS =
   'has-[[data-customize]:focus-visible]:outline-2 has-[[data-customize]:focus-visible]:outline-offset-2 has-[[data-customize]:focus-visible]:outline-foreground';
-/** A control the keyboard reaches scrolls clear of the sticky Half & Half row, at its measured height. */
-const BELOW_HALF_ROW = 'scroll-mt-[calc(var(--pizza-half-h,7rem)+0.5rem)]';
 
 /**
  * The grid the pizza home lays its tiles on: as many columns as fit three size buttons each,
@@ -129,7 +127,6 @@ function SizeButtons({
             className={cn(
               'group/size flex min-h-12 min-w-12 flex-1 flex-col items-center justify-center rounded-lg border border-border bg-muted/60 px-1 text-sm font-bold leading-tight text-foreground transition-colors hover:border-brand hover:bg-brand hover:text-white active:border-brand active:bg-brand active:text-white disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-muted/60 disabled:hover:text-foreground',
               soldOut && 'line-through',
-              BELOW_HALF_ROW,
               FOCUS,
             )}
           >
@@ -190,10 +187,7 @@ export function PizzaTile({
           disabled={disabled}
           onClick={onCustomize}
           aria-label={t('customizeNamed', { name: product.name })}
-          className={cn(
-            'absolute inset-0 outline-hidden disabled:cursor-not-allowed',
-            BELOW_HALF_ROW,
-          )}
+          className="absolute inset-0 outline-hidden disabled:cursor-not-allowed"
         />
         {/* The number and the icon float, no taller than a line, so the name's second line has the whole width. */}
         <div className={cn('pointer-events-none relative min-w-0', disabled && 'opacity-50')}>
@@ -256,23 +250,21 @@ export function HalfAndHalfTile({
     const scroller =
       row?.closest<HTMLElement>('[data-testid="pos-catalog-scroll"]') ?? row?.parentElement;
     if (!row || !scroller) return;
-    const observer = new ResizeObserver(() =>
-      scroller.style.setProperty(
-        '--pizza-half-h',
-        `${Math.ceil(row.getBoundingClientRect().height)}px`,
-      ),
-    );
+    // Anything the keyboard reaches in the list scrolls clear of this sticky row, however tall it wraps.
+    const observer = new ResizeObserver(() => {
+      scroller.style.scrollPaddingTop = `${Math.ceil(row.getBoundingClientRect().height) + 8}px`;
+    });
     observer.observe(row);
     return () => {
       observer.disconnect();
-      scroller.style.removeProperty('--pizza-half-h');
+      scroller.style.scrollPaddingTop = '';
     };
   }, []);
   return (
     <div
       ref={ref}
       data-testid="pizza-half-tile"
-      className="sticky top-0 z-10 col-span-full flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-border bg-muted p-1 ps-2 shadow-sm"
+      className="sticky top-0 z-20 col-span-full flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-border bg-muted p-1 ps-2 shadow-sm"
     >
       <div className="flex min-w-0 items-center gap-2">
         <span
