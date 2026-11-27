@@ -1285,6 +1285,12 @@ test('frontend WebUSB byte encoders apply capabilities.textSize across 58mm and 
         xlMeas.maxCells <= maxCols,
         `${name} (${paperWidth}mm): extra_large stays within ${maxCols} cells (got ${xlMeas.maxCells})`,
       );
+      if (name.includes('receipt') || name === 'tax bill') {
+        assert.ok(
+          Buffer.from(xlBytes).toString('latin1').includes('anmolnoor'),
+          `${name} (${paperWidth}mm): extra_large keeps the whole credit line`,
+        );
+      }
       assert.equal(
         xlMeas.maxFontACells,
         0,

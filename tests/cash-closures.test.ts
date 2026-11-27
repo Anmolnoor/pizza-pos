@@ -1840,6 +1840,15 @@ async function main() {
         ];
         longValueZ.closed_by_name = 'Alexander Bartholomew-Smith';
         assertWidthBudget(longValueZ, 32, 'print (N3 32-col long value)');
+        for (const language of ['fil', 'id', 'sw', 'jv']) {
+          const footerPreview = thermalModule.escPosToText(
+            thermalModule.buildZReportBody(longValueZ, language, { columns: 32 }),
+          );
+          assert(
+            footerPreview.includes('anmolnoor'),
+            `print (32-col ${language}): long translated credit wraps instead of truncating`,
+          );
+        }
         const longPreview = thermalModule.escPosToText(
           thermalModule.buildZReportBody(longValueZ, undefined, { columns: 32 }),
         );
