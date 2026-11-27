@@ -1351,7 +1351,7 @@ export default function CartPanel({
                 <span className="truncate">
                   {submitting ? t('placing') : t('placeOrderButton')}
                 </span>
-                {!submitting && (
+                {!submitting && !payLater && (
                   <span
                     aria-hidden="true"
                     className="hidden sm:inline-flex shrink-0 ms-1.5 px-1.5 py-0.5 rounded bg-white/20 text-[10px] font-mono font-medium"

@@ -6,6 +6,7 @@ import {
   type Page,
   type Route,
 } from '@playwright/test';
+import path from 'node:path';
 import { clearPizzaMenu, loadSampleMenu } from './helpers/pizza-menu';
 import { E2E_PASSWORD, getE2eToken, loginWithPassword, setLanguage } from './helpers/test-auth';
 import { E2E_BASE_URL as BASE } from './helpers/urls';
@@ -19,6 +20,12 @@ import { E2E_BASE_URL as BASE } from './helpers/urls';
  */
 
 const ownerHeaders = () => ({ Authorization: `Bearer ${getE2eToken()}` });
+/** Screenshots are saved only when a folder outside the checkout is named. */
+const EVIDENCE_DIR = process.env.E2E_EVIDENCE_DIR;
+const shot = async (page: Page, name: string) => {
+  if (EVIDENCE_DIR)
+    await page.screenshot({ path: path.join(EVIDENCE_DIR, name), animations: 'disabled' });
+};
 const SETTINGS = `${BASE}/api/settings`;
 const COUNTER: Record<string, string> = {
   tables_required: 'false',
@@ -276,8 +283,10 @@ test('the button shows beside Place Order for pickup and delivery, 48 px tall', 
   await expect(payLater(page)).toBeVisible();
   for (const button of [payLater(page), placeOrder(page)])
     expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(48);
+  await shot(page, 'pay-later-takeaway.png');
   await orderType(page, 'Delivery').click();
   await expect(payLater(page, 'Pay on delivery')).toBeVisible();
+  await shot(page, 'pay-later-delivery.png');
   await expect(payLater(page)).toHaveCount(0);
 });
 
