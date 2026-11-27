@@ -19,7 +19,6 @@ import {
 import {
   columnsForReceiptPaperSize,
   displayCellWidth,
-  fitThermalLine,
   graphemeSegments,
   padToDisplayCells,
   truncateToDisplayCells,
@@ -277,13 +276,9 @@ function printOnlineOrderBanner(
 }
 
 function printPoweredByFooter(enc: ReceiptPrinterEncoder, columns: number): void {
-  enc
-    .align('center')
-    .size('small')
-    .text(fitThermalLine(RECEIPT_BRANDING_NAME, columns))
-    .newline()
-    .size('normal')
-    .align('left');
+  enc.align('center').size('small');
+  for (const line of wrapPrinterText(RECEIPT_BRANDING_NAME, columns)) enc.text(line).newline();
+  enc.size('normal').align('left');
 }
 
 // Paper-size fallback only. Callers that know the configured printer pass

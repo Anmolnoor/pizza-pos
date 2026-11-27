@@ -4615,10 +4615,7 @@ function buildZReportDocumentLines(
   }
   sections.push('');
 
-  for (const line of bilingualLabelLines(
-    zDocument.footer,
-    selectBilingualFit(zDocument.footer, cols),
-  )) {
+  for (const line of zLaidOutLabel(zDocument.footer, zContext)) {
     sections.push('{CENTER}' + normalizeThermalText(line, printer?.capabilities) + '{/CENTER}');
   }
   sections.push(

@@ -160,16 +160,16 @@ const BASELINE: Record<string, string> = {
   'kitchen ticket, browser HTML, 58 mm': 'd16488b262059ba0',
   'kitchen ticket, browser ESC/POS, 32 columns': '4df009d02493d810',
   'kitchen ticket, raster document, 32 columns': 'c3fa2399a45058d8',
-  'receipt, browser classic, 32 columns': '72c6518f817a437c',
-  'receipt, browser compact, 32 columns': '9830477e7f96173f',
+  'receipt, browser classic, 32 columns': '783608b0a0d01cbc',
+  'receipt, browser compact, 32 columns': '2eb213fc7b2666b3',
   'kitchen ticket, browser ESC/POS, 42 columns': 'a4580e20d495a1ac',
   'kitchen ticket, raster document, 42 columns': 'c3fa2399a45058d8',
-  'receipt, browser classic, 42 columns': 'ea71a9c9fc44ed96',
-  'receipt, browser compact, 42 columns': '86805e108d9579cf',
+  'receipt, browser classic, 42 columns': '5e221fa22f2b2689',
+  'receipt, browser compact, 42 columns': 'd1f53e6dffecf1e9',
   'kitchen ticket, browser ESC/POS, 48 columns': 'e90a6c461d6eb01a',
   'kitchen ticket, raster document, 48 columns': 'c3fa2399a45058d8',
-  'receipt, browser classic, 48 columns': '95b0c0b036d1aad8',
-  'receipt, browser compact, 48 columns': '5d76b9743697454a',
+  'receipt, browser classic, 48 columns': 'aee094b22bdaafc1',
+  'receipt, browser compact, 48 columns': '2d26833593135b7e',
 };
 
 function outputs(order: any): Record<string, string> {

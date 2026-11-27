@@ -10,7 +10,6 @@ import {
 import {
   columnsForReceiptPaperSize,
   displayCellWidth,
-  fitThermalLine,
   graphemeSegments,
   truncateToDisplayCells,
   truncateToDisplayCellsFromEnd,
@@ -99,13 +98,9 @@ const CHARS: Record<58 | 80, number> = {
 };
 
 function printPoweredByFooter(enc: ReceiptPrinterEncoder, columns: number): void {
-  enc
-    .align('center')
-    .size('small')
-    .text(fitThermalLine(RECEIPT_BRANDING_NAME, columns))
-    .newline()
-    .size('normal')
-    .align('left');
+  enc.align('center').size('small');
+  for (const line of wrapPrinterText(RECEIPT_BRANDING_NAME, columns)) enc.text(line).newline();
+  enc.size('normal').align('left');
 }
 
 /** Mask phone number for receipt display — shows only last 4 digits. */
