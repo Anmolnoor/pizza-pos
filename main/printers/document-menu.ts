@@ -11,6 +11,7 @@ import type { PrinterCutMode } from './profiles';
 import {
   buildEscPos,
   normalizeThermalText,
+  RECEIPT_BRANDING,
   safePrinterText,
   truncateShapedLine,
   wrapText,
@@ -313,7 +314,7 @@ export function renderMenuViaDocument(
     options.columns,
   ))
     lines.push(`{CENTER}${line}{/CENTER}`);
-  lines.push('{CENTER}Powered by FloCafe{/CENTER}', '{FEED}', '{CUT}');
+  lines.push(`{CENTER}${RECEIPT_BRANDING}{/CENTER}`, '{FEED}', '{CUT}');
   const data = buildEscPos(
     lines,
     options.useUnicode === true,

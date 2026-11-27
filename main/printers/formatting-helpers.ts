@@ -35,7 +35,7 @@ import type { PrinterCutMode } from './profiles';
 
 export type { PrintWarning };
 
-const RECEIPT_BRANDING = 'Powered by FloPOS (flopos.com)';
+export const RECEIPT_BRANDING = 'Built with love by anmolnoor';
 
 const ESC_POS_CONTROL_TOKEN_RE =
   /\{\/?(?:CENTER|BOLD|DOUBLE_HEIGHT|DOUBLE_WIDTH|FONT_B)\}|\{(?:CUT|FEED|INIT|STORE_NAME|FINANCIAL)\}/g;

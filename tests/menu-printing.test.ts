@@ -212,6 +212,28 @@ test('menu thermal labels use the requested print language', () => {
   assert.doesNotMatch(escPosToText(rendered.data), /Total items/);
 });
 
+test('menu prints carry the anmolnoor credit, not FloCafe', () => {
+  const thermal = escPosToText(
+    renderMenuViaDocument(menuDocument(), { columns: 42, language: 'en' }).data,
+  );
+  assert.match(thermal, /Built with love by anmolnoor/);
+  assert.doesNotMatch(thermal, /FloCafe/);
+  const { buildMenuWebPrintHtml } = require('../frontend/src/lib/printer/menu-web-print');
+  for (const customerFacing of [true, false]) {
+    const html = buildMenuWebPrintHtml({
+      businessName: 'Cafe',
+      printedAt: '',
+      menuTitle: 'Menu',
+      totalItemsLabel: 'Total items',
+      itemCount: 0,
+      sections: [],
+      customerFacing,
+    });
+    assert.match(html, /Built with love by anmolnoor/);
+    assert.doesNotMatch(html, /FloCafe/);
+  }
+});
+
 test('browser menu supports A4 and Letter and escapes descriptions, modifiers, and labels', () => {
   const { buildMenuWebPrintHtml } = require('../frontend/src/lib/printer/menu-web-print');
   for (const pageSize of ['A4', 'Letter']) {
