@@ -9,7 +9,7 @@ import type {
   SchemaVersionMismatchError,
 } from './db';
 
-export const FLOCAFE_RELEASES_URL = 'https://github.com/FreeOpenSourcePOS/FloCafe/releases';
+export const RELEASES_URL = 'https://github.com/Anmolnoor/pizza-pos/releases';
 
 const BACKUP_PAGE_SIZE = 5;
 
@@ -51,7 +51,7 @@ function formatBackupTimestamp(backup: CompatibleDowngradeBackup): string {
 }
 
 function formatBackupSummaryLine(backup: CompatibleDowngradeBackup, index: number): string {
-  const appMeta = backup.appVersion ? `Flo Cafe v${backup.appVersion}` : 'app version not recorded';
+  const appMeta = backup.appVersion ? `Pizza POS v${backup.appVersion}` : 'app version not recorded';
   const timeMeta = formatBackupTimestamp(backup);
   return `${index}. ${formatKindLabel(backup.kind)} - schema v${backup.schemaVersion}, ${appMeta}, ${timeMeta} (${backup.fileName})`;
 }
@@ -75,10 +75,10 @@ function buildNoCompatibleBackupsDetail(discovery: DowngradeBackupDiscovery): st
   } else {
     if (discovery.incompatibleNewer.length > 0) {
       lines.push(
-        `${discovery.incompatibleNewer.length} backup(s) require a newer Flo Cafe version:`,
+        `${discovery.incompatibleNewer.length} backup(s) require a newer Pizza POS version:`,
       );
       for (const item of discovery.incompatibleNewer.slice(0, 3)) {
-        const versionMeta = item.appVersion ? `, Flo Cafe v${item.appVersion}` : '';
+        const versionMeta = item.appVersion ? `, Pizza POS v${item.appVersion}` : '';
         const schemaMeta = item.schemaVersion !== null ? `schema v${item.schemaVersion}` : 'newer';
         lines.push(`  - ${item.fileName} (${schemaMeta}${versionMeta})`);
       }
@@ -123,17 +123,17 @@ function isShutdownAbortError(error: unknown): boolean {
 
 async function openReleasesPage(deps: DowngradeRecoveryDeps): Promise<boolean> {
   try {
-    await deps.shell.openExternal(FLOCAFE_RELEASES_URL);
+    await deps.shell.openExternal(RELEASES_URL);
     return true;
   } catch (error: unknown) {
     if (deps.isShutdownRequested() || isShutdownAbortError(error)) return false;
-    deps.log.error('[Recovery] Failed to open Flo Cafe releases page:', error);
+    deps.log.error('[Recovery] Failed to open Pizza POS releases page:', error);
     const errorMessage = error instanceof Error ? error.message : 'unknown error';
     await deps.dialog.showMessageBox({
       type: 'error',
       title: 'Cannot Open Download Page',
-      message: 'Could not open the Flo Cafe releases page in your browser.',
-      detail: `Open this address manually to download the latest Flo Cafe release:\n${FLOCAFE_RELEASES_URL}\n\nError: ${errorMessage}`,
+      message: 'Could not open the Pizza POS releases page in your browser.',
+      detail: `Open this address manually to download the latest Pizza POS release:\n${RELEASES_URL}\n\nError: ${errorMessage}`,
       buttons: ['OK'],
       defaultId: 0,
       cancelId: 0,
@@ -296,26 +296,26 @@ export async function runDowngradeRecoveryFlow(
   mismatch: SchemaVersionMismatchError,
   deps: DowngradeRecoveryDeps,
 ): Promise<DowngradeRecoveryOutcome> {
-  const dbAppMeta = mismatch.dbAppVersion ? ` (Flo Cafe v${mismatch.dbAppVersion})` : '';
+  const dbAppMeta = mismatch.dbAppVersion ? ` (Pizza POS v${mismatch.dbAppVersion})` : '';
 
   while (!deps.isShutdownRequested()) {
     const mainDetail = [
       `Current database schema: v${mismatch.dbVersion}${dbAppMeta}`,
-      `Running Flo Cafe version: v${deps.appVersion} (supports up to schema v${mismatch.appVersion})`,
+      `Running Pizza POS version: v${deps.appVersion} (supports up to schema v${mismatch.appVersion})`,
       '',
-      'Opening a newer database with an older version of Flo Cafe is blocked so your data is never altered or lost.',
+      'Opening a newer database with an older version of Pizza POS is blocked so your data is never altered or lost.',
       '',
       'Choose how to continue:',
-      '- Get Latest Version: download and install the latest Flo Cafe release (recommended).',
+      '- Get Latest Version: download and install the latest Pizza POS release (recommended).',
       '- Open Backups Folder: view your local backups in the file manager.',
       '- Restore Compatible Backup: restore an earlier compatible backup and preserve the newer database aside.',
-      '- Exit: close Flo Cafe safely without changing any files.',
+      '- Exit: close Pizza POS safely without changing any files.',
     ].join('\n');
 
     const mainChoice = await deps.dialog.showMessageBox({
       type: 'warning',
       title: 'Newer Database Detected',
-      message: 'This database was created or upgraded by a newer version of Flo Cafe.',
+      message: 'This database was created or upgraded by a newer version of Pizza POS.',
       detail: mainDetail,
       buttons: ['Get Latest Version', 'Open Backups Folder', 'Restore Compatible Backup', 'Exit'],
       defaultId: 0,
@@ -328,7 +328,7 @@ export async function runDowngradeRecoveryFlow(
     if (mainChoice.response === 0) {
       const opened = await openReleasesPage(deps);
       if (deps.isShutdownRequested()) return { outcome: 'exit' };
-      if (opened) return { outcome: 'opened_releases', url: FLOCAFE_RELEASES_URL };
+      if (opened) return { outcome: 'opened_releases', url: RELEASES_URL };
       continue;
     }
 
@@ -348,11 +348,11 @@ export async function runDowngradeRecoveryFlow(
         deps.log.error('[Recovery] Compatible backup discovery failed:', discoveryError);
         const action = await presentRestoreStepErrorDialog(deps, {
           title: 'Backup Inspection Failed',
-          message: 'Flo Cafe could not inspect local backups.',
+          message: 'Pizza POS could not inspect local backups.',
           error: discoveryError,
           fallbackErrorText: 'An unexpected error occurred while inspecting backups.',
           recoveryGuidance:
-            'No database or backup files were modified. You can update Flo Cafe to the latest version, inspect the backups folder, try again, or exit safely.',
+            'No database or backup files were modified. You can update Pizza POS to the latest version, inspect the backups folder, try again, or exit safely.',
         });
         if (action === 'retry') continue;
         return { outcome: 'exit' };
@@ -374,7 +374,7 @@ export async function runDowngradeRecoveryFlow(
         if (emptyChoice.response === 0) {
           const opened = await openReleasesPage(deps);
           if (deps.isShutdownRequested()) return { outcome: 'exit' };
-          if (opened) return { outcome: 'opened_releases', url: FLOCAFE_RELEASES_URL };
+          if (opened) return { outcome: 'opened_releases', url: RELEASES_URL };
           continue;
         }
         if (emptyChoice.response === 1) {
@@ -401,17 +401,17 @@ export async function runDowngradeRecoveryFlow(
         );
         const action = await presentRestoreStepErrorDialog(deps, {
           title: 'Backup Restore Failed',
-          message: 'Flo Cafe could not prepare the archive path for the newer database.',
+          message: 'Pizza POS could not prepare the archive path for the newer database.',
           error: planError,
           fallbackErrorText: 'An unexpected error occurred while preparing the archive path.',
           recoveryGuidance:
-            'No database or backup files were modified. You can update Flo Cafe to the latest version, inspect the backups folder, try again, or exit safely.',
+            'No database or backup files were modified. You can update Pizza POS to the latest version, inspect the backups folder, try again, or exit safely.',
         });
         if (action === 'retry') continue;
         return { outcome: 'exit' };
       }
       const selectedAppMeta = selectedBackup.appVersion
-        ? `Flo Cafe v${selectedBackup.appVersion}`
+        ? `Pizza POS v${selectedBackup.appVersion}`
         : 'not recorded';
       const confirmDetail = [
         `Selected backup: ${selectedBackup.fileName}`,
@@ -457,11 +457,11 @@ export async function runDowngradeRecoveryFlow(
         deps.log.error('[Recovery] Compatible backup restore failed:', restoreError);
         const action = await presentRestoreStepErrorDialog(deps, {
           title: 'Backup Restore Failed',
-          message: 'Flo Cafe could not restore the selected backup.',
+          message: 'Pizza POS could not restore the selected backup.',
           error: restoreError,
           fallbackErrorText: 'An unexpected error occurred while restoring the backup.',
           recoveryGuidance:
-            'Your newer database remains recoverable. You can update Flo Cafe to the latest version, inspect the backups folder, try another compatible backup, or exit safely.',
+            'Your newer database remains recoverable. You can update Pizza POS to the latest version, inspect the backups folder, try another compatible backup, or exit safely.',
         });
         if (action === 'retry') continue;
         return { outcome: 'exit' };

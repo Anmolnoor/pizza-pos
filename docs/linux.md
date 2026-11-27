@@ -53,7 +53,7 @@ updated by snapd from the Snap Store, and a beta install follows the Snap Store 
 rather than `stable`.
 
 If an AppImage update is unavailable, download the replacement from
-[GitHub Releases](https://github.com/FreeOpenSourcePOS/FloCafe/releases). For the channel model and
+[GitHub Releases](https://github.com/Anmolnoor/pizza-pos/releases). For the channel model and
 what a beta build follows, see [desktop releases](maintainers/releases.md).
 
 ## Printing

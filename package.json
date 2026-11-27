@@ -422,10 +422,10 @@
   "homepage": "https://flopos.com",
   "repository": {
     "type": "git",
-    "url": "https://github.com/FreeOpenSourcePOS/FloCafe.git"
+    "url": "https://github.com/Anmolnoor/pizza-pos.git"
   },
   "bugs": {
-    "url": "https://github.com/FreeOpenSourcePOS/FloCafe/issues"
+    "url": "https://github.com/Anmolnoor/pizza-pos/issues"
   },
   "license": "MIT",
   "overrides": {
@@ -517,8 +517,8 @@
     ],
     "publish": {
       "provider": "github",
-      "owner": "FreeOpenSourcePOS",
-      "repo": "FloCafe",
+      "owner": "Anmolnoor",
+      "repo": "pizza-pos",
       "releaseType": "release",
       "channel": "latest"
     },
