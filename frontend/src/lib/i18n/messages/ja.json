@@ -2520,7 +2520,7 @@
     "softwareUpdates": "ソフトウェア更新",
     "softwareUpdatesHintDefault": "Pizza POS は下でオフにしない限り起動時にアップデートを確認し、ダウンロード前には必ず確認します。手動で確認することもできます。",
     "softwareUpdatesHintBrowser": "更新はPizza POSデスクトップアプリで管理されます。",
-    "softwareUpdatesHintLinuxManaged": "このインストールはFloのアプリ内アップデーターではなく、Linuxパッケージマネージャー（deb/rpm）またはSnap Storeで管理されています。AppImageビルドは自動更新されます。",
+    "softwareUpdatesHintLinuxManaged": "このインストールはPizza POSのアプリ内アップデーターではなく、Linuxパッケージマネージャー（deb/rpm）またはSnap Storeで管理されています。AppImageビルドは自動更新されます。",
     "softwareUpdatesHintStore": "このバージョンはApp Store経由で配布されています。更新はストアで管理されます。",
     "splitChecks": "会計を分割",
     "splitChecksHint": "店内飲食の商品や数量を複数の請求書に分けられるようにします。既定では無効です。",

@@ -424,9 +424,6 @@
     "type": "git",
     "url": "https://github.com/Anmolnoor/pizza-pos.git"
   },
-  "bugs": {
-    "url": "https://github.com/Anmolnoor/pizza-pos/issues"
-  },
   "license": "MIT",
   "overrides": {
     "app-builder-lib": {

@@ -2520,7 +2520,7 @@
     "softwareUpdates": "소프트웨어 업데이트",
     "softwareUpdatesHintDefault": "아래에서 끄지 않는 한 Pizza POS는 시작할 때 업데이트를 확인하며, 다운로드 전에는 항상 묻습니다. 직접 확인할 수도 있습니다.",
     "softwareUpdatesHintBrowser": "업데이트는 Pizza POS 데스크톱 앱에서 처리됩니다.",
-    "softwareUpdatesHintLinuxManaged": "이 설치는 Flo의 앱 내 업데이터가 아니라 Linux 패키지 관리자(deb/rpm) 또는 Snap Store에서 관리합니다. AppImage 빌드는 자동으로 업데이트됩니다.",
+    "softwareUpdatesHintLinuxManaged": "이 설치는 Pizza POS의 앱 내 업데이터가 아니라 Linux 패키지 관리자(deb/rpm) 또는 Snap Store에서 관리합니다. AppImage 빌드는 자동으로 업데이트됩니다.",
     "softwareUpdatesHintStore": "이 버전은 App Store를 통해 배포됩니다. 업데이트는 스토어에서 관리합니다.",
     "splitChecks": "계산서 분할",
     "splitChecksHint": "매장 식사 항목이나 수량을 별도 청구서로 나눌 수 있게 합니다. 기본적으로 비활성화되어 있습니다.",
