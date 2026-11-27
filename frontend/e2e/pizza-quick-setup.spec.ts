@@ -160,7 +160,7 @@ test('the full wizard and restore are one link away', async ({ page }) => {
   await openSetup(page);
   await page.getByRole('link', { name: 'Not a pizza shop in BC? Use the full setup' }).click();
   await expect(page).toHaveURL(/\/setup\/?$/);
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Welcome to FloCafe');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Welcome to Pizza POS');
 
   // The wizard's own restore runs; a browser has no file picker, so it says so.
   await openSetup(page);

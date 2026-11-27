@@ -634,7 +634,7 @@ async function run(): Promise<void> {
     const rejectedByName = new Map(discovery.corruptOrInvalid.map((item) => [item.fileName, item]));
     assert.equal(
       rejectedByName.get(path.basename(preV0BackupPath))?.detail,
-      'Backup does not contain an initialized Flo Cafe schema',
+      'Backup does not contain an initialized Pizza POS schema',
       'first-boot pre-v0 snapshot reports uninitialized schema rather than header mismatch',
     );
     assert.equal(rejectedByName.get(path.basename(preV0BackupPath))?.schemaVersion, null);
@@ -2718,7 +2718,7 @@ async function run(): Promise<void> {
           restoreCompatibleBackupForDowngrade(hotCompatibleBackupPath, {
             newerDbVersion,
           }),
-        /rollback journal[\s\S]*update Flo Cafe/i,
+        /rollback journal[\s\S]*update Pizza POS/i,
         'downgrade restore refuses active hot rollback journal with actionable update guidance',
       );
       assert.equal(

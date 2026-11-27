@@ -694,14 +694,14 @@ async function showRuntimeStuckDialog(reason: string): Promise<void> {
       `URL: ${lastWindowLoadFailure.validatedURL ?? `http://localhost:${getServerPort()}`}`,
     );
   }
-  detailLines.push(`Platform: ${process.platform} | Flo: ${app.getVersion()}`);
+  detailLines.push(`Platform: ${process.platform} | Pizza POS: ${app.getVersion()}`);
 
   const { response } = await dialog.showMessageBox({
     type: 'error',
-    title: 'Flo needs to restart',
+    title: 'Pizza POS needs to restart',
     message:
-      'Flo could not recover automatically. This usually means another program ' +
-      '(antivirus, firewall, or a leftover Flo process) is blocking its local server.\n\n' +
+      'Pizza POS could not recover automatically. This usually means another program ' +
+      '(antivirus, firewall, or a leftover Pizza POS process) is blocking its local server.\n\n' +
       'Please quit and reopen the app. If this keeps happening, sending a diagnostic ' +
       'report helps us fix it — it contains no order, customer, or business data.',
     detail: detailLines.join('\n'),
@@ -720,7 +720,7 @@ async function showRuntimeStuckDialog(reason: string): Promise<void> {
 
   await dialog.showMessageBox({
     type: 'info',
-    title: 'Flo',
+    title: 'Pizza POS',
     message:
       'Diagnostic captured. If sharing is enabled and this device is online, it will be sent automatically.',
     buttons: ['Quit'],
@@ -1198,7 +1198,7 @@ function createTray(): void {
         },
       ]);
 
-      tray.setToolTip('Flo Cafe');
+      tray.setToolTip('Pizza POS');
       tray.setContextMenu(linuxMenu);
       // Single-click also shows the window on Linux (no double-click standard).
       tray.on('click', () => {
@@ -1225,7 +1225,7 @@ function createTray(): void {
 
     const contextMenu = Menu.buildFromTemplate([
       {
-        label: 'Open Flo',
+        label: 'Open Pizza POS',
         click: () => {
           showMainWindow();
         },
@@ -1240,7 +1240,7 @@ function createTray(): void {
       },
     ]);
 
-    tray.setToolTip('Flo');
+    tray.setToolTip('Pizza POS');
     tray.setContextMenu(contextMenu);
     tray.on('double-click', () => {
       showMainWindow();
@@ -1517,7 +1517,7 @@ function createMenu(): void {
       label: 'Window',
       submenu: [
         {
-          label: 'Flo Cafe',
+          label: 'Pizza POS',
           click: () => {
             if (showMainWindow()) mainWindow?.focus();
           },
@@ -1533,7 +1533,7 @@ function createMenu(): void {
       label: 'Help',
       submenu: [
         ...(process.platform !== 'darwin'
-          ? [{ label: 'About Flo', click: () => showAbout() }]
+          ? [{ label: 'About Pizza POS', click: () => showAbout() }]
           : []),
         ...(isStoreBuild ? [] : [{ label: 'Check for Updates', click: () => checkForUpdates() }]),
         {
@@ -1572,8 +1572,8 @@ function showAbout(): void {
   const serverAppPort = getServerAppPort();
   dialog.showMessageBox({
     type: 'info',
-    title: 'About Flo',
-    message: 'Flo Cafe',
+    title: 'About Pizza POS',
+    message: 'Pizza POS',
     detail: [
       `Version: ${app.getVersion()}`,
       `Electron: ${process.versions.electron}`,
@@ -1817,7 +1817,7 @@ async function initialize(): Promise<void> {
         return;
       }
       try {
-        dialog.showErrorBox('Initialization Error', `Failed to start Flo: ${fatalStartupError}`);
+        dialog.showErrorBox('Initialization Error', `Failed to start Pizza POS: ${fatalStartupError}`);
       } catch (dialogError) {
         console.error('[Flo] Failed to display initialization error dialog:', dialogError);
       }

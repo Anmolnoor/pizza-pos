@@ -7360,7 +7360,7 @@ export default function SettingsPage() {
                 <p className="text-sm text-muted-foreground mb-6">{t('aboutDescription')}</p>
                 <div className="space-y-3">
                   <a
-                    href="https://github.com/FreeOpenSourcePOS/FloCafe"
+                    href="https://github.com/Anmolnoor/pizza-pos"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-2 text-brand hover:underline"
@@ -7380,29 +7380,6 @@ export default function SettingsPage() {
                       <path d="M9 18c-4.51 2-5-2-7-2" />
                     </svg>
                     {t('aboutGithub')}
-                  </a>
-                  <a
-                    href="https://flopos.com/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 text-brand hover:underline"
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="20"
-                      height="20"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <circle cx="12" cy="12" r="10" />
-                      <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
-                      <path d="M2 12h20" />
-                    </svg>
-                    {t('aboutWebsite')}
                   </a>
                   <a
                     href="https://github.com/receipt-print-hq/escpos-printer-db"

@@ -1,6 +1,6 @@
 {
-  "name": "Flo",
-  "short_name": "Flo",
+  "name": "Pizza POS",
+  "short_name": "Pizza POS",
   "description": "Smart Point of Sale for restaurants, salons, and retail",
   "start_url": "/dashboard",
   "display": "standalone",
