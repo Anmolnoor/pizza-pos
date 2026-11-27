@@ -13,6 +13,7 @@ import {
   phoneRequired,
   sameNumber,
 } from '@/lib/pizza/delivery-phone';
+import type { PlaceOptions } from '@/lib/pizza/pay-later';
 import type { Customer } from '@/lib/types';
 import { useAuthStore } from '@/store/auth';
 import { useCartStore } from '@/store/cart';
@@ -145,24 +146,32 @@ function PhoneBoxes() {
 /**
  * The POS page's check before it builds an order request. True while Place Order has to wait: the
  * box has no phone number, or the customer for it is still being found or made. Once attached, the
- * order is placed again, so the request built, stored and replayed carries the customer.
+ * order is placed again with the options of the press that started the lookup, so the request
+ * built, stored and replayed carries the customer. Presses while that lookup runs are ignored.
  */
-export function useDeliveryPhoneGate(place: () => void, addingToOrder: boolean): () => boolean {
+export function useDeliveryPhoneGate(
+  place: (options?: PlaceOptions) => void,
+  addingToOrder: boolean,
+): (options?: PlaceOptions) => boolean {
   const t = useTranslations('pizza');
   const placeRef = useRef(place);
-  const busy = useRef(false);
+  const held = useRef<PlaceOptions | null>(null);
   const [attached, setAttached] = useState(0);
   useEffect(() => {
     placeRef.current = place;
   });
   useEffect(() => {
-    if (attached > 0) placeRef.current();
+    if (attached === 0 || !held.current) return;
+    const options = held.current;
+    held.current = null;
+    placeRef.current(options);
   }, [attached]);
 
-  return () => {
+  return (options) => {
     const cart = useCartStore.getState();
     if (!phoneRequired(usePosSettingsStore.getState().posOrderTypes, cart.orderType, addingToOrder))
       return false;
+    if (held.current) return true;
     const { text, name } = useDeliveryPhoneStore.getState();
     const phone = deliveryPhone(text, country());
     if (!phone) {
@@ -171,18 +180,19 @@ export function useDeliveryPhoneGate(place: () => void, addingToOrder: boolean):
       return true;
     }
     if (sameNumber(cart.customer, phone)) return false;
-    if (busy.current) return true;
-    busy.current = true;
+    held.current = { payLater: options?.payLater === true };
     deliveryCustomer(api, phone, name)
       .then((customer) => {
-        if (deliveryPhone(useDeliveryPhoneStore.getState().text, country())?.e164 !== phone.e164)
+        if (deliveryPhone(useDeliveryPhoneStore.getState().text, country())?.e164 !== phone.e164) {
+          held.current = null;
           return;
+        }
         attach(customer);
         setAttached((count) => count + 1);
       })
-      .catch(() => useDeliveryPhoneStore.setState({ message: t('deliveryCustomerFailed') }))
-      .finally(() => {
-        busy.current = false;
+      .catch(() => {
+        held.current = null;
+        useDeliveryPhoneStore.setState({ message: t('deliveryCustomerFailed') });
       });
     return true;
   };

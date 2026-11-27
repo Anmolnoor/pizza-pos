@@ -625,12 +625,45 @@ setting show no box and need no number (`phoneRequired()`).
   for a delivery." under the box, puts the focus in the box and sends nothing. With a number and no
   matching customer attached, it calls `deliveryCustomer()`: the customer the look-up finds, or one
   made with `POST /api/customers` from the number and the typed name, named by the number when no
-  name was typed. Once the customer is on the cart the order is placed again, so the request built,
-  stored for a retry and replayed carries `customer_id`.
+  name was typed. Once the customer is on the cart the order is placed again, with the options of the
+  press that started the look-up, so the request built, stored for a retry and replayed carries
+  `customer_id`. A press while that look-up runs is ignored, and a number changed during it drops the
+  look-up so the next press starts a new one.
 - Leaving Delivery, which clearing the cart after an order does, empties both boxes.
 
 `tests/pizza-delivery-phone.test.ts` covers the rule and the requests, and
 `e2e/pizza-delivery-phone.spec.ts` the screen.
+
+### Pay at pickup and pay on delivery
+
+In prepaid billing the pizza cart shows a second button beside Place Order: "Pay at pickup" on a
+takeaway order, "Pay on delivery" on a delivery order (`PayLaterButton.tsx`). It is not offered
+while items are added to an order or with multi-counter on. A press places the order the way
+postpaid billing does: `POST /api/orders` with no bill, the kitchen ticket printed, the cart
+cleared, and a toast with the order number. The order is paid later from Orders → Unpaid →
+Checkout, and the delivery slip of an unpaid order shows `TO COLLECT` or `AMOUNT DUE` with its
+total. A no-show is cancelled from Orders.
+
+- The request's order note starts with "Pay at pickup" or "Pay on delivery", then the typed note, so
+  every kitchen ticket (including a scheduled order's at release, and reprints), the order card and
+  the delivery slip show it. The customer receipt does not. The note stays after payment and when
+  items are added, unless removed. A typed note that would pass 200 characters with it is refused
+  with how many characters to cut, and nothing is sent.
+- The cart is never changed. `buildPostpaidOrderPayload()` in
+  [`frontend/src/lib/pizza/pay-later.ts`](../../frontend/src/lib/pizza/pay-later.ts) builds the
+  postpaid request for sending and for matching a saved attempt, with or without the note.
+- On the pizza cart, a saved postpaid attempt that matches the cart decides first, whichever button
+  is pressed and whatever the billing mode (`resolvePlaceRoute()`): a lost response is replayed with
+  its key, never sent as a second order. A pay-later press on a cart with an unfinished prepaid
+  checkout reopens that checkout and says to finish its payment. A saved attempt that cannot be read
+  stops the press with the storage message. Other carts keep the upstream routing.
+- A pay-later request in flight ignores further presses, Space and F4 until it ends.
+- The past-slot check that lets F4 retry a scheduled attempt also knows the note.
+- An abandoned prepaid checkout leaves its order in Orders → Unpaid too, without a kitchen ticket.
+- The shift-close preview counts unpaid bills, so a pay-later order counts there only once Checkout
+  has made its bill.
+
+`tests/pizza-pay-later.test.ts` covers the rules, and `e2e/pizza-pay-later.spec.ts` the screens.
 
 ### Pizza screens
 
