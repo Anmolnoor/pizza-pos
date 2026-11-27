@@ -500,7 +500,7 @@ export async function ippPrintRaw(
         values: [`ipp://localhost/printers/${encodeURIComponent(printerName)}`],
       },
       { tag: VALUE_TAG.nameWithoutLanguage, name: 'requesting-user-name', values: ['flocafe'] },
-      { tag: VALUE_TAG.nameWithoutLanguage, name: 'job-name', values: ['FloCafe receipt'] },
+      { tag: VALUE_TAG.nameWithoutLanguage, name: 'job-name', values: ['Pizza POS receipt'] },
       {
         tag: VALUE_TAG.mimeMediaType,
         name: 'document-format',
