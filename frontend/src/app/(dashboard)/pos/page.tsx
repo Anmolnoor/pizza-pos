@@ -1755,7 +1755,7 @@ export default function POSPage() {
       { ...cartState, scheduledFor: '' },
       orderItems,
     );
-    const markerKind = pizza ? payLaterKindFor(cartState.orderType) : null;
+    const markerKind = payLaterKindFor(cartState.orderType);
     const {
       plain: unscheduledPostpaidOrderFingerprint,
       marked: unscheduledMarkedOrderFingerprint,
@@ -2169,12 +2169,16 @@ export default function POSPage() {
     !!attempt.orderIdempotencyKey &&
     !!attempt.paymentIdempotencyKey;
 
-  /** Which way a press on the pizza cart goes; null when it stops here. See `resolvePlaceRoute`. */
+  /**
+   * Which way a press goes; null when it stops here. See `resolvePlaceRoute`. Without the pizza
+   * menu (a cart without one, or before it loads) only a saved pay-later request is replayed.
+   */
   const routePizzaPress = (
     payLater: boolean,
     cartFingerprint: string,
   ): { postpaid: boolean; marker?: string } | null => {
     const kind = payLaterKindFor(cart.orderType);
+    if (!pizza && !kind) return { postpaid: false };
     const marker = kind ? payLaterMarker(kind) : undefined;
     const requestFingerprint = (withMarker?: string) =>
       JSON.stringify(
@@ -2215,6 +2219,7 @@ export default function POSPage() {
       postpaidMatchPlain,
       storageError,
     });
+    if (!pizza) return route === 'replay-marked' ? { postpaid: true, marker } : { postpaid: false };
     if (route === 'storage-error') {
       reportOrderStorageFailure(
         t('placeOrderFailed'),
@@ -2245,12 +2250,11 @@ export default function POSPage() {
     if (!validateOrderPreflight() || deliveryPhoneHolds(options)) return;
 
     const cartFingerprint = buildCurrentCartFingerprint();
-    const routed =
-      pizza && !pendingOrder
-        ? routePizzaPress(options?.payLater === true, cartFingerprint)
-        : { postpaid: false };
+    const routed = pendingOrder
+      ? { postpaid: false }
+      : routePizzaPress(options?.payLater === true, cartFingerprint);
     if (!routed) return;
-    if (routed.postpaid && pizza) payLaterInFlightRef.current = true;
+    if (routed.postpaid) payLaterInFlightRef.current = true;
     // Prepaid stores collect payment before finishing the order.
     if (shouldTakePaymentNow && !pendingOrder && !routed.postpaid) {
       let matchingAttempt: PrepaidAttempt | null = null;

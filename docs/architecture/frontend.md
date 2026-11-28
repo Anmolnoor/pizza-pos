@@ -656,7 +656,8 @@ total. A no-show is cancelled from Orders.
   is pressed and whatever the billing mode (`resolvePlaceRoute()`): a lost response is replayed with
   its key, never sent as a second order. A pay-later press on a cart with an unfinished prepaid
   checkout reopens that checkout and says to finish its payment. A saved attempt that cannot be read
-  stops the press with the storage message. Other carts keep the upstream routing.
+  stops the press with the storage message. Before the pizza menu has loaded, a saved pay-later
+  request is still replayed; otherwise other carts keep the upstream routing.
 - A pay-later request in flight ignores further presses, Space and F4 until it ends.
 - The past-slot check that lets F4 retry a scheduled attempt also knows the note.
 - An abandoned prepaid checkout leaves its order in Orders → Unpaid too, without a kitchen ticket.

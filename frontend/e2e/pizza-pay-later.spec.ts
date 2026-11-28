@@ -491,6 +491,39 @@ test('a lost reply, a reload and Place Order send the same order again, not a se
   expect(watch.orders().size).toBe(1);
 });
 
+test('before the pizza menu loads after a reload, Place Order still replays the lost order', async ({
+  page,
+}) => {
+  const watch = watchOrders(page);
+  await openPos(page);
+  await addGarden(page);
+  watch.dropNext();
+  await payLater(page).click();
+  await expect.poll(() => watch.sent.length).toBe(1);
+
+  let releaseCatalog = () => {};
+  const catalogHeld = new Promise<void>((resolve) => (releaseCatalog = resolve));
+  await page.route('**/api/pizza/catalog**', async (route) => {
+    await catalogHeld;
+    await route.continue();
+  });
+  try {
+    await page.reload();
+    await page.getByTestId('pos-product-card').filter({ hasText: 'Garden' }).first().click();
+    await page.getByText('Large', { exact: true }).click();
+    await page.getByRole('button', { name: /Add to Cart/ }).click();
+    await expect(page.getByTestId('cart-item')).toHaveCount(1);
+    await expect(page.getByTestId('pizza-tile')).toHaveCount(0);
+    await placeOrder(page).click();
+    await expect.poll(() => watch.sent.length).toBe(2);
+    await expect(prepaidModal(page)).toHaveCount(0);
+    expect(watch.sent[1].key).toBe(watch.sent[0].key);
+    expect(watch.orders().size).toBe(1);
+  } finally {
+    releaseCatalog();
+  }
+});
+
 test('Pay at pickup on a cart whose prepaid checkout was cut short resumes that checkout, not a second order', async ({
   page,
 }) => {
