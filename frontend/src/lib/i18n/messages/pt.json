@@ -3806,7 +3806,7 @@
     "android1": "Abra Definições, Segurança, depois Instalar um certificado e Certificado CA. Os nomes dos menus variam consoante o telemóvel.",
     "android2": "Escolha o ficheiro transferido. É necessário um bloqueio de ecrã e o Android mostra um aviso permanente.",
     "ios1": "Toque em Permitir para transferir o perfil e instale-o em Definições, Geral, VPN e Gestão de Dispositivos. Aparece como Não verificado.",
-    "ios2": "Abra Definições, Geral, Acerca, Definições de Confiança de Certificados, e ative a confiança total para o Pizza POS.",
+    "ios2": "Abra Definições, Geral, Acerca, Definições de Confiança de Certificados, e ative a confiança total para o FloCafe Local CA.",
     "mac1": "Abra o ficheiro transferido para o adicionar ao Acesso às Chaves e clique duas vezes nele.",
     "mac2": "Em Confiança, defina Ao usar este certificado como Confiar sempre e introduza a sua palavra-passe.",
     "trustContinue": "Abrir o Pizza POS em segurança"

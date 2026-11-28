@@ -331,6 +331,22 @@ function run() {
     fs.existsSync(path.join(__dirname, '../scripts/update-metainfo.js')),
     'AppStream metadata updater must exist',
   );
+  assert.equal(build?.linux?.desktop?.entry?.Name, 'Pizza POS', 'Linux launcher must show Pizza POS');
+  const metainfoXml = fs.readFileSync(path.join(__dirname, '..', metainfoEntry.from), 'utf8');
+  assert.match(metainfoXml, /<name>Pizza POS<\/name>/, 'software-center listing must show Pizza POS');
+  assert.doesNotMatch(
+    `${metainfoXml}\n${build?.linux?.description}`,
+    /Flo Cafe|\bFlo is\b|flopos\.com|FreeOpenSourcePOS\/FloCafe/,
+    'Linux listing must not show the upstream name or links',
+  );
+  assert.equal(pkg.homepage, 'https://github.com/Anmolnoor/pizza-pos', 'homepage must point at the fork');
+  assert.ok(String(build?.linux?.description).startsWith('Pizza POS '), 'deb/rpm description must name Pizza POS');
+  assert.equal(build?.snapcraft?.core24?.title, 'Pizza POS', 'Snap title must not fall back to productName');
+  assert.equal(
+    build?.snapcraft?.core24?.summary,
+    'Self-hosted Point of Sale for cafes and restaurants',
+    'Snap summary must not fall back to productName',
+  );
 
   const workflow = loadWorkflow('release.yml');
   const jobs = workflow.jobs;

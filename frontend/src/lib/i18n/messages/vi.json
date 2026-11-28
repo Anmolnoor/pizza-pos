@@ -3806,7 +3806,7 @@
     "android1": "Mở Cài đặt, Bảo mật, rồi Cài đặt chứng chỉ và Chứng chỉ CA. Tên menu khác nhau tùy điện thoại.",
     "android2": "Chọn tệp đã tải xuống. Cần có khóa màn hình và Android sẽ hiển thị thông báo cố định.",
     "ios1": "Chạm Cho phép để tải hồ sơ, rồi cài đặt trong Cài đặt, Cài đặt chung, VPN & Quản lý thiết bị. Hồ sơ hiển thị là Chưa xác minh.",
-    "ios2": "Mở Cài đặt, Cài đặt chung, Giới thiệu, Cài đặt tin cậy chứng nhận và bật tin cậy hoàn toàn cho Pizza POS.",
+    "ios2": "Mở Cài đặt, Cài đặt chung, Giới thiệu, Cài đặt tin cậy chứng nhận và bật tin cậy hoàn toàn cho FloCafe Local CA.",
     "mac1": "Mở tệp đã tải xuống để thêm vào Keychain Access, rồi nhấp đúp vào đó.",
     "mac2": "Trong mục Tin cậy, đặt Khi sử dụng chứng chỉ này thành Luôn tin cậy và nhập mật khẩu của bạn.",
     "trustContinue": "Mở Pizza POS an toàn"

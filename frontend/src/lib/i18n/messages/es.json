@@ -3806,7 +3806,7 @@
     "android1": "Abre Ajustes, Seguridad, luego Instalar un certificado y después Certificado de CA. Los nombres del menú varían según el teléfono.",
     "android2": "Elige el archivo descargado. Se requiere un bloqueo de pantalla y Android muestra un aviso permanente.",
     "ios1": "Toca Permitir para descargar el perfil e instálalo en Ajustes, General, VPN y gestión de dispositivos. Aparecerá como No verificado.",
-    "ios2": "Abre Ajustes, General, Información, Ajustes de confianza de certificados y activa la confianza total para Pizza POS.",
+    "ios2": "Abre Ajustes, General, Información, Ajustes de confianza de certificados y activa la confianza total para FloCafe Local CA.",
     "mac1": "Abre el archivo descargado para añadirlo a Acceso a Llaveros y haz doble clic en él.",
     "mac2": "En Confiar, establece Al usar este certificado en Confiar siempre e introduce tu contraseña.",
     "trustContinue": "Abrir Pizza POS de forma segura"

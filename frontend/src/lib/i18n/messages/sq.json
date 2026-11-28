@@ -3806,7 +3806,7 @@
     "android1": "Hapni Cilësimet, Siguria, pastaj Instalo një certifikatë dhe Certifikata CA. Emrat e menysë ndryshojnë sipas telefonit.",
     "android2": "Zgjidhni skedarin e shkarkuar. Kërkohet kyçja e ekranit dhe Android shfaq një njoftim të përhershëm.",
     "ios1": "Prekni Lejo për të shkarkuar profilin, pastaj instalojeni te Cilësimet, Të përgjithshme, VPN dhe Menaxhimi i pajisjes. Shfaqet si Jo i verifikuar.",
-    "ios2": "Hapni Cilësimet, Të përgjithshme, Rreth, Cilësimet e besimit të certifikatave, dhe aktivizoni besimin e plotë për Pizza POS.",
+    "ios2": "Hapni Cilësimet, Të përgjithshme, Rreth, Cilësimet e besimit të certifikatave, dhe aktivizoni besimin e plotë për FloCafe Local CA.",
     "mac1": "Hapni skedarin e shkarkuar për ta shtuar te Keychain Access, pastaj klikojeni dy herë.",
     "mac2": "Te Trust, caktoni When using this certificate si Always Trust dhe futni fjalëkalimin tuaj.",
     "trustContinue": "Hap Pizza POS në mënyrë të sigurt"
