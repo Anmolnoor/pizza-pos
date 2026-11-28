@@ -342,7 +342,11 @@ function run() {
   assert.equal(pkg.homepage, 'https://github.com/Anmolnoor/pizza-pos', 'homepage must point at the fork');
   assert.ok(String(build?.linux?.description).startsWith('Pizza POS '), 'deb/rpm description must name Pizza POS');
   assert.equal(build?.snapcraft?.core24?.title, 'Pizza POS', 'Snap title must not fall back to productName');
-  assert.ok(build?.snapcraft?.core24?.summary, 'Snap summary must not fall back to productName');
+  assert.equal(
+    build?.snapcraft?.core24?.summary,
+    'Self-hosted Point of Sale for cafes and restaurants',
+    'Snap summary must not fall back to productName',
+  );
 
   const workflow = loadWorkflow('release.yml');
   const jobs = workflow.jobs;
