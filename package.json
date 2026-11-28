@@ -419,7 +419,7 @@
     "name": "Flo",
     "email": "support@flo.local"
   },
-  "homepage": "https://flopos.com",
+  "homepage": "https://github.com/Anmolnoor/pizza-pos",
   "repository": {
     "type": "git",
     "url": "https://github.com/Anmolnoor/pizza-pos.git"
@@ -630,7 +630,7 @@
     },
     "linux": {
       "synopsis": "Self-hosted Point of Sale for cafes and restaurants",
-      "description": "Flo is a free, open-source point-of-sale system for cafes, restaurants, and small kitchens. Local-first, offline-capable, no cloud lock-in, no per-seat fees.",
+      "description": "Pizza POS is a free, open-source point-of-sale system for cafes, restaurants, and small kitchens. Local-first, offline-capable, no cloud lock-in, no per-seat fees.",
       "target": [
         {
           "target": "AppImage",
@@ -677,7 +677,7 @@
       ],
       "desktop": {
         "entry": {
-          "Name": "Flo Cafe",
+          "Name": "Pizza POS",
           "Comment": "Free, open-source POS for cafes and restaurants",
           "GenericName": "Point of Sale",
           "Keywords": "pos;point of sale;restaurant;cafe;billing;invoice;",

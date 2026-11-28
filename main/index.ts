@@ -1356,7 +1356,7 @@ function createMenu(): void {
           {
             label: app.getName(),
             submenu: [
-              { label: `About ${app.getName()}`, click: () => showAbout() },
+              { label: 'About Pizza POS', click: () => showAbout() },
               { type: 'separator' as const },
               { role: 'services' as const },
               { type: 'separator' as const },

@@ -331,6 +331,15 @@ function run() {
     fs.existsSync(path.join(__dirname, '../scripts/update-metainfo.js')),
     'AppStream metadata updater must exist',
   );
+  assert.equal(build?.linux?.desktop?.entry?.Name, 'Pizza POS', 'Linux launcher must show Pizza POS');
+  const metainfoXml = fs.readFileSync(path.join(__dirname, '..', metainfoEntry.from), 'utf8');
+  assert.match(metainfoXml, /<name>Pizza POS<\/name>/, 'software-center listing must show Pizza POS');
+  assert.doesNotMatch(
+    `${metainfoXml}\n${build?.linux?.description}`,
+    /Flo Cafe|\bFlo is\b|flopos\.com|FreeOpenSourcePOS\/FloCafe/,
+    'Linux listing must not show the upstream name or links',
+  );
+  assert.equal(pkg.homepage, 'https://github.com/Anmolnoor/pizza-pos', 'homepage must point at the fork');
 
   const workflow = loadWorkflow('release.yml');
   const jobs = workflow.jobs;
