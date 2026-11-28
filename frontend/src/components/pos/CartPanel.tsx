@@ -38,6 +38,8 @@ import { fractionalQuantityStep, roundToQuantityPrecision } from '@/lib/utils';
 import { cartLineUnitPrice, cartLinesTotal, cartVariantUnitPrice } from '@/lib/cart-price';
 import { tenantCan } from '@/lib/permissions';
 import { CartPriceOverrideModal } from '@/components/pos/CartPriceOverrideModal';
+import { PayLaterButton } from '@/components/pos/pizza/PayLaterButton';
+import type { PayLaterKind } from '@/lib/pizza/pay-later';
 import { OrderDetailsDrawer } from '@/components/pos/OrderDetailsDrawer';
 import { CHECKOUT_PRIMARY_CTA_CLASS } from './checkout-ui';
 import { calculateAppliedCharges } from '@/lib/charges';
@@ -66,6 +68,8 @@ interface Props {
   onEditItem?: (item: CartItem) => void;
   /** The pizza screens, when a pizza menu is loaded: a pizza line gets its own action row. */
   pizza?: PizzaPos | null;
+  /** Pay at pickup / Pay on delivery, offered beside Place Order on the pizza cart. */
+  payLater?: { kind: PayLaterKind; onPress: () => void } | null;
   onModalOpenChange?: (open: boolean) => void;
   variant?: 'sidebar' | 'drawer';
   existingOrder?: Order | null;
@@ -234,6 +238,7 @@ export default function CartPanel({
   scheduledOrdersEnabled = false,
   onEditItem,
   pizza,
+  payLater,
   onModalOpenChange,
   variant = 'sidebar',
   existingOrder,
@@ -1331,21 +1336,31 @@ export default function CartPanel({
               </Button>
             </>
           ) : (
-            <Button
-              onClick={onPlaceOrder}
-              disabled={submitting || cart.items.length === 0 || Boolean(scheduleErrorMessage)}
-              className={`flex-1 min-w-0 px-3 ${CHECKOUT_PRIMARY_CTA_CLASS}`}
-            >
-              <span className="truncate">{submitting ? t('placing') : t('placeOrderButton')}</span>
-              {!submitting && (
-                <span
-                  aria-hidden="true"
-                  className="hidden sm:inline-flex shrink-0 ms-1.5 px-1.5 py-0.5 rounded bg-white/20 text-[10px] font-mono font-medium"
-                >
-                  Space
-                </span>
+            <>
+              {payLater && (
+                <PayLaterButton
+                  {...payLater}
+                  disabled={submitting || cart.items.length === 0 || Boolean(scheduleErrorMessage)}
+                />
               )}
-            </Button>
+              <Button
+                onClick={onPlaceOrder}
+                disabled={submitting || cart.items.length === 0 || Boolean(scheduleErrorMessage)}
+                className={`flex-1 min-w-0 px-3 ${payLater ? 'min-h-12' : ''} ${CHECKOUT_PRIMARY_CTA_CLASS}`}
+              >
+                <span className="truncate">
+                  {submitting ? t('placing') : t('placeOrderButton')}
+                </span>
+                {!submitting && !payLater && (
+                  <span
+                    aria-hidden="true"
+                    className="hidden sm:inline-flex shrink-0 ms-1.5 px-1.5 py-0.5 rounded bg-white/20 text-[10px] font-mono font-medium"
+                  >
+                    Space
+                  </span>
+                )}
+              </Button>
+            </>
           )}
         </div>
       </div>

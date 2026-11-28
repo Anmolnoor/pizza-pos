@@ -39,6 +39,17 @@ import {
   sameRequestApartFromPrices,
 } from '@/lib/pizza/quoted-retry';
 import { printKotWithRefresh } from '@/lib/pizza/kot-refresh';
+import {
+  buildPostpaidOrderPayload,
+  finishEarlierMessage,
+  payLaterKind,
+  payLaterKindFor,
+  payLaterNoteOverflow,
+  resolvePlaceRoute,
+  unscheduledPostpaidFingerprints,
+  type PayLaterKind,
+  type PlaceOptions,
+} from '@/lib/pizza/pay-later';
 import { menuListsCurrentSince } from '@/lib/pizza/catalog';
 import CustomerSearch from '@/components/pos/CustomerSearch';
 import TablePickerModal from '@/components/pos/TablePickerModal';
@@ -147,6 +158,8 @@ interface PostpaidAttempt {
   operationId?: string;
   order?: Order;
   expectedSubtotal?: number;
+  /** Sent by Pay at pickup / Pay on delivery: only such an attempt is replayed as one. */
+  payLater?: true;
 }
 
 interface PrepaidAttempt {
@@ -316,6 +329,9 @@ export default function POSPage() {
   const tCommon = useTranslations('common');
   const tOrders = useTranslations('orders');
   const tSupport = useTranslations('support');
+  const tPizza = useTranslations('pizza');
+  const payLaterMarker = (kind: PayLaterKind) =>
+    tPizza(kind === 'pickup' ? 'payAtPickupNote' : 'payOnDeliveryNote');
   const currencyFmt = useFormatCurrency();
   const { confirm, ConfirmDialog, isConfirmOpen } = useConfirm();
   const cashDrawer = useCashDrawerMovements();
@@ -451,6 +467,7 @@ export default function POSPage() {
     boundaryEpoch: getSessionBoundaryEpoch(),
   });
   const activeSubmissionTokenRef = useRef<symbol | null>(null);
+  const payLaterInFlightRef = useRef(false);
   const prepaidSubmissionTokenRef = useRef<symbol | null>(null);
   const prepaidRecoveryRef = useRef<typeof prepaidRecovery>(null);
   const prepaidFailureRef = useRef<typeof prepaidFailure>(null);
@@ -1740,35 +1757,19 @@ export default function POSPage() {
       { ...cartState, scheduledFor: '' },
       orderItems,
     );
-    const unscheduledPostpaidOrderFingerprint = JSON.stringify({
-      table_id: cartState.tableId,
-      customer_id: cartState.customerId,
-      type: cartState.orderType,
-      guest_count: cartState.guestCount,
-      special_instructions: cartState.orderNotes || undefined,
-      online_platform:
-        cartState.orderType === 'online' ? cartState.onlinePlatform || undefined : undefined,
-      external_order_id:
-        cartState.orderType === 'online' ? cartState.externalOrderId || undefined : undefined,
-      delivery_address:
-        cartState.orderType === 'delivery' ? cartState.deliveryAddress || undefined : undefined,
-      expected_payment_method:
-        cartState.orderType === 'delivery'
-          ? cartState.expectedPaymentMethod || undefined
-          : undefined,
-      expected_payment_method_id:
-        cartState.orderType === 'delivery'
-          ? (cartState.expectedPaymentMethodId ?? undefined)
-          : undefined,
-      delivery_note:
-        cartState.orderType === 'delivery' ? cartState.deliveryNote || undefined : undefined,
-      scheduled_for: undefined,
-      waived_charge_ids: Array.from(cartState.waivedChargeIds),
-      opted_in_charge_ids: Array.from(cartState.optedInChargeIds),
-      items: orderItems,
+    const markerKind = payLaterKindFor(cartState.orderType);
+    const {
+      plain: unscheduledPostpaidOrderFingerprint,
+      marked: unscheduledMarkedOrderFingerprint,
+    } = unscheduledPostpaidFingerprints(cartState, {
+      scheduledOrdersEnabled,
+      marker: markerKind ? payLaterMarker(markerKind) : undefined,
     });
 
-    const matchesStoredSchedule = (storedFingerprint: string | undefined): string | undefined => {
+    const matchesStoredSchedule = (
+      storedFingerprint: string | undefined,
+      payLater = false,
+    ): string | undefined => {
       const storedScheduledFor = parseStoredAttemptScheduledFor(storedFingerprint);
       if (!storedScheduledFor) return undefined;
       const currentScheduledFor = cartState.scheduledFor?.trim() || '';
@@ -1778,7 +1779,13 @@ export default function POSPage() {
         fingerprintsMatchAcrossScheduleToggle(
           storedFingerprint,
           unscheduledPostpaidOrderFingerprint,
-        )
+        ) ||
+        (payLater &&
+          unscheduledMarkedOrderFingerprint !== undefined &&
+          fingerprintsMatchAcrossScheduleToggle(
+            storedFingerprint,
+            unscheduledMarkedOrderFingerprint,
+          ))
       ) {
         return storedScheduledFor;
       }
@@ -1790,7 +1797,7 @@ export default function POSPage() {
       const postpaidScheduledFor =
         postpaidAttempt?.userId === effectiveUserId &&
         doesAttemptMatchStore(postpaidAttempt, targetStoreId, initialStoreIdRef.current)
-          ? matchesStoredSchedule(postpaidAttempt.fingerprint)
+          ? matchesStoredSchedule(postpaidAttempt.fingerprint, postpaidAttempt.payLater === true)
           : undefined;
       if (postpaidScheduledFor) return postpaidScheduledFor;
     } catch {
@@ -1963,7 +1970,10 @@ export default function POSPage() {
   );
 
   const pizza = usePizzaPos(products, categories, setSelectedCategory, setProducts, setCategories);
-  const deliveryPhoneHolds = useDeliveryPhoneGate(() => void handlePlaceOrder(), !!pendingOrder);
+  const deliveryPhoneHolds = useDeliveryPhoneGate(
+    (options) => void handlePlaceOrder(options),
+    !!pendingOrder,
+  );
   const pricesChanged = usePriceGuard(products);
   /** A refused append must not stay stored: a reload would send it again, at the new prices. */
   const dropAppendAttempt = () => {
@@ -2154,23 +2164,112 @@ export default function POSPage() {
   const buildCurrentCartFingerprint = (orderItems = cart.items.map(cartItemToOrderItem)) =>
     buildCartFingerprint(cart, orderItems);
 
-  const handlePlaceOrder = async () => {
-    if (!validateOrderPreflight() || deliveryPhoneHolds()) return;
+  const isPrepaidAttemptForCart = (
+    attempt: PrepaidAttempt | null,
+    cartFingerprint: string,
+  ): attempt is PrepaidAttempt =>
+    !!attempt &&
+    attempt.userId === activeUserId &&
+    doesAttemptMatchStore(attempt, currentStoreId, initialStoreIdRef.current) &&
+    sameRequestApartFromPrices(attempt.cartFingerprint, cartFingerprint) &&
+    !!attempt.orderIdempotencyKey &&
+    !!attempt.paymentIdempotencyKey;
+
+  /**
+   * Which way a press goes; null when it stops here. See `resolvePlaceRoute`. Without the pizza
+   * menu (a cart without one, or before it loads) only a saved pay-later request is replayed.
+   */
+  const routePizzaPress = (
+    payLater: boolean,
+    cartFingerprint: string,
+  ): { postpaid: boolean; marker?: string } | null => {
+    const kind = payLaterKindFor(cart.orderType);
+    if (!pizza && !kind) return { postpaid: false };
+    const marker = kind ? payLaterMarker(kind) : undefined;
+    const requestFingerprint = (withMarker?: string) =>
+      JSON.stringify(
+        buildPostpaidOrderPayload(cart, { scheduledOrdersEnabled, marker: withMarker }),
+      );
+    let storageError = false;
+    let postpaidMatchMarked = false;
+    let postpaidMatchPlain = false;
+    let prepaidAttempt: PrepaidAttempt | null = null;
+    try {
+      const saved = readPostpaidAttempt();
+      if (
+        saved?.userId === activeUserId &&
+        doesAttemptMatchStore(saved, currentStoreId, initialStoreIdRef.current)
+      ) {
+        postpaidMatchMarked =
+          !!marker &&
+          saved.payLater === true &&
+          sameRequestApartFromPrices(saved.fingerprint, requestFingerprint(marker));
+        postpaidMatchPlain =
+          !postpaidMatchMarked &&
+          saved.payLater !== true &&
+          sameRequestApartFromPrices(saved.fingerprint, requestFingerprint());
+      }
+      if (payLater) prepaidAttempt = readPrepaidAttempt();
+    } catch {
+      storageError = true;
+    }
+    const route = resolvePlaceRoute({
+      payLater,
+      eligible:
+        payLaterKind({
+          pizza: true,
+          billingType,
+          orderType: cart.orderType,
+          editing: false,
+          multiCounterEnabled,
+        }) !== null,
+      prepaidMatch: isPrepaidAttemptForCart(prepaidAttempt, cartFingerprint),
+      postpaidMatchMarked,
+      postpaidMatchPlain,
+      storageError,
+    });
+    if (!pizza) return route === 'replay-marked' ? { postpaid: true, marker } : { postpaid: false };
+    if (route === 'storage-error') {
+      reportOrderStorageFailure(
+        t('placeOrderFailed'),
+        'order.create',
+        null,
+        readLiveSupportContext(),
+      );
+      return null;
+    }
+    if (route === 'resume-prepaid') {
+      const message = finishEarlierMessage(prepaidAttempt);
+      toast.error(tPizza(message.key, message.values));
+      return { postpaid: false };
+    }
+    if (route === 'fresh-pay-later' && marker) {
+      const over = payLaterNoteOverflow(cart.orderNotes, marker);
+      if (over > 0) {
+        toast.error(tPizza('payLaterNoteTooLong', { count: over, marker }));
+        return null;
+      }
+    }
+    if (route === 'fresh-pay-later' || route === 'replay-marked') return { postpaid: true, marker };
+    return { postpaid: route === 'replay-plain' };
+  };
+
+  const handlePlaceOrder = async (options?: PlaceOptions) => {
+    if (payLaterInFlightRef.current) return;
+    if (!validateOrderPreflight() || deliveryPhoneHolds(options)) return;
 
     const cartFingerprint = buildCurrentCartFingerprint();
+    const routed = pendingOrder
+      ? { postpaid: false }
+      : routePizzaPress(options?.payLater === true, cartFingerprint);
+    if (!routed) return;
+    if (routed.postpaid) payLaterInFlightRef.current = true;
     // Prepaid stores collect payment before finishing the order.
-    if (shouldTakePaymentNow && !pendingOrder) {
+    if (shouldTakePaymentNow && !pendingOrder && !routed.postpaid) {
       let matchingAttempt: PrepaidAttempt | null = null;
       try {
         const storedAttempt = readPrepaidAttempt();
-        if (
-          storedAttempt &&
-          storedAttempt.userId === activeUserId &&
-          doesAttemptMatchStore(storedAttempt, currentStoreId, initialStoreIdRef.current) &&
-          sameRequestApartFromPrices(storedAttempt.cartFingerprint, cartFingerprint) &&
-          storedAttempt.orderIdempotencyKey &&
-          storedAttempt.paymentIdempotencyKey
-        ) {
+        if (isPrepaidAttemptForCart(storedAttempt, cartFingerprint)) {
           matchingAttempt = storedAttempt;
         }
       } catch {
@@ -2304,35 +2403,14 @@ export default function POSPage() {
         const preservedPostpaidScheduledFor = priorPostpaidMatchesStore
           ? parseStoredAttemptScheduledFor(priorOrderAttempt.fingerprint)
           : undefined;
-        const orderPayload = {
-          table_id: cart.tableId,
-          customer_id: cart.customerId,
-          type: cart.orderType,
-          guest_count: cart.guestCount,
-          special_instructions: cart.orderNotes || undefined,
-          online_platform:
-            cart.orderType === 'online' ? cart.onlinePlatform || undefined : undefined,
-          external_order_id:
-            cart.orderType === 'online' ? cart.externalOrderId || undefined : undefined,
-          delivery_address:
-            cart.orderType === 'delivery' ? cart.deliveryAddress || undefined : undefined,
-          expected_payment_method:
-            cart.orderType === 'delivery' ? cart.expectedPaymentMethod || undefined : undefined,
-          expected_payment_method_id:
-            cart.orderType === 'delivery' ? (cart.expectedPaymentMethodId ?? undefined) : undefined,
-          delivery_note: cart.orderType === 'delivery' ? cart.deliveryNote || undefined : undefined,
-          scheduled_for: resolveRetryScheduledFor({
-            orderType: cart.orderType,
-            scheduledOrdersEnabled,
-            cartScheduledFor: cart.scheduledFor,
-          }),
-          waived_charge_ids: Array.from(cart.waivedChargeIds),
-          opted_in_charge_ids: Array.from(cart.optedInChargeIds),
-          items: cart.items.map(cartItemToOrderItem),
-        };
+        const orderPayload = buildPostpaidOrderPayload(cart, {
+          scheduledOrdersEnabled,
+          marker: routed.marker,
+        });
         const baseOrderFingerprint = JSON.stringify(orderPayload);
         const matchesPriorPostpaidOrderAttempt =
           priorPostpaidMatchesStore &&
+          (priorOrderAttempt.payLater === true) === Boolean(routed.marker) &&
           sameRequestApartFromPrices(priorOrderAttempt.fingerprint, baseOrderFingerprint);
         if (matchesPriorPostpaidOrderAttempt) {
           orderPayload.scheduled_for = resolveRetryScheduledFor({
@@ -2403,6 +2481,7 @@ export default function POSPage() {
               idempotencyKey: newIdempotencyKey(),
               operationId: createOperationReference() || undefined,
               expectedSubtotal: cartExpectedSubtotal(cart),
+              ...(routed.marker ? { payLater: true as const } : {}),
             };
         const operationId = orderAttempt.operationId || createOperationReference();
         postpaidOperationId = operationId || null;
@@ -2458,17 +2537,24 @@ export default function POSPage() {
           return;
         }
         if (data.order.release_status === 'scheduled' && data.order.scheduled_for) {
+          const values = {
+            number: data.order.order_number,
+            time: formatScheduledInstantForDisplay(
+              data.order.scheduled_for,
+              storeTimezone || currentTenant?.timezone || 'UTC',
+            ),
+          };
           toast.success(
-            t('scheduledOrderPlaced', {
-              number: data.order.order_number,
-              time: formatScheduledInstantForDisplay(
-                data.order.scheduled_for,
-                storeTimezone || currentTenant?.timezone || 'UTC',
-              ),
-            }),
+            routed.marker
+              ? tPizza('scheduledOrderPlacedPayLater', values)
+              : t('scheduledOrderPlaced', values),
           );
         } else {
-          toast.success(t('orderPlaced', { number: data.order.order_number }));
+          toast.success(
+            routed.marker
+              ? tPizza('orderPlacedPayLater', { number: data.order.order_number })
+              : t('orderPlaced', { number: data.order.order_number }),
+          );
         }
         orderForKot = data.order as Order;
       }
@@ -2593,6 +2679,7 @@ export default function POSPage() {
         );
       }
     } finally {
+      payLaterInFlightRef.current = false;
       if (isSessionCurrent() && activeSubmissionTokenRef.current === submissionToken) {
         setSubmitting(false);
         activeSubmissionTokenRef.current = null;
@@ -3919,6 +4006,16 @@ export default function POSPage() {
     scheduledOrdersEnabled,
     onEditItem: (item: CartItem) => pizza?.edit(item) || setEditingCartItem(item),
     pizza,
+    payLater: (() => {
+      const kind = payLaterKind({
+        pizza: !!pizza,
+        billingType,
+        orderType: cart.orderType,
+        editing: !!pendingOrder,
+        multiCounterEnabled,
+      });
+      return kind ? { kind, onPress: () => void handlePlaceOrder({ payLater: true }) } : null;
+    })(),
     onModalOpenChange: setCartPanelModalOpen,
     existingOrder: pendingOrder,
     onExistingOrderChange: setPendingOrder,

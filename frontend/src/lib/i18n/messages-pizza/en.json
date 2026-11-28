@@ -201,5 +201,14 @@
   "toppings": "Toppings",
   "toppingsEach": "Toppings · {price} each",
   "wholeOrHalf": "Whole or half and half",
-  "wholePizza": "Whole pizza"
+  "wholePizza": "Whole pizza",
+  "finishEarlierCheckout": "Finish the earlier checkout for this order first.",
+  "finishPaymentForOrder": "Finish the payment for order #{number} first.",
+  "orderPlacedPayLater": "Order #{number} placed, unpaid",
+  "payAtPickup": "Pay at pickup",
+  "payAtPickupNote": "Pay at pickup",
+  "payLaterNoteTooLong": "Shorten the order note by {count} characters to add “{marker}”.",
+  "payOnDelivery": "Pay on delivery",
+  "payOnDeliveryNote": "Pay on delivery",
+  "scheduledOrderPlacedPayLater": "Order #{number} scheduled for {time}, unpaid"
 }
