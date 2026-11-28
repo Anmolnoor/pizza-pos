@@ -78,6 +78,8 @@ test.beforeAll(async () => {
       await api.get(`${SETTINGS}/business`, { headers: ownerHeaders() })
     ).json();
     timezone = business.timezone || 'UTC';
+    // The order types have no default, so a store that never set them reads back as no key.
+    prior.pos_order_types = ((business.pos_order_types as string[] | undefined) ?? []).join(',');
     const made = await api.post(`${BASE}/api/customers`, {
       headers: ownerHeaders(),
       data: { name: KNOWN.name, phone: KNOWN.e164, address: '4 Sample Road' },
