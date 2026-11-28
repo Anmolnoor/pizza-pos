@@ -654,7 +654,8 @@ total. A no-show is cancelled from Orders.
   postpaid request for sending and for matching a saved attempt, with or without the note.
 - On the pizza cart, a saved postpaid attempt that matches the cart decides first, whichever button
   is pressed and whatever the billing mode (`resolvePlaceRoute()`): a lost response is replayed with
-  its key, never sent as a second order. A pay-later press on a cart with an unfinished prepaid
+  its key, never sent as a second order. A saved attempt records whether the button sent it, so
+  an ordinary order whose typed note reads the same is never replayed as a pay-later one. A pay-later press on a cart with an unfinished prepaid
   checkout reopens that checkout and says to finish its payment. A saved attempt that cannot be read
   stops the press with the storage message. Before the pizza menu has loaded, a saved pay-later
   request is still replayed; otherwise other carts keep the upstream routing.

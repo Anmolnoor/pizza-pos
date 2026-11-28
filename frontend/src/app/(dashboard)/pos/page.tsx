@@ -158,6 +158,8 @@ interface PostpaidAttempt {
   operationId?: string;
   order?: Order;
   expectedSubtotal?: number;
+  /** Sent by Pay at pickup / Pay on delivery: only such an attempt is replayed as one. */
+  payLater?: true;
 }
 
 interface PrepaidAttempt {
@@ -1764,7 +1766,10 @@ export default function POSPage() {
       marker: markerKind ? payLaterMarker(markerKind) : undefined,
     });
 
-    const matchesStoredSchedule = (storedFingerprint: string | undefined): string | undefined => {
+    const matchesStoredSchedule = (
+      storedFingerprint: string | undefined,
+      payLater = false,
+    ): string | undefined => {
       const storedScheduledFor = parseStoredAttemptScheduledFor(storedFingerprint);
       if (!storedScheduledFor) return undefined;
       const currentScheduledFor = cartState.scheduledFor?.trim() || '';
@@ -1775,7 +1780,8 @@ export default function POSPage() {
           storedFingerprint,
           unscheduledPostpaidOrderFingerprint,
         ) ||
-        (unscheduledMarkedOrderFingerprint !== undefined &&
+        (payLater &&
+          unscheduledMarkedOrderFingerprint !== undefined &&
           fingerprintsMatchAcrossScheduleToggle(
             storedFingerprint,
             unscheduledMarkedOrderFingerprint,
@@ -1791,7 +1797,7 @@ export default function POSPage() {
       const postpaidScheduledFor =
         postpaidAttempt?.userId === effectiveUserId &&
         doesAttemptMatchStore(postpaidAttempt, targetStoreId, initialStoreIdRef.current)
-          ? matchesStoredSchedule(postpaidAttempt.fingerprint)
+          ? matchesStoredSchedule(postpaidAttempt.fingerprint, postpaidAttempt.payLater === true)
           : undefined;
       if (postpaidScheduledFor) return postpaidScheduledFor;
     } catch {
@@ -2195,9 +2201,12 @@ export default function POSPage() {
         doesAttemptMatchStore(saved, currentStoreId, initialStoreIdRef.current)
       ) {
         postpaidMatchMarked =
-          !!marker && sameRequestApartFromPrices(saved.fingerprint, requestFingerprint(marker));
+          !!marker &&
+          saved.payLater === true &&
+          sameRequestApartFromPrices(saved.fingerprint, requestFingerprint(marker));
         postpaidMatchPlain =
           !postpaidMatchMarked &&
+          saved.payLater !== true &&
           sameRequestApartFromPrices(saved.fingerprint, requestFingerprint());
       }
       if (payLater) prepaidAttempt = readPrepaidAttempt();
@@ -2401,6 +2410,7 @@ export default function POSPage() {
         const baseOrderFingerprint = JSON.stringify(orderPayload);
         const matchesPriorPostpaidOrderAttempt =
           priorPostpaidMatchesStore &&
+          (priorOrderAttempt.payLater === true) === Boolean(routed.marker) &&
           sameRequestApartFromPrices(priorOrderAttempt.fingerprint, baseOrderFingerprint);
         if (matchesPriorPostpaidOrderAttempt) {
           orderPayload.scheduled_for = resolveRetryScheduledFor({
@@ -2471,6 +2481,7 @@ export default function POSPage() {
               idempotencyKey: newIdempotencyKey(),
               operationId: createOperationReference() || undefined,
               expectedSubtotal: cartExpectedSubtotal(cart),
+              ...(routed.marker ? { payLater: true as const } : {}),
             };
         const operationId = orderAttempt.operationId || createOperationReference();
         postpaidOperationId = operationId || null;

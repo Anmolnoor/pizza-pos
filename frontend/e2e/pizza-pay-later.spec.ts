@@ -524,6 +524,35 @@ test('before the pizza menu loads after a reload, Place Order still replays the 
   }
 });
 
+test('an ordinary order whose note reads "Pay at pickup" is never taken for a pay-later one', async ({
+  page,
+}) => {
+  const watch = watchOrders(page);
+  try {
+    expect(await writeSettings({ billing_type: 'postpaid' })).toEqual([]);
+    await openPos(page);
+    await addGarden(page);
+    await cart(page)
+      .getByRole('button', { name: /Order notes/ })
+      .click();
+    await cart(page).getByTestId('pos-order-notes-input').fill('Pay at pickup');
+    watch.dropNext();
+    await placeOrder(page).click();
+    await expect.poll(() => watch.sent.length).toBe(1);
+
+    expect(await writeSettings({ billing_type: 'prepaid' })).toEqual([]);
+    await page.reload();
+    await expect(page.getByTestId('pizza-tile').first()).toBeVisible();
+    await addGarden(page);
+    await payLater(page).click();
+    await expect.poll(() => watch.sent.length).toBe(2);
+    expect(watch.sent[1].key).not.toBe(watch.sent[0].key);
+    expect(watch.orders().size).toBe(2);
+  } finally {
+    expect(await writeSettings({ billing_type: 'prepaid' })).toEqual([]);
+  }
+});
+
 test('Pay at pickup on a cart whose prepaid checkout was cut short resumes that checkout, not a second order', async ({
   page,
 }) => {
