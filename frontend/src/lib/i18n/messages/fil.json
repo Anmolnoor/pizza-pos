@@ -3806,7 +3806,7 @@
     "android1": "Buksan ang Settings, Security, pagkatapos Install a certificate at CA certificate. Magkakaiba ang pangalan ng mga menu depende sa telepono.",
     "android2": "Piliin ang na-download na file. Kailangan ng screen lock, at nagpapakita ang Android ng permanenteng abiso.",
     "ios1": "I-tap ang Allow para i-download ang profile, pagkatapos i-install ito sa Settings, General, VPN & Device Management. Lalabas itong Not Verified.",
-    "ios2": "Buksan ang Settings, General, About, Certificate Trust Settings, at i-on ang buong tiwala para sa Pizza POS.",
+    "ios2": "Buksan ang Settings, General, About, Certificate Trust Settings, at i-on ang buong tiwala para sa FloCafe Local CA.",
     "mac1": "Buksan ang na-download na file para idagdag ito sa Keychain Access, pagkatapos i-double-click ito.",
     "mac2": "Sa ilalim ng Trust, itakda ang When using this certificate sa Always Trust at ilagay ang password mo.",
     "trustContinue": "Buksan nang ligtas ang Pizza POS"

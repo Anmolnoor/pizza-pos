@@ -3806,7 +3806,7 @@
     "android1": "Ayarlar, Güvenlik, ardından Sertifika yükle ve CA sertifikası seçeneklerini açın. Menü adları telefona göre değişir.",
     "android2": "İndirilen dosyayı seçin. Ekran kilidi gerekir ve Android kalıcı bir bildirim gösterir.",
     "ios1": "Profili indirmek için İzin Ver'e dokunun, ardından Ayarlar, Genel, VPN ve Aygıt Yönetimi bölümünde yükleyin. Doğrulanmadı olarak görünür.",
-    "ios2": "Ayarlar, Genel, Hakkında, Sertifika Güven Ayarları'nı açın ve Pizza POS için tam güveni açın.",
+    "ios2": "Ayarlar, Genel, Hakkında, Sertifika Güven Ayarları'nı açın ve FloCafe Local CA için tam güveni açın.",
     "mac1": "İndirilen dosyayı Anahtar Zinciri Erişimi'ne eklemek için açın ve çift tıklayın.",
     "mac2": "Güven altında Bu sertifikayı kullanırken seçeneğini Her Zaman Güven olarak ayarlayın ve parolanızı girin.",
     "trustContinue": "Pizza POS'u güvenle aç"

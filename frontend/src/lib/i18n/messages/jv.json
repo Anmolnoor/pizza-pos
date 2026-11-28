@@ -3806,7 +3806,7 @@
     "android1": "Bukak Setelan, Keamanan, terus Instal sertifikat lan Sertifikat CA. Jeneng menu beda-beda miturut ponsel.",
     "android2": "Pilih berkas sing diundhuh. Kunci layar dibutuhake, lan Android nuduhake kabar permanen.",
     "ios1": "Tutul Allow kanggo ngundhuh profil, banjur instal ing Setelan, Umum, VPN & Manajemen Piranti. Profil katon minangka Durung Diverifikasi.",
-    "ios2": "Bukak Setelan, Umum, Babagan, Setelan Kapercayan Sertifikat, lan aktifake kapercayan kebak kanggo Pizza POS.",
+    "ios2": "Bukak Setelan, Umum, Babagan, Setelan Kapercayan Sertifikat, lan aktifake kapercayan kebak kanggo FloCafe Local CA.",
     "mac1": "Bukak berkas sing diundhuh kanggo nambahake menyang Keychain Access, terus klik kaping pindho.",
     "mac2": "Ing Trust, setel When using this certificate dadi Always Trust lan lebokna sandhimu.",
     "trustContinue": "Bukak Pizza POS kanthi aman"

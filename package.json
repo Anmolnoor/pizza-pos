@@ -691,6 +691,8 @@
     "snapcraft": {
       "base": "core24",
       "core24": {
+        "title": "Pizza POS",
+        "summary": "Self-hosted Point of Sale for cafes and restaurants",
         "confinement": "strict",
         "useLXD": true,
         "extensions": [

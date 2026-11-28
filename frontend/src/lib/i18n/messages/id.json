@@ -3806,7 +3806,7 @@
     "android1": "Buka Pengaturan, Keamanan, lalu Instal sertifikat dan Sertifikat CA. Nama menu berbeda di tiap ponsel.",
     "android2": "Pilih file yang diunduh. Kunci layar diperlukan dan Android menampilkan pemberitahuan permanen.",
     "ios1": "Ketuk Izinkan untuk mengunduh profil, lalu pasang di Pengaturan, Umum, VPN & Manajemen Perangkat. Profil tampil sebagai Belum Diverifikasi.",
-    "ios2": "Buka Pengaturan, Umum, Tentang, Pengaturan Kepercayaan Sertifikat, lalu aktifkan kepercayaan penuh untuk Pizza POS.",
+    "ios2": "Buka Pengaturan, Umum, Tentang, Pengaturan Kepercayaan Sertifikat, lalu aktifkan kepercayaan penuh untuk FloCafe Local CA.",
     "mac1": "Buka file yang diunduh untuk menambahkannya ke Akses Rantai Kunci, lalu klik dua kali.",
     "mac2": "Di bagian Percayai, setel Saat menggunakan sertifikat ini ke Selalu Percayai dan masukkan kata sandi Anda.",
     "trustContinue": "Buka Pizza POS dengan aman"

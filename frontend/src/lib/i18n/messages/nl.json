@@ -3806,7 +3806,7 @@
     "android1": "Open Instellingen, Beveiliging, daarna Een certificaat installeren en CA-certificaat. De menunamen verschillen per telefoon.",
     "android2": "Kies het gedownloade bestand. Een schermvergrendeling is vereist en Android toont een permanente melding.",
     "ios1": "Tik op Sta toe om het profiel te downloaden en installeer het in Instellingen, Algemeen, VPN en apparaatbeheer. Het wordt getoond als Niet geverifieerd.",
-    "ios2": "Open Instellingen, Algemeen, Info, Instellingen voor certificaatvertrouwen en schakel volledig vertrouwen in voor Pizza POS.",
+    "ios2": "Open Instellingen, Algemeen, Info, Instellingen voor certificaatvertrouwen en schakel volledig vertrouwen in voor FloCafe Local CA.",
     "mac1": "Open het gedownloade bestand om het aan Sleutelhangertoegang toe te voegen en dubbelklik erop.",
     "mac2": "Stel onder Vertrouwen Bij gebruik van dit certificaat in op Altijd vertrouwen en voer je wachtwoord in.",
     "trustContinue": "Pizza POS veilig openen"

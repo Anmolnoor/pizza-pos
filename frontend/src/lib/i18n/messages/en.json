@@ -3806,7 +3806,7 @@
     "android1": "Open Settings, Security, then Install a certificate, then CA certificate. Menu names vary by phone.",
     "android2": "Choose the downloaded file. A screen lock is required, and Android shows a permanent notice.",
     "ios1": "Tap Allow to download the profile, then install it in Settings, General, VPN & Device Management. It shows as Not Verified.",
-    "ios2": "Open Settings, General, About, Certificate Trust Settings, and turn on full trust for Pizza POS.",
+    "ios2": "Open Settings, General, About, Certificate Trust Settings, and turn on full trust for FloCafe Local CA.",
     "mac1": "Open the downloaded file to add it to Keychain Access, then double-click it.",
     "mac2": "Under Trust, set When using this certificate to Always Trust and enter your password.",
     "trustContinue": "Open Pizza POS securely"
